@@ -199,6 +199,7 @@ class PortfolioSummary(BaseModel):
     total_budget_sol: float
     available_sol: float
     in_trades_sol: float
+    wallet_balance_sol: float = 0.0  # Actual wallet balance from RPC
     total_pnl: float
     total_pnl_percent: float
     open_trades: int
@@ -1557,7 +1558,7 @@ async def update_trade_price(trade_id: str, current_price: float):
 
 @api_router.get("/portfolio", response_model=PortfolioSummary)
 async def get_portfolio_summary():
-    """Get comprehensive portfolio summary"""
+    """Get comprehensive portfolio summary with synced wallet balance"""
     settings = await get_bot_settings()
     trades = await db.trades.find({}, {"_id": 0}).to_list(1000)
     
@@ -1566,7 +1567,21 @@ async def get_portfolio_summary():
     
     # Calculate values
     in_trades_sol = sum(t.get("amount_sol", 0) for t in open_trades)
-    available_sol = max(0, settings.total_budget_sol - in_trades_sol)
+    
+    # Get actual wallet balance from state (synced via /wallet/balance endpoint)
+    actual_wallet_balance = wallet_state.get("balance_sol", 0.0)
+    
+    # Calculate available SOL:
+    # When wallet is connected, available = wallet_balance - in_trades
+    # This allows trading with actual wallet funds, not just configured budget
+    if actual_wallet_balance > 0:
+        # Available = actual wallet balance - what's already in trades
+        # This means the trader can use ALL their wallet funds, not limited by budget
+        available_sol = max(0, actual_wallet_balance - in_trades_sol)
+        logger.info(f"📊 Portfolio: wallet={actual_wallet_balance:.4f} SOL, in_trades={in_trades_sol:.4f}, available={available_sol:.4f}")
+    else:
+        # No wallet connected - use budget-based calculation
+        available_sol = max(0, settings.total_budget_sol - in_trades_sol)
     
     total_pnl = sum(t.get("pnl", 0) for t in closed_trades)
     
@@ -1609,6 +1624,7 @@ async def get_portfolio_summary():
         total_budget_sol=settings.total_budget_sol,
         available_sol=round(available_sol, 4),
         in_trades_sol=round(in_trades_sol, 4),
+        wallet_balance_sol=round(actual_wallet_balance, 6),
         total_pnl=round(total_pnl, 6),
         total_pnl_percent=round(total_pnl_percent, 2),
         open_trades=len(open_trades),
@@ -1703,6 +1719,13 @@ rpc_state = {
     "consecutive_failures": 0,
     "total_requests": 0,
     "failed_requests": 0
+}
+
+# Wallet State Manager - synced with actual wallet balance
+wallet_state = {
+    "address": None,
+    "balance_sol": 0.0,
+    "last_update": None
 }
 
 class RPCStatus(BaseModel):
@@ -1935,7 +1958,10 @@ async def get_wallet_balance(address: str):
     """
     Fetch wallet balance via backend RPC
     All Solana RPC calls go through backend - not frontend
+    Updates global wallet_state for trading engine sync
     """
+    global wallet_state
+    
     if not address:
         return {"success": False, "balance": 0, "error": "No address provided"}
     
@@ -1957,6 +1983,13 @@ async def get_wallet_balance(address: str):
     if result["success"]:
         lamports = result["result"].get("value", 0)
         sol_balance = lamports / 1e9
+        
+        # Update global wallet state for trading engine
+        wallet_state["address"] = address
+        wallet_state["balance_sol"] = sol_balance
+        wallet_state["last_update"] = datetime.now(timezone.utc).isoformat()
+        
+        logger.info(f"💰 Wallet balance updated: {sol_balance:.6f} SOL for {address[:8]}...")
         
         return {
             "success": True,
@@ -2011,6 +2044,61 @@ async def get_wallet_tokens(address: str):
         return {"success": True, "tokens": tokens, "count": len(tokens)}
     
     return {"success": False, "tokens": [], "error": result.get("error")}
+
+@api_router.post("/wallet/sync")
+async def sync_wallet(address: str):
+    """
+    Sync wallet address and fetch balance - call this when wallet connects
+    This ensures the trading engine has the current wallet balance
+    """
+    global wallet_state
+    
+    if not address:
+        return {"success": False, "error": "No address provided"}
+    
+    # Fetch balance (this will update wallet_state)
+    balance_result = await get_wallet_balance(address)
+    
+    if balance_result.get("success"):
+        logger.info(f"✅ Wallet synced: {address[:8]}... = {balance_result['balance']} SOL")
+        return {
+            "success": True,
+            "address": address,
+            "balance": balance_result["balance"],
+            "synced_at": wallet_state.get("last_update"),
+            "message": "Wallet balance synced with trading engine"
+        }
+    
+    return {
+        "success": False,
+        "error": balance_result.get("error", "Failed to sync wallet"),
+        "message": "Trading engine will use budget-based calculation"
+    }
+
+@api_router.post("/wallet/disconnect")
+async def disconnect_wallet():
+    """Clear wallet state when wallet disconnects"""
+    global wallet_state
+    
+    old_address = wallet_state.get("address")
+    wallet_state = {
+        "address": None,
+        "balance_sol": 0.0,
+        "last_update": None
+    }
+    
+    logger.info(f"🔌 Wallet disconnected: {old_address[:8] if old_address else 'none'}...")
+    return {"success": True, "message": "Wallet state cleared"}
+
+@api_router.get("/wallet/state")
+async def get_wallet_state():
+    """Get current wallet state synced with trading engine"""
+    return {
+        "address": wallet_state.get("address"),
+        "balance_sol": wallet_state.get("balance_sol", 0.0),
+        "last_update": wallet_state.get("last_update"),
+        "synced": wallet_state.get("address") is not None
+    }
 
 # ============== SYSTEM DIAGNOSTICS ==============
 
@@ -2217,9 +2305,13 @@ async def can_enable_live_trading():
     if daily_loss_percent >= settings.max_daily_loss_percent * 0.8:
         warnings.append(f"Approaching daily loss limit ({daily_loss_percent:.1f}%)")
     
-    # Check Available Budget
+    # Check Available Budget - now with wallet balance sync info
     if portfolio.available_sol < settings.min_trade_sol:
-        blockers.append(f"Insufficient balance ({portfolio.available_sol:.4f} SOL)")
+        # Add more context about the issue
+        if wallet_state.get("balance_sol", 0) > 0:
+            blockers.append(f"Insufficient available balance ({portfolio.available_sol:.4f} SOL) - wallet has {wallet_state['balance_sol']:.4f} SOL but budget limit is {settings.total_budget_sol:.4f} SOL")
+        else:
+            blockers.append(f"Insufficient balance ({portfolio.available_sol:.4f} SOL) - connect wallet to sync balance")
     
     can_enable = len(blockers) == 0
     
@@ -2235,6 +2327,7 @@ async def can_enable_live_trading():
         },
         "portfolio": {
             "available_sol": portfolio.available_sol,
+            "wallet_balance_sol": portfolio.wallet_balance_sol,
             "loss_streak": portfolio.loss_streak,
             "is_paused": portfolio.is_paused
         }

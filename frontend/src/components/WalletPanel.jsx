@@ -43,10 +43,17 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
   }, [connected, connecting, publicKey, wallet]);
 
   // Fetch balance via Backend API (not direct RPC)
+  // Also syncs wallet state with trading engine
   const fetchBalanceViaBackend = useCallback(async () => {
     if (!connected || !publicKey) {
       console.log('⚠️ Wallet not connected, skipping balance fetch');
       setBalance(0);
+      // Notify backend that wallet is disconnected
+      try {
+        await axios.post(`${API_URL}/wallet/disconnect`);
+      } catch (e) {
+        console.warn('Failed to notify backend of wallet disconnect');
+      }
       return;
     }
     
@@ -55,22 +62,23 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
     
     try {
       const address = publicKey.toBase58();
-      console.log(`📊 Fetching balance via backend for ${address.substring(0, 8)}...`);
+      console.log(`📊 Syncing wallet with backend for ${address.substring(0, 8)}...`);
       
-      const response = await axios.get(`${API_URL}/wallet/balance`, {
+      // Use /wallet/sync to both fetch balance AND sync with trading engine
+      const response = await axios.post(`${API_URL}/wallet/sync`, null, {
         params: { address },
         timeout: 15000
       });
       
       if (response.data.success) {
         const solBalance = response.data.balance;
-        console.log(`✅ Balance fetched: ${solBalance} SOL via ${response.data.endpoint}`);
+        console.log(`✅ Wallet synced: ${solBalance} SOL - Trading engine updated`);
         
         setBalance(solBalance);
         setLastUpdate(new Date());
         setRpcStatus({ 
           healthy: true, 
-          endpoint: response.data.endpoint 
+          endpoint: 'Backend RPC' 
         });
         
         // Notify parent component
@@ -81,16 +89,16 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         // Fetch tokens via backend (non-critical)
         fetchTokensViaBackend(address);
       } else {
-        throw new Error(response.data.error || 'Failed to fetch balance');
+        throw new Error(response.data.error || 'Failed to sync wallet');
       }
       
     } catch (err) {
-      console.error('❌ Balance fetch error:', err.message);
-      setError('Failed to fetch balance. Network unavailable.');
+      console.error('❌ Wallet sync error:', err.message);
+      setError('Failed to sync wallet. Network unavailable.');
       setRpcStatus({ healthy: false, endpoint: null });
       
-      toast.error('RPC Connection Failed', { 
-        description: 'Unable to connect to Solana network via backend.',
+      toast.error('Wallet Sync Failed', { 
+        description: 'Unable to sync wallet with trading engine.',
         action: {
           label: 'Retry',
           onClick: () => fetchBalanceViaBackend()
