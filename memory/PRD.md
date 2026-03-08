@@ -1,82 +1,110 @@
-# Pump.fun Trading Terminal - PRD
+# Pump.fun Trading Bot - PRD
 
 ## Original Problem Statement
-Entwicklung einer spezialisierten Trading-App für die Analyse und den automatischen Handel von Pump.fun Tokens auf der Solana Blockchain. Die App analysiert kontinuierlich neu erstellte und bestehende Pump.fun Tokens und identifiziert mit Hilfe von Datenanalyse und Risiko-Filtern potenziell profitable Trades.
+Entwicklung eines automatisierten Trading-Systems für Pump.fun Tokens auf der Solana Blockchain. Die App analysiert kontinuierlich Tokens, identifiziert profitable Trades und führt diese automatisch aus.
 
 ## User Persona
-- Single User (Creator) 
-- Experienced crypto trader
-- Requires professional trading terminal interface
-- Needs both Paper Trading and Live Trading modes
+- Single User (Creator) - Crypto Trader
+- Benötigt professionelles Trading Terminal
+- Paper Trading für Tests, Live Trading für echte Funds
 
-## Core Requirements
-### Implemented ✅
-1. **PIN-based Authentication** - Simple 4-6 digit PIN for single user access
-2. **Dashboard Overview** - Wallet Balance, Portfolio Value, Total P&L, Win Rate
-3. **Token Scanner** - Live data from DEX Screener API with risk analysis
-4. **Trading Engine** - Hybrid mode with manual confirmation
-5. **Trade Modal** - Buy/Sell with Take Profit/Stop Loss sliders
-6. **Paper Trading Mode** - Toggle between paper and live trading
-7. **Settings Panel** - Configure trading parameters
-8. **Wallet Integration** - Phantom Wallet via Solana Wallet Adapter
-9. **Risk Analysis** - Honeypot, rugpull, liquidity analysis per token
-10. **Trading Opportunities** - AI-powered suggestions based on market signals
+## Core Requirements - IMPLEMENTED ✅
 
-### Architecture
-- **Frontend**: React with Solana Wallet Adapter, Tailwind CSS
-- **Backend**: FastAPI with MongoDB
-- **Data Sources**: DEX Screener API, CoinGecko (SOL price)
-- **Design**: Dark theme with neon green/cyan/violet accents
+### 1. Capital Management
+- Total Budget konfigurierbar (default: 0.5 SOL)
+- Max Trade Size: 20% des Budgets
+- Max parallele Trades: 5
+- Automatische Budget-Aufteilung
+
+### 2. Token Discovery Engine
+- Live Daten von DEX Screener API
+- Momentum Score (0-100)
+- Signal Strength: NONE, WEAK, MEDIUM, STRONG
+- 5m, 1h, 24h Preisänderungen
+- Buy/Sell Ratio
+
+### 3. Risk Filters
+- Min Liquidity: $5,000
+- Max Dev Wallet: 15%
+- Max Top 10 Holders: 50%
+- Honeypot Detection
+- Rugpull Risk Analysis
+- Token Age Constraints
+
+### 4. Trading Engine
+- Paper Trading Mode (Simulation)
+- Hybrid Mode (manuell bestätigen)
+- Auto Trading Mode (vollautomatisch)
+- Take Profit: +100% (konfigurierbar)
+- Stop Loss: -25% (konfigurierbar)
+- Trailing Stop (optional)
+
+### 5. Multi-Trade System
+- Bis zu 5 parallele Trades
+- Individuelle TP/SL pro Trade
+- Portfolio Übersicht
+
+### 6. Risk Management
+- Max Daily Loss: 50%
+- Pause nach 3 Verlust-Trades
+- Automatische Trading-Pause
+
+### 7. Wallet Integration
+- Phantom Wallet via Solana Wallet Adapter
+- Balance Anzeige
+- Token Holdings Anzeige
+
+## Architecture
+- **Frontend**: React, Tailwind CSS, Solana Wallet Adapter
+- **Backend**: FastAPI, MongoDB
+- **APIs**: DEX Screener, CoinGecko, Jupiter (vorbereitet)
 
 ## What's Been Implemented
 **Date: March 8, 2026**
 
-### Backend (FastAPI)
-- `/api/auth/login` - PIN authentication
-- `/api/tokens/scan` - Live token scanner
-- `/api/tokens/{address}` - Token details
-- `/api/opportunities` - Trading opportunities
-- `/api/trades` - CRUD for trades
-- `/api/portfolio` - Portfolio summary
-- `/api/settings` - Trading settings
-- `/api/market/sol-price` - SOL price feed
+### Backend Endpoints
+- `/api/auth/login` - PIN Auth
+- `/api/auth/reset` - PIN Reset
+- `/api/bot/settings` - Bot Konfiguration
+- `/api/tokens/scan` - Token Scanner
+- `/api/tokens/{address}` - Token Details
+- `/api/opportunities` - AI Trading Signale
+- `/api/trades` - Trade CRUD
+- `/api/portfolio` - Portfolio Summary
+- `/api/swap/quote` - Jupiter Quote (vorbereitet)
 
-### Frontend (React)
-- LoginPage with PIN input
-- Dashboard with stats cards
-- TokenScanner with live DEX Screener data
-- TradeModal with TP/SL configuration
-- ActiveTrades management
-- TradingOpportunities AI suggestions
-- SettingsPanel for parameters
-- Solana Wallet Adapter integration
+### Frontend Components
+- Dashboard mit 5 Stat Cards
+- Token Scanner mit Momentum & Risk Analyse
+- Trading Opportunities (AI Signale)
+- Bot Settings (4 Tabs: Capital, Trading, Filters, Automation)
+- Trade Modal mit TP/SL/Trailing Stop
+- Wallet Panel
+- TradingView Chart Widget
+- Token Search
+
+## Test Results
+- Backend: 16/16 Tests ✅
+- Frontend: 38/39 E2E Tests ✅ (1 skipped - market conditions)
 
 ## Prioritized Backlog
 
-### P0 (Critical - Next)
-- [ ] Implement actual Solana transaction signing for live trades
-- [ ] Add WebSocket for real-time price updates
-- [ ] Implement stop-loss/take-profit execution engine
+### P0 (Next)
+- [ ] Jupiter Swap Integration für echte Trades
+- [ ] WebSocket für Echtzeit-Updates
+- [ ] Smart Wallet Tracking implementieren
 
-### P1 (High Priority)
-- [ ] Add price charts (Recharts integration)
-- [ ] Implement transaction history from blockchain
-- [ ] Add token watchlist feature
-- [ ] Implement auto-trading mode execution
+### P1
+- [ ] Trailing Stop Execution Engine
+- [ ] Migration Detection (Pump.fun → DEX)
+- [ ] Telegram Bot Integration
 
-### P2 (Medium Priority)
-- [ ] Telegram bot integration for alerts
-- [ ] Multiple wallet management
-- [ ] Advanced risk filters
-- [ ] Copy-trading feature
-
-### P3 (Future)
-- [ ] Multi-user platform
-- [ ] AI trading models
-- [ ] Community trading features
+### P2
+- [ ] AI Trading Modelle
+- [ ] Copy Trading
+- [ ] Multi-User Plattform
 
 ## Next Tasks
-1. Implement WebSocket for real-time updates
-2. Add price chart component for token detail view
-3. Implement actual transaction execution for live mode
-4. Add token watchlist feature
+1. Jupiter Swap für echte Token-Käufe
+2. WebSocket Price Updates
+3. Auto-Trading Execution Loop

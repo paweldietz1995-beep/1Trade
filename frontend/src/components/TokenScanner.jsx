@@ -23,7 +23,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Progress } from './ui/progress';
 import TradeModal from './TradeModal';
 
-const TokenScanner = ({ onSelectToken }) => {
+const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
   const { API_URL } = useApp();
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -92,10 +92,13 @@ const TokenScanner = ({ onSelectToken }) => {
   const handleTokenClick = (token) => {
     if (onSelectToken) {
       onSelectToken(token);
-    } else {
-      setSelectedToken(token);
-      setShowTradeModal(true);
     }
+  };
+
+  const handleTradeClick = (e, token) => {
+    e.stopPropagation();
+    setSelectedToken(token);
+    setShowTradeModal(true);
   };
 
   return (
@@ -258,8 +261,16 @@ const TokenScanner = ({ onSelectToken }) => {
                     >
                       {token.risk_analysis?.risk_score || 50}
                     </Badge>
-                    {!token.risk_analysis?.passed_filters && (
-                      <AlertTriangle className="w-3 h-3 text-yellow-500" />
+                    {showTradeButton && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-neon-green hover:bg-neon-green/10"
+                        onClick={(e) => handleTradeClick(e, token)}
+                        data-testid={`trade-btn-${index}`}
+                      >
+                        Trade
+                      </Button>
                     )}
                   </div>
                 </div>
