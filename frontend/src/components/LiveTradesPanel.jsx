@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { useApp } from '../context/AppContext';
 import { 
@@ -24,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
 
 const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => {
+  const { t } = useTranslation();
   const { API_URL } = useApp();
   const [openTrades, setOpenTrades] = useState([]);
   const [closedTrades, setClosedTrades] = useState([]);
@@ -142,7 +144,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-neon-violet" />
-              <CardTitle className="font-heading text-base">Active Trades</CardTitle>
+              <CardTitle className="font-heading text-base">{t('trades.activeTrades')}</CardTitle>
               <Badge variant="outline" className="border-neon-violet/30 text-neon-violet">
                 {openTrades.length}
               </Badge>

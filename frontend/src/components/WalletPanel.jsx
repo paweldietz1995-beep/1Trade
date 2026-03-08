@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWallet } from '@solana/wallet-adapter-react';
 import axios from 'axios';
 import { 
@@ -21,6 +22,7 @@ import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
 
 const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
+  const { t } = useTranslation();
   const { connected, publicKey, disconnect, connecting, wallet } = useWallet();
   const { API_URL } = useApp();
   const [balance, setBalance] = useState(0);
@@ -163,10 +165,10 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
       try {
         await navigator.clipboard.writeText(publicKey.toBase58());
         setCopied(true);
-        toast.success('Address copied to clipboard!');
+        toast.success(t('wallet.addressCopied'));
         setTimeout(() => setCopied(false), 2000);
       } catch (err) {
-        toast.error('Failed to copy address');
+        toast.error(t('errors.somethingWentWrong'));
       }
     }
   };
@@ -190,14 +192,14 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         <CardHeader className="border-b border-[#1E293B] pb-3">
           <div className="flex items-center gap-2">
             <Wallet className="w-5 h-5 text-muted-foreground" />
-            <CardTitle className="font-heading text-base">Wallet</CardTitle>
+            <CardTitle className="font-heading text-base">{t('wallet.title')}</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="p-4 space-y-4">
           {/* SOL Balance - Show 0 when disconnected */}
           <div className="p-4 bg-gradient-to-r from-neon-violet/10 to-neon-cyan/10 rounded-sm border border-[#1E293B]">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">SOL Balance</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('wallet.solBalance')}</span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-mono font-bold text-muted-foreground" data-testid="sol-balance">
@@ -211,7 +213,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
               </span>
             </div>
           </div>
-          <p className="text-muted-foreground text-center text-sm">Connect wallet to view balance</p>
+          <p className="text-muted-foreground text-center text-sm">{t('wallet.connectToTrade')}</p>
         </CardContent>
       </Card>
     );
@@ -223,7 +225,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
       <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="wallet-panel-connecting">
         <CardContent className="p-6 text-center">
           <RefreshCw className="w-12 h-12 mx-auto mb-4 text-neon-cyan animate-spin" />
-          <p className="text-muted-foreground">Connecting to wallet...</p>
+          <p className="text-muted-foreground">{t('wallet.connecting')}</p>
         </CardContent>
       </Card>
     );
@@ -235,14 +237,14 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Wallet className="w-5 h-5 text-neon-cyan" />
-            <CardTitle className="font-heading text-base">Wallet</CardTitle>
+            <CardTitle className="font-heading text-base">{t('wallet.title')}</CardTitle>
             <Badge className="bg-neon-green/20 text-neon-green border-none text-xs">
-              {wallet?.adapter?.name || 'Connected'}
+              {wallet?.adapter?.name || t('wallet.connected')}
             </Badge>
           </div>
           <div className="flex items-center gap-2">
             {/* RPC Status Indicator */}
-            <div className="flex items-center gap-1" title={rpcStatus.endpoint || 'Backend RPC'}>
+            <div className="flex items-center gap-1" title={rpcStatus.endpoint || t('wallet.backendRpc')}>
               {rpcStatus.healthy ? (
                 <Wifi className="w-3 h-3 text-neon-green" />
               ) : (
@@ -265,7 +267,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         {/* Address */}
         <div className="flex items-center justify-between p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
           <div className="font-mono text-sm text-neon-cyan" data-testid="wallet-address">
-            {publicKey ? shortenAddress(publicKey) : 'Loading...'}
+            {publicKey ? shortenAddress(publicKey) : t('common.loading')}
           </div>
           <div className="flex items-center gap-1">
             <Button 
@@ -303,7 +305,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
                 className="text-xs text-neon-cyan p-0 h-auto ml-2"
                 onClick={() => fetchBalanceViaBackend()}
               >
-                Retry
+                {t('common.retry')}
               </Button>
             </div>
           </div>
@@ -313,14 +315,14 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         {rpcStatus.endpoint && !error && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Wifi className="w-3 h-3" />
-            <span>Backend RPC: {rpcStatus.endpoint}</span>
+            <span>{t('wallet.backendRpc')}: {rpcStatus.endpoint}</span>
           </div>
         )}
 
         {/* SOL Balance */}
         <div className="p-4 bg-gradient-to-r from-neon-violet/10 to-neon-cyan/10 rounded-sm border border-[#1E293B]">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs uppercase tracking-widest text-muted-foreground">SOL Balance</span>
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('wallet.solBalance')}</span>
             {lastUpdate && (
               <span className="text-xs text-muted-foreground">
                 {lastUpdate.toLocaleTimeString()}
@@ -347,7 +349,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
             <div className="flex items-center gap-2 mb-2">
               <Coins className="w-4 h-4 text-neon-violet" />
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Token Holdings ({tokens.length})
+                {t('wallet.tokenHoldings')} ({tokens.length})
               </span>
             </div>
             <ScrollArea className="h-32">
@@ -376,7 +378,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
           onClick={disconnect}
           data-testid="disconnect-wallet"
         >
-          Disconnect Wallet
+          {t('wallet.disconnectWallet')}
         </Button>
       </CardContent>
     </Card>

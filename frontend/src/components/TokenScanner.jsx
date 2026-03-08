@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { useApp } from '../context/AppContext';
 import { 
@@ -24,6 +25,7 @@ import { Progress } from './ui/progress';
 import TradeModal from './TradeModal';
 
 const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
+  const { t } = useTranslation();
   const { API_URL } = useApp();
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,16 +109,16 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio className="w-5 h-5 text-neon-cyan animate-pulse" />
-            <CardTitle className="font-heading">Token Scanner</CardTitle>
+            <CardTitle className="font-heading">{t('scanner.tokenScanner')}</CardTitle>
             <Badge variant="outline" className="border-neon-cyan/30 text-neon-cyan">
-              {tokens.length} tokens
+              {tokens.length} {t('scanner.tokens')}
             </Badge>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search tokens..."
+                placeholder={t('scanner.searchTokens')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 w-64 bg-[#0F172A] border-[#1E293B]"
@@ -130,7 +132,7 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
               className={filterPassed ? 'bg-neon-green text-black' : ''}
             >
               <Filter className="w-4 h-4 mr-1" />
-              Safe Only
+              {t('scanner.safeOnly')}
             </Button>
             <Button 
               variant="outline" 
@@ -149,13 +151,13 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
           <div className="divide-y divide-[#1E293B]">
             {/* Header Row */}
             <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs uppercase tracking-wider text-muted-foreground bg-[#050505] sticky top-0 z-10">
-              <div className="col-span-3">Token</div>
-              <div className="col-span-1 text-right">Price</div>
-              <div className="col-span-1 text-right">5m</div>
-              <div className="col-span-1 text-right">1h</div>
-              <div className="col-span-1 text-right">Liq</div>
-              <div className="col-span-1 text-right">B/S</div>
-              <div className="col-span-2 text-center">Signal</div>
+              <div className="col-span-3">{t('scanner.token')}</div>
+              <div className="col-span-1 text-right">{t('scanner.price')}</div>
+              <div className="col-span-1 text-right">{t('scanner.change5m')}</div>
+              <div className="col-span-1 text-right">{t('scanner.change1h')}</div>
+              <div className="col-span-1 text-right">{t('scanner.liq')}</div>
+              <div className="col-span-1 text-right">{t('scanner.buySellRatio')}</div>
+              <div className="col-span-2 text-center">{t('scanner.signal')}</div>
               <div className="col-span-2 text-center">Risk</div>
             </div>
 

@@ -71,7 +71,25 @@ let webpackConfig = {
       webpackConfig.ignoreWarnings = [
         /Failed to parse source map/,
         /source-map-loader/,
+        /@toruslabs/,
       ];
+
+      // Exclude @toruslabs from source-map-loader
+      webpackConfig.module.rules = webpackConfig.module.rules.map(rule => {
+        if (rule.enforce === 'pre' && rule.use && rule.use.some && 
+            rule.use.some(loader => loader.loader && loader.loader.includes('source-map-loader'))) {
+          return {
+            ...rule,
+            exclude: [
+              ...(rule.exclude || []),
+              /@toruslabs/,
+              /broadcast-channel/,
+              /metadata-helpers/
+            ]
+          };
+        }
+        return rule;
+      });
 
       // Add Buffer and process polyfills
       webpackConfig.plugins.push(

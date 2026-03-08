@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@/index.css";
+import "@/i18n/i18n"; // Initialize i18n - German as default
 import App from "@/App";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));

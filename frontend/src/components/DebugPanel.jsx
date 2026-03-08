@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { useApp } from '../context/AppContext';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -25,6 +26,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
 
 const DebugPanel = ({ isOpen, onClose }) => {
+  const { t } = useTranslation();
   const { API_URL } = useApp();
   const { connected, publicKey, wallet } = useWallet();
   
@@ -162,7 +164,7 @@ const DebugPanel = ({ isOpen, onClose }) => {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Activity className="w-5 h-5 text-neon-cyan" />
-              System Diagnostics
+              {t('debug.systemDiagnostics')}
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button 
@@ -172,10 +174,10 @@ const DebugPanel = ({ isOpen, onClose }) => {
                 disabled={loading}
               >
                 <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
+                {t('common.refresh')}
               </Button>
               <Button variant="ghost" size="sm" onClick={onClose}>
-                Close
+                {t('common.close')}
               </Button>
             </div>
           </div>
@@ -193,7 +195,7 @@ const DebugPanel = ({ isOpen, onClose }) => {
                 {systemHealth.overall_ok ? (
                   <>
                     <CheckCircle className="w-5 h-5 text-neon-green" />
-                    <span className="font-semibold text-neon-green">All Systems Operational</span>
+                    <span className="font-semibold text-neon-green">{t('debug.allSystemsOperational')}</span>
                   </>
                 ) : (
                   <>

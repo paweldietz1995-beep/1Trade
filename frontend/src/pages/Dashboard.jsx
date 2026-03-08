@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -68,6 +69,7 @@ const RPC_ENDPOINTS = [
 ];
 
 const Dashboard = () => {
+  const { t } = useTranslation();
   const { logout, API_URL } = useApp();
   const { connected, publicKey, connecting } = useWallet();
   const { connection } = useConnection();
@@ -389,7 +391,7 @@ const Dashboard = () => {
               <span className={`text-xs uppercase tracking-wider ${
                 tradingMode === TRADING_MODES.LIVE ? 'text-neon-red' : 'text-neon-cyan'
               }`}>
-                {tradingMode === TRADING_MODES.LIVE ? '🔴 LIVE' : '🧪 PAPER'}
+                {tradingMode === TRADING_MODES.LIVE ? `🔴 ${t('trading.liveMode').toUpperCase()}` : `🧪 ${t('trading.paperMode').toUpperCase()}`}
               </span>
               <Switch 
                 checked={tradingMode === TRADING_MODES.LIVE}
@@ -412,12 +414,12 @@ const Dashboard = () => {
               {autoTradingActive ? (
                 <>
                   <StopCircle className="w-4 h-4 mr-2" />
-                  Stop Auto Trade
+                  {t('trading.stopAutoTrade')}
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4 mr-2" />
-                  Start Auto Trade
+                  {t('trading.startAutoTrade')}
                 </>
               )}
             </Button>
@@ -425,7 +427,7 @@ const Dashboard = () => {
             {autoTradingActive && (
               <Badge className="bg-neon-green/20 text-neon-green border-none animate-pulse">
                 <Bot className="w-3 h-3 mr-1" />
-                ACTIVE
+                {t('debug.active').toUpperCase()}
               </Badge>
             )}
 
@@ -433,7 +435,7 @@ const Dashboard = () => {
             {portfolio?.is_paused && (
               <Badge className="bg-neon-red/20 text-neon-red border-none animate-pulse">
                 <Pause className="w-3 h-3 mr-1" />
-                PAUSED
+                {t('debug.paused').toUpperCase()}
               </Badge>
             )}
           </div>
@@ -448,7 +450,7 @@ const Dashboard = () => {
               data-testid="debug-button"
             >
               <Activity className="w-4 h-4 mr-2" />
-              Debug
+              {t('header.debug')}
             </Button>
 
             {/* Search */}
@@ -460,16 +462,16 @@ const Dashboard = () => {
               data-testid="search-button"
             >
               <Search className="w-4 h-4 mr-2" />
-              Search
+              {t('header.search')}
             </Button>
 
             {/* SOL Market Price */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0A0A0A] border border-[#1E293B] rounded-sm">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Market:</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('header.market')}:</span>
               <span className="font-mono text-sm text-neon-green" data-testid="sol-price-header">
                 {formatUSD(solPrice)}
               </span>
-              <span className="text-[10px] text-muted-foreground">/SOL</span>
+              <span className="text-[10px] text-muted-foreground">{t('header.perSol')}</span>
             </div>
 
             {/* Wallet */}
@@ -506,14 +508,14 @@ const Dashboard = () => {
           <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="wallet-balance-card">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Wallet</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('wallet.title')}</span>
                 <Wallet className="w-4 h-4 text-neon-cyan" />
               </div>
               <div className="font-mono text-xl font-bold text-neon-cyan" data-testid="wallet-balance-display">
-                {connected ? formatSOL(walletBalance) : (connecting ? 'Connecting...' : 'Not Connected')}
+                {connected ? formatSOL(walletBalance) : (connecting ? t('wallet.connecting') : t('wallet.notConnected'))}
               </div>
               <div className="text-xs text-muted-foreground">
-                {connected ? formatUSD(walletBalance * solPrice) : 'Connect wallet to trade'}
+                {connected ? formatUSD(walletBalance * solPrice) : t('wallet.connectToTrade')}
               </div>
             </CardContent>
           </Card>
@@ -522,14 +524,14 @@ const Dashboard = () => {
           <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="budget-card">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Available</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('portfolio.available')}</span>
                 <DollarSign className="w-4 h-4 text-neon-green" />
               </div>
               <div className="font-mono text-xl font-bold text-neon-green">
                 {portfolio ? formatSOL(portfolio.available_sol) : '--'}
               </div>
               <div className="text-xs text-muted-foreground">
-                of {botSettings ? formatSOL(botSettings.total_budget_sol) : '--'} budget
+                {t('portfolio.ofBudget', { budget: botSettings ? formatSOL(botSettings.total_budget_sol).replace(' SOL', '') : '--' })}
               </div>
             </CardContent>
           </Card>
@@ -538,14 +540,14 @@ const Dashboard = () => {
           <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="in-trades-card">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">In Trades</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('portfolio.inTrades')}</span>
                 <Layers className="w-4 h-4 text-neon-violet" />
               </div>
               <div className="font-mono text-xl font-bold">
                 {portfolio ? formatSOL(portfolio.in_trades_sol) : '--'}
               </div>
               <div className="text-xs text-muted-foreground">
-                {portfolio?.open_trades || 0} active positions
+                {portfolio?.open_trades || 0} {t('portfolio.activePositions')}
               </div>
             </CardContent>
           </Card>
@@ -554,7 +556,7 @@ const Dashboard = () => {
           <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="total-pnl-card">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Total P&L</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('portfolio.totalPnL')}</span>
                 {portfolio && portfolio.total_pnl >= 0 ? (
                   <TrendingUp className="w-4 h-4 text-neon-green" />
                 ) : (
@@ -574,14 +576,14 @@ const Dashboard = () => {
           <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="win-rate-card">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Win Rate</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">{t('portfolio.winRate')}</span>
                 <Target className="w-4 h-4 text-neon-green" />
               </div>
               <div className="font-mono text-xl font-bold">
                 {portfolio ? `${portfolio.win_rate.toFixed(0)}%` : '--'}
               </div>
               <div className="text-xs text-muted-foreground">
-                {portfolio ? `${portfolio.closed_trades} trades closed` : '--'}
+                {portfolio ? `${portfolio.closed_trades} ${t('portfolio.tradesClosed')}` : '--'}
               </div>
             </CardContent>
           </Card>
@@ -593,7 +595,7 @@ const Dashboard = () => {
             <div className="flex items-center gap-3">
               <AlertTriangle className="w-5 h-5 text-neon-red" />
               <div>
-                <div className="font-semibold text-neon-red">Trading Paused</div>
+                <div className="font-semibold text-neon-red">{t('debug.paused')}</div>
                 <div className="text-sm text-muted-foreground">{portfolio.pause_reason}</div>
               </div>
             </div>
@@ -613,7 +615,7 @@ const Dashboard = () => {
           <div className="mb-4 p-3 bg-neon-red/10 border border-neon-red/30 rounded-sm flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-neon-red" />
             <span className="text-sm text-neon-red">
-              <strong>Live Trading Active:</strong> Real funds will be used for trades. Trade carefully!
+              <strong>{t('trading.liveTradingActive')}:</strong> {t('trading.liveTradingWarning')}
             </span>
           </div>
         )}
@@ -623,19 +625,19 @@ const Dashboard = () => {
           <TabsList className="bg-[#0A0A0A] border border-[#1E293B]">
             <TabsTrigger value="overview" data-testid="tab-overview">
               <Activity className="w-4 h-4 mr-2" />
-              Overview
+              {t('tabs.overview')}
             </TabsTrigger>
             <TabsTrigger value="scanner" data-testid="tab-scanner">
               <Radio className="w-4 h-4 mr-2" />
-              Scanner
+              {t('tabs.scanner')}
             </TabsTrigger>
             <TabsTrigger value="trades" data-testid="tab-trades">
               <BarChart3 className="w-4 h-4 mr-2" />
-              Live P&L
+              {t('tabs.livePnL')}
             </TabsTrigger>
             <TabsTrigger value="chart" data-testid="tab-chart">
               <Eye className="w-4 h-4 mr-2" />
-              Chart
+              {t('tabs.chart')}
             </TabsTrigger>
           </TabsList>
 
