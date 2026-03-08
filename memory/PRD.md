@@ -1,12 +1,30 @@
-# Pump.fun Trading Bot - PRD v8
+# Pump.fun Trading Bot - PRD v9
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 
 ## Kritische Fixes - VOLLSTÄNDIG ✅
 
-### 1. System Health Diagnostics ✅
-**Neuer Endpoint:** `GET /api/system/health`
+### 1. RPC Architektur - KOMPLETT ÜBERARBEITET ✅ (März 2026)
+**Kritisches Problem gelöst: RPC Connection Failures**
+
+**Neue Architektur:**
+```
+Frontend → Backend API → RPC Manager → Solana Network
+```
+
+- **Alle RPC-Aufrufe erfolgen über das Backend** - Frontend macht KEINE direkten RPC-Calls mehr
+- **Automatisches Failover** zwischen RPC-Endpunkten
+- **Health Monitoring** im Hintergrund alle 30 Sekunden
+- **Helius-Integration vorbereitet** (via `HELIUS_API_KEY` Umgebungsvariable)
+
+**RPC-Endpunkte (Priorität):**
+1. Helius (wenn API-Key vorhanden)
+2. Ankr (`https://rpc.ankr.com/solana`)
+3. Solana Mainnet (`https://api.mainnet-beta.solana.com`)
+
+### 2. System Health Diagnostics ✅
+**Endpoint:** `GET /api/system/health`
 
 Prüft alle Systemkomponenten:
 - Wallet Status
@@ -15,22 +33,22 @@ Prüft alle Systemkomponenten:
 - Database (MongoDB)
 - Trading Engine
 
-### 2. Wallet Balance via Backend ✅
-**Neuer Endpoint:** `GET /api/wallet/balance?address=xxx`
+### 3. Wallet Balance via Backend ✅
+**Endpoint:** `GET /api/wallet/balance?address=xxx`
 
 - Balance wird über Backend-RPC abgerufen (nicht Frontend)
 - Vermeidet CORS und Rate-Limiting Probleme
 - Unterstützt RPC Failover
 
-### 3. Loss Streak Reset ✅
-**Neuer Endpoint:** `POST /api/trading/reset-loss-streak`
+### 4. Loss Streak Reset ✅
+**Endpoint:** `POST /api/trading/reset-loss-streak`
 
 - Speichert Reset-Marker in Datenbank
 - Portfolio-Berechnung respektiert Reset-Marker
 - Trading kann nach Reset fortgesetzt werden
 
-### 4. Live Trading Safety ✅
-**Neuer Endpoint:** `GET /api/trading/can-enable-live`
+### 5. Live Trading Safety ✅
+**Endpoint:** `GET /api/trading/can-enable-live`
 
 Prüft vor Live-Aktivierung:
 - RPC funktioniert
@@ -38,63 +56,87 @@ Prüft vor Live-Aktivierung:
 - Database verbunden
 - Keine Blocker (Loss Streak, Daily Loss Limit)
 
-### 5. Chart Symbol Validation ✅
-**TradingViewWidget verbessert:**
-- Validiert Symbol-Format
-- Zeigt Placeholder für Memecoins
-- Keine ungültigen Symbole mehr
-
-### 6. Token Scanner Fix ✅
+### 6. Token Scanner ✅
 - Vollständige DEX Screener API URLs
 - Filter für unrealistische Werte (>$100M Liquidität)
-- 86+ valide Solana Pairs pro Scan
+- 40+ valide Solana Pairs pro Scan
+- Momentum Scoring und Signal-Stärken
 
-## Test-Ergebnisse
+## Test-Ergebnisse (März 2026)
 - **Backend:** 51/51 Tests PASS (100%)
-- **Frontend:** 74/74 Tests PASS (100%)
+- **Frontend:** 80/80 Tests PASS (100%)
 - **Keine kritischen Bugs**
 
-## API Endpoints (Neu)
+## API Endpoints
 
 | Endpoint | Beschreibung |
 |----------|-------------|
 | `GET /api/system/health` | System-Diagnostik |
+| `GET /api/rpc/status` | RPC-Verbindungsstatus |
+| `POST /api/rpc/reconnect` | RPC neu verbinden |
 | `GET /api/wallet/balance` | Balance via Backend |
+| `GET /api/wallet/tokens` | Token-Liste via Backend |
 | `POST /api/trading/reset-loss-streak` | Loss Streak zurücksetzen |
 | `GET /api/trading/can-enable-live` | Live-Trading Sicherheitscheck |
+| `GET /api/tokens/scan` | Token Scanner mit Momentum |
+| `GET /api/auto-trading/status` | Auto-Trading Status |
 
 ## Code-Architektur
 
 ```
-Backend Endpoints:
-├── /api/system/health - Comprehensive diagnostics
-├── /api/wallet/balance - Backend RPC balance
-├── /api/trading/reset-loss-streak - Reset marker
-├── /api/trading/can-enable-live - Safety check
-└── calculate_current_loss_streak() - Respects reset
+Backend:
+├── server.py
+│   ├── RPC_ENDPOINTS[]          # Dynamisch aus ENV
+│   ├── RPC_CONFIG{}             # Timeout, Retry Settings
+│   ├── rpc_state{}              # Connection State Manager
+│   ├── get_working_rpc()        # Failover Logic
+│   ├── make_rpc_call()          # RPC with Retry
+│   └── rpc_health_monitor()     # Background Health Check
 
-Frontend Components:
-├── DebugPanel.jsx - System Diagnostics UI
-├── TradingViewWidget.jsx - Symbol validation
-└── Dashboard.jsx - Safety check integration
+Frontend (KEINE direkte RPC):
+├── WalletPanel.jsx
+│   └── fetchBalanceViaBackend() # Nutzt /api/wallet/balance
+├── DebugPanel.jsx
+│   └── System Diagnostics UI
+└── SolanaWalletProvider.jsx
+    └── Nur für Wallet Connection
 ```
 
 ## Nächste Schritte (Phase 2)
 
-1. **Liquidity Migration Detector**
+1. **Helius RPC Integration**
+   - Benutzer muss `HELIUS_API_KEY` setzen für Premium-RPC
+   
+2. **Liquidity Migration Detector**
    - Pump.fun → Raydium/Orca Migration erkennen
 
-2. **Smart Wallet Tracking**
+3. **Smart Wallet Tracking**
    - Profitable Wallets verfolgen
 
-3. **WebSocket Updates**
+4. **WebSocket Updates**
    - Real-time Token Updates
 
 ## Bekannte Limitierungen
 - Wallet erfordert Phantom Extension
 - Paper Mode ist Standard
 - Memecoins haben keine TradingView Charts
+- Öffentliche RPCs können bei hoher Last langsam sein
 
 ## Credentials
 - **PIN:** Vom Benutzer gesetzt
 - **RPC:** Ankr (Primary), Solana Mainnet (Fallback)
+- **Helius:** Optional via `HELIUS_API_KEY` Umgebungsvariable
+
+## Umgebungsvariablen
+
+### Backend (.env)
+```
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=test_database
+HELIUS_API_KEY=          # Optional für Premium RPC
+```
+
+### Frontend (.env)
+```
+REACT_APP_BACKEND_URL=https://...
+```
