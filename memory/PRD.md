@@ -1,101 +1,100 @@
-# Pump.fun Trading Bot - PRD v7
+# Pump.fun Trading Bot - PRD v8
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 
-## Phase 1 - VOLLSTÄNDIG ABGESCHLOSSEN ✅
+## Kritische Fixes - VOLLSTÄNDIG ✅
 
-### 1. Token Scanner (Fixed) ✅
-**Problem:** Scanner verwendete relative Pfade statt vollständiger DEX Screener API URLs.
+### 1. System Health Diagnostics ✅
+**Neuer Endpoint:** `GET /api/system/health`
 
-**Lösung:**
-- Vollständige API-URLs: `https://api.dexscreener.com/latest/dex/search`
-- Token Profiles API: `https://api.dexscreener.com/token-profiles/latest/v1`
-- Mehrere Such-Queries für diverse Ergebnisse
+Prüft alle Systemkomponenten:
+- Wallet Status
+- RPC Connection (mit Latenz)
+- Scanner (DEX Screener API)
+- Database (MongoDB)
+- Trading Engine
 
-**Filter:**
-- Unrealistische Liquidität gefiltert (>$100M)
-- Min. Liquidität: $5,000
-- Min. Volumen: $10,000
+### 2. Wallet Balance via Backend ✅
+**Neuer Endpoint:** `GET /api/wallet/balance?address=xxx`
+
+- Balance wird über Backend-RPC abgerufen (nicht Frontend)
+- Vermeidet CORS und Rate-Limiting Probleme
+- Unterstützt RPC Failover
+
+### 3. Loss Streak Reset ✅
+**Neuer Endpoint:** `POST /api/trading/reset-loss-streak`
+
+- Speichert Reset-Marker in Datenbank
+- Portfolio-Berechnung respektiert Reset-Marker
+- Trading kann nach Reset fortgesetzt werden
+
+### 4. Live Trading Safety ✅
+**Neuer Endpoint:** `GET /api/trading/can-enable-live`
+
+Prüft vor Live-Aktivierung:
+- RPC funktioniert
+- Scanner aktiv
+- Database verbunden
+- Keine Blocker (Loss Streak, Daily Loss Limit)
+
+### 5. Chart Symbol Validation ✅
+**TradingViewWidget verbessert:**
+- Validiert Symbol-Format
+- Zeigt Placeholder für Memecoins
+- Keine ungültigen Symbole mehr
+
+### 6. Token Scanner Fix ✅
+- Vollständige DEX Screener API URLs
+- Filter für unrealistische Werte (>$100M Liquidität)
 - 86+ valide Solana Pairs pro Scan
 
-### 2. Auto Trading Engine (3s Intervall) ✅
-**Workflow pro Zyklus:**
-1. Token-Scan (DEX Screener + Pump.fun)
-2. Strenge Filter anwenden
-3. Risk Analysis durchführen
-4. 4 Momentum Signals berechnen
-5. Bei Score ≥ 70 → Trade ausführen
-
-**Endpoints:**
-```
-POST /api/auto-trading/start  → Engine starten
-POST /api/auto-trading/stop   → Engine stoppen
-GET  /api/auto-trading/status → Status abrufen
-GET  /api/auto-trading/opportunities → Signale
-```
-
-### 3. Enhanced Momentum Detection ✅
-| Signal | Threshold | Beschreibung |
-|--------|-----------|--------------|
-| VOLUME_SURGE | +150% | 5min Volumen vs. Durchschnitt |
-| BUY_PRESSURE | 30 Käufer + 1.5x | Käufer + Buy/Sell Ratio |
-| WALLET_GROWTH | +100% | Neue Wallet-Käufer |
-| PRICE_ACCELERATION | +5% + 2% | Preis-Beschleunigung |
-
-### 4. Debug Monitoring Panel ✅
-- Wallet Status
-- RPC Status mit Latenz
-- Backend Status
-- Auto Trading Status (Scans, Trades)
-- Activity Log (Echtzeit)
-
 ## Test-Ergebnisse
-```
-Auto Trading Test:
-- 2 Scans in 6 Sekunden ✅
-- 2 Trades automatisch ausgeführt ✅
-- Momentum Score 93 erkannt ✅
-- Volume Surge +309% erkannt ✅
-```
+- **Backend:** 51/51 Tests PASS (100%)
+- **Frontend:** 74/74 Tests PASS (100%)
+- **Keine kritischen Bugs**
+
+## API Endpoints (Neu)
+
+| Endpoint | Beschreibung |
+|----------|-------------|
+| `GET /api/system/health` | System-Diagnostik |
+| `GET /api/wallet/balance` | Balance via Backend |
+| `POST /api/trading/reset-loss-streak` | Loss Streak zurücksetzen |
+| `GET /api/trading/can-enable-live` | Live-Trading Sicherheitscheck |
 
 ## Code-Architektur
 
 ```
-Backend:
-├── fetch_dex_screener_tokens() - Multi-Query Scanner
-├── fetch_pump_fun_tokens() - Pump.fun Scanner
-├── calculate_enhanced_momentum() - 4 Signal-Typen
-├── execute_auto_trade_cycle() - Pro Zyklus
-└── auto_trading_loop() - 3s Background Task
+Backend Endpoints:
+├── /api/system/health - Comprehensive diagnostics
+├── /api/wallet/balance - Backend RPC balance
+├── /api/trading/reset-loss-streak - Reset marker
+├── /api/trading/can-enable-live - Safety check
+└── calculate_current_loss_streak() - Respects reset
 
-Frontend:
-├── Dashboard.jsx - Hauptansicht + Auto Trade UI
-├── DebugPanel.jsx - Monitoring Panel
-├── TradingOpportunities.jsx - Signal-Anzeige
-└── jupiterService.js - Live Trade Execution
+Frontend Components:
+├── DebugPanel.jsx - System Diagnostics UI
+├── TradingViewWidget.jsx - Symbol validation
+└── Dashboard.jsx - Safety check integration
 ```
 
 ## Nächste Schritte (Phase 2)
 
 1. **Liquidity Migration Detector**
-   - Erkennung: Pump.fun → Raydium/Orca
-   - Signal bei Migration erstellen
+   - Pump.fun → Raydium/Orca Migration erkennen
 
 2. **Smart Wallet Tracking**
-   - Profitable Wallets tracken
-   - Signal verstärken bei Aktivität
+   - Profitable Wallets verfolgen
 
 3. **WebSocket Updates**
    - Real-time Token Updates
-   - Trade Notifications
 
 ## Bekannte Limitierungen
-- Wallet-Verbindung erfordert Phantom Extension
-- Paper Mode ist Standard (Live erfordert Bestätigung)
-- DEX Screener API Rate Limiting möglich
+- Wallet erfordert Phantom Extension
+- Paper Mode ist Standard
+- Memecoins haben keine TradingView Charts
 
 ## Credentials
 - **PIN:** Vom Benutzer gesetzt
 - **RPC:** Ankr (Primary), Solana Mainnet (Fallback)
-- **APIs:** Keine Keys erforderlich
