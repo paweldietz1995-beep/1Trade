@@ -62,9 +62,13 @@ test.describe('Dashboard Navigation', () => {
   });
 
   test('dashboard header is visible with key elements', async ({ page }) => {
-    await expect(page.getByTestId('auto-trading-toggle')).toBeVisible();
+    await expect(page.getByTestId('auto-trade-toggle')).toBeVisible();
     await expect(page.getByTestId('settings-button')).toBeVisible();
     await expect(page.getByTestId('logout-button')).toBeVisible();
+  });
+
+  test('trading mode toggle (Paper/Live) is visible', async ({ page }) => {
+    await expect(page.getByTestId('trading-mode-toggle')).toBeVisible();
   });
 
   test('dashboard shows stats cards', async ({ page }) => {

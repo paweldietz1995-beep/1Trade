@@ -75,6 +75,22 @@ class TestSettings:
         assert "paper_mode" in data
         assert "auto_trade_enabled" in data
 
+    def test_get_settings_new_safety_fields(self, api_client):
+        """GET /bot/settings includes new trading safety fields"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        # New safety features
+        assert "max_trade_amount_sol" in data
+        assert "max_daily_loss_percent" in data
+        assert "max_daily_loss_sol" in data
+        assert "max_loss_streak" in data
+        assert "slippage_bps" in data
+        # Validate types
+        assert isinstance(data["max_trade_amount_sol"], (int, float))
+        assert isinstance(data["max_loss_streak"], int)
+        assert isinstance(data["slippage_bps"], int)
+
     def test_update_settings(self, api_client):
         """PUT /bot/settings updates settings and persists"""
         # Get current settings first
@@ -158,7 +174,26 @@ class TestTrades:
         assert data["paper_trade"] is True
         assert data["trade_type"] == "BUY"
         assert "id" in data
-        return data["id"]
+
+    def test_trade_has_tx_signature_field(self, api_client):
+        """Trade object includes tx_signature field for Solscan links"""
+        trade_data = {
+            "token_address": "TX_SIG_TEST_" + str(int(time.time())),
+            "token_symbol": "TXTEST",
+            "token_name": "TX Test Token",
+            "trade_type": "BUY",
+            "amount_sol": 0.05,
+            "price_entry": 0.0001,
+            "take_profit_percent": 100.0,
+            "stop_loss_percent": 30.0,
+            "paper_trade": True,
+            "tx_signature": "5XrZwT1234567890abcdef"  # Mock tx signature
+        }
+        resp = api_client.post(f"{BASE_URL}/api/trades", json=trade_data)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tx_signature" in data
+        assert data["tx_signature"] == "5XrZwT1234567890abcdef"
 
     def test_get_trades(self, api_client):
         """GET /trades returns list of trades"""
@@ -217,3 +252,39 @@ class TestPortfolio:
         assert "open_trades" in data
         assert "closed_trades" in data
         assert "win_rate" in data
+
+    def test_portfolio_has_safety_status_fields(self, api_client):
+        """Portfolio includes loss streak and pause status for safety features"""
+        resp = api_client.get(f"{BASE_URL}/api/portfolio")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Safety-related fields
+        assert "daily_pnl" in data
+        assert "loss_streak" in data
+        assert "is_paused" in data
+        # Validate types
+        assert isinstance(data["loss_streak"], int)
+        assert isinstance(data["is_paused"], bool)
+
+
+class TestTradingOpportunities:
+    """Test trading opportunities endpoint"""
+
+    def test_get_opportunities(self, api_client):
+        """GET /opportunities returns list of trading opportunities"""
+        resp = api_client.get(f"{BASE_URL}/api/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+
+    def test_opportunities_structure(self, api_client):
+        """Trading opportunities have expected structure"""
+        resp = api_client.get(f"{BASE_URL}/api/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        if len(data) > 0:
+            opp = data[0]
+            assert "token" in opp
+            assert "suggested_action" in opp
+            assert "confidence" in opp
+            assert "risk_level" in opp

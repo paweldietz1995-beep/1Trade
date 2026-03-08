@@ -13,7 +13,9 @@ import {
   Percent,
   Zap,
   Check,
-  Activity
+  Activity,
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -23,10 +25,11 @@ import { Slider } from './ui/slider';
 import { Switch } from './ui/switch';
 import { Progress } from './ui/progress';
 import { toast } from 'sonner';
+import { buyToken, sellToken, SOL_MINT } from '../services/jupiterService';
 
 const TradeModal = ({ token, opportunity = null, onClose, onSuccess }) => {
   const { API_URL } = useApp();
-  const { connected, publicKey } = useWallet();
+  const { connected, publicKey, signTransaction, wallet } = useWallet();
   
   const [botSettings, setBotSettings] = useState(null);
   const [tradeType, setTradeType] = useState('BUY');
@@ -37,6 +40,8 @@ const TradeModal = ({ token, opportunity = null, onClose, onSuccess }) => {
   const [trailingStopPercent, setTrailingStopPercent] = useState(10);
   const [usePaperMode, setUsePaperMode] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [swapStatus, setSwapStatus] = useState(null);
+  const [txSignature, setTxSignature] = useState(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -75,6 +80,57 @@ const TradeModal = ({ token, opportunity = null, onClose, onSuccess }) => {
   const { takeProfitPrice, stopLossPrice } = calculatePrices();
   const maxTradeAmount = botSettings ? botSettings.total_budget_sol * (botSettings.max_trade_percent / 100) : 0.1;
 
+  // Handle swap status updates
+  const handleSwapStatus = (status, message) => {
+    setSwapStatus({ status, message });
+    console.log(`🔄 Swap Status: ${status} - ${message}`);
+  };
+
+  // Execute live trade using Jupiter
+  const executeLiveTrade = async () => {
+    if (!wallet?.adapter) {
+      toast.error('Wallet not connected properly');
+      return null;
+    }
+
+    try {
+      let result;
+      
+      if (tradeType === 'BUY') {
+        // Buy token with SOL
+        result = await buyToken(
+          wallet.adapter,
+          token.address,
+          amountSOL,
+          100, // 1% slippage
+          handleSwapStatus
+        );
+      } else {
+        // Sell token for SOL
+        // Note: For selling, we need the token amount, not SOL amount
+        // This would require fetching the user's token balance
+        toast.error('Sell functionality requires token balance check');
+        return null;
+      }
+
+      if (result.success) {
+        setTxSignature(result.signature);
+        return result;
+      } else {
+        if (result.cancelled) {
+          toast.info('Transaction cancelled');
+        } else {
+          toast.error('Swap failed', { description: result.error });
+        }
+        return null;
+      }
+    } catch (error) {
+      console.error('Live trade error:', error);
+      toast.error('Trade execution failed', { description: error.message });
+      return null;
+    }
+  };
+
   const handleSubmit = async () => {
     if (!usePaperMode && !connected) {
       toast.error('Please connect your wallet for live trading');
@@ -82,7 +138,23 @@ const TradeModal = ({ token, opportunity = null, onClose, onSuccess }) => {
     }
 
     setLoading(true);
+    setSwapStatus(null);
+    setTxSignature(null);
+
     try {
+      let txSig = null;
+
+      // Execute live trade via Jupiter if not paper mode
+      if (!usePaperMode) {
+        const liveResult = await executeLiveTrade();
+        if (!liveResult) {
+          setLoading(false);
+          return;
+        }
+        txSig = liveResult.signature;
+      }
+
+      // Record trade in database
       const tradeData = {
         token_address: token.address,
         token_symbol: token.symbol,
@@ -96,17 +168,31 @@ const TradeModal = ({ token, opportunity = null, onClose, onSuccess }) => {
         trailing_stop_percent: trailingStopEnabled ? trailingStopPercent : null,
         paper_trade: usePaperMode,
         auto_trade: false,
-        wallet_address: publicKey?.toString() || null
+        wallet_address: publicKey?.toString() || null,
+        tx_signature: txSig
       };
 
       await axios.post(`${API_URL}/trades`, tradeData);
       
-      toast.success(
-        `${usePaperMode ? 'Paper' : 'Live'} ${tradeType} order placed!`,
-        {
-          description: `${token.symbol} | ${amountSOL.toFixed(4)} SOL | TP: +${takeProfitPercent}% | SL: -${stopLossPercent}%`
-        }
-      );
+      if (usePaperMode) {
+        toast.success(
+          `Paper ${tradeType} order placed!`,
+          {
+            description: `${token.symbol} | ${amountSOL.toFixed(4)} SOL | TP: +${takeProfitPercent}% | SL: -${stopLossPercent}%`
+          }
+        );
+      } else {
+        toast.success(
+          `Live ${tradeType} executed!`,
+          {
+            description: `${token.symbol} | ${amountSOL.toFixed(4)} SOL`,
+            action: txSig ? {
+              label: 'View on Solscan',
+              onClick: () => window.open(`https://solscan.io/tx/${txSig}`, '_blank')
+            } : undefined
+          }
+        );
+      }
       
       onSuccess && onSuccess();
       onClose();

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL, Connection } from '@solana/web3.js';
 import axios from 'axios';
 import { 
   Wallet, 
@@ -26,14 +26,26 @@ import {
   Eye,
   Radio,
   Power,
-  StopCircle
+  StopCircle,
+  AlertCircle,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
-import { Progress } from '../components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import TokenScanner from '../components/TokenScanner';
 import TradingOpportunities from '../components/TradingOpportunities';
 import BotSettingsPanel from '../components/BotSettingsPanel';
@@ -43,9 +55,20 @@ import TradingViewWidget from '../components/TradingViewWidget';
 import LiveTradesPanel from '../components/LiveTradesPanel';
 import { toast } from 'sonner';
 
+const TRADING_MODES = {
+  PAPER: 'paper',
+  LIVE: 'live'
+};
+
+// RPC Endpoints for failover
+const RPC_ENDPOINTS = [
+  'https://rpc.ankr.com/solana',
+  'https://api.mainnet-beta.solana.com'
+];
+
 const Dashboard = () => {
   const { logout, API_URL } = useApp();
-  const { connected, publicKey } = useWallet();
+  const { connected, publicKey, connecting } = useWallet();
   const { connection } = useConnection();
   
   const [walletBalance, setWalletBalance] = useState(0);
@@ -57,45 +80,98 @@ const Dashboard = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [selectedToken, setSelectedToken] = useState(null);
-  const [autoTrading, setAutoTrading] = useState(false);
   const [autoTradingActive, setAutoTradingActive] = useState(false);
+  const [tradingMode, setTradingMode] = useState(TRADING_MODES.PAPER);
+  const [showLiveModeWarning, setShowLiveModeWarning] = useState(false);
+  const [rpcStatus, setRpcStatus] = useState({ healthy: true, endpoint: null });
   const autoTradingIntervalRef = useRef(null);
+  const currentRpcIndexRef = useRef(0);
 
-  // Fetch wallet balance - every 10 seconds
+  // Debug wallet state
+  useEffect(() => {
+    console.log('📊 Dashboard Wallet State:', {
+      connected,
+      connecting,
+      publicKey: publicKey?.toBase58(),
+      walletBalance,
+      rpcEndpoint: RPC_ENDPOINTS[currentRpcIndexRef.current]?.substring(0, 30)
+    });
+  }, [connected, connecting, publicKey, walletBalance]);
+
+  // Create connection with specific endpoint
+  const createConnection = useCallback((endpointIndex) => {
+    const endpoint = RPC_ENDPOINTS[endpointIndex];
+    return new Connection(endpoint, {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 15000
+    });
+  }, []);
+
+  // Fetch wallet balance with failover
   const fetchWalletBalance = useCallback(async () => {
-    if (connected && publicKey && connection) {
+    if (!connected || !publicKey) {
+      setWalletBalance(0);
+      return;
+    }
+    
+    // Try each endpoint
+    for (let i = 0; i < RPC_ENDPOINTS.length; i++) {
+      const endpointIndex = (currentRpcIndexRef.current + i) % RPC_ENDPOINTS.length;
+      
       try {
-        const balance = await connection.getBalance(publicKey);
-        setWalletBalance(balance / LAMPORTS_PER_SOL);
+        console.log(`💰 Fetching wallet balance from endpoint ${endpointIndex + 1}...`);
+        const conn = createConnection(endpointIndex);
+        
+        const balancePromise = conn.getBalance(publicKey);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), 10000)
+        );
+        
+        const balance = await Promise.race([balancePromise, timeoutPromise]);
+        const solBalance = balance / LAMPORTS_PER_SOL;
+        
+        console.log(`✅ Wallet Balance: ${solBalance} SOL`);
+        setWalletBalance(solBalance);
+        setRpcStatus({ healthy: true, endpoint: RPC_ENDPOINTS[endpointIndex] });
+        currentRpcIndexRef.current = endpointIndex;
+        return;
+        
       } catch (error) {
-        console.error('Error fetching balance:', error);
+        console.warn(`❌ RPC ${endpointIndex + 1} failed:`, error.message);
+        
+        if (i === RPC_ENDPOINTS.length - 1) {
+          console.error('❌ All RPC endpoints failed for balance fetch');
+          setRpcStatus({ healthy: false, endpoint: null });
+        }
       }
     }
-  }, [connected, publicKey, connection]);
+  }, [connected, publicKey, createConnection]);
 
   // Fetch portfolio and settings
   const fetchData = useCallback(async () => {
     try {
+      console.log('📡 Fetching portfolio and settings...');
       const [portfolioRes, settingsRes] = await Promise.all([
         axios.get(`${API_URL}/portfolio`),
         axios.get(`${API_URL}/bot/settings`)
       ]);
       setPortfolio(portfolioRes.data);
       setBotSettings(settingsRes.data);
-      setAutoTrading(settingsRes.data.auto_trade_enabled);
+      setTradingMode(settingsRes.data.paper_mode ? TRADING_MODES.PAPER : TRADING_MODES.LIVE);
+      console.log('✅ Data fetched:', { portfolio: portfolioRes.data, settings: settingsRes.data });
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('❌ Error fetching data:', error);
     }
     setLoading(false);
   }, [API_URL]);
 
-  // Fetch SOL price from backend (with caching)
+  // Fetch SOL price
   const fetchSolPrice = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/market/sol-price`);
       setSolPrice(response.data.price || 150);
-    } catch {
-      // Keep existing price
+    } catch (error) {
+      console.warn('⚠️ Error fetching SOL price:', error);
     }
   }, [API_URL]);
 
@@ -118,20 +194,55 @@ const Dashboard = () => {
     };
   }, [fetchWalletBalance, fetchData, fetchSolPrice]);
 
+  // Handle trading mode toggle
+  const handleTradingModeToggle = (newMode) => {
+    if (newMode === TRADING_MODES.LIVE) {
+      setShowLiveModeWarning(true);
+    } else {
+      updateTradingMode(TRADING_MODES.PAPER);
+    }
+  };
+
+  const updateTradingMode = async (mode) => {
+    try {
+      const isPaperMode = mode === TRADING_MODES.PAPER;
+      const newSettings = { ...botSettings, paper_mode: isPaperMode };
+      await axios.put(`${API_URL}/bot/settings`, newSettings);
+      setBotSettings(newSettings);
+      setTradingMode(mode);
+      
+      toast.success(
+        isPaperMode ? '🧪 Paper Mode Activated' : '🚀 Live Trading Activated',
+        { description: isPaperMode ? 'Trades will be simulated' : 'Real funds will be used!' }
+      );
+    } catch (error) {
+      toast.error('Failed to update trading mode');
+    }
+  };
+
+  const confirmLiveMode = () => {
+    updateTradingMode(TRADING_MODES.LIVE);
+    setShowLiveModeWarning(false);
+  };
+
   // Auto Trading Logic
   const executeAutoTrade = useCallback(async () => {
     if (!autoTradingActive || !botSettings) return;
     
     try {
-      // Get trading opportunities
+      console.log('🤖 Auto Trading: Scanning for opportunities...');
+      
       const oppResponse = await axios.get(`${API_URL}/opportunities`);
       const opportunities = oppResponse.data;
       
-      if (opportunities.length === 0) return;
+      if (opportunities.length === 0) {
+        console.log('🔍 No opportunities found');
+        return;
+      }
       
-      // Check if we can open more trades
       const portfolioRes = await axios.get(`${API_URL}/portfolio`);
       if (portfolioRes.data.open_trades >= botSettings.max_parallel_trades) {
+        console.log('⏸️ Max parallel trades reached');
         return;
       }
       
@@ -141,18 +252,24 @@ const Dashboard = () => {
         return;
       }
       
-      // Take the best opportunity
       const bestOpp = opportunities[0];
-      if (bestOpp.confidence < 70) return; // Only trade high confidence signals
+      if (bestOpp.confidence < 70) {
+        console.log(`⏭️ Skipping: confidence ${bestOpp.confidence}% < 70%`);
+        return;
+      }
       
       const tradeAmount = Math.min(
         botSettings.total_budget_sol * (botSettings.max_trade_percent / 100),
         portfolioRes.data.available_sol
       );
       
-      if (tradeAmount < botSettings.min_trade_sol) return;
+      if (tradeAmount < botSettings.min_trade_sol) {
+        console.log(`⏭️ Skipping: trade amount ${tradeAmount} < min ${botSettings.min_trade_sol}`);
+        return;
+      }
       
-      // Execute trade
+      console.log(`🚀 Executing trade: ${bestOpp.token.symbol} for ${tradeAmount} SOL`);
+      
       const tradeData = {
         token_address: bestOpp.token.address,
         token_symbol: bestOpp.token.symbol,
@@ -164,56 +281,55 @@ const Dashboard = () => {
         take_profit_percent: botSettings.take_profit_percent,
         stop_loss_percent: botSettings.stop_loss_percent,
         trailing_stop_percent: botSettings.trailing_stop_enabled ? botSettings.trailing_stop_percent : null,
-        paper_trade: botSettings.paper_mode,
+        paper_trade: tradingMode === TRADING_MODES.PAPER,
         auto_trade: true,
-        wallet_address: publicKey?.toString()
+        wallet_address: publicKey?.toBase58()
       };
       
-      await axios.post(`${API_URL}/trades`, tradeData);
+      const response = await axios.post(`${API_URL}/trades`, tradeData);
       
-      toast.success('🤖 Auto Trade Executed!', {
-        description: `Bought ${bestOpp.token.symbol} for ${tradeAmount.toFixed(4)} SOL`
+      toast.success(`🤖 ${tradingMode === TRADING_MODES.PAPER ? 'Paper' : 'Live'} Trade Executed!`, {
+        description: `Bought ${bestOpp.token.symbol} for ${tradeAmount.toFixed(4)} SOL`,
+        action: {
+          label: 'View',
+          onClick: () => setActiveTab('trades')
+        }
       });
       
       fetchData();
+      fetchWalletBalance();
+      
     } catch (error) {
-      console.error('Auto trade error:', error);
+      console.error('❌ Auto trade error:', error);
+      toast.error('Auto trade failed', { description: error.response?.data?.detail || error.message });
     }
-  }, [autoTradingActive, botSettings, API_URL, publicKey, fetchData]);
+  }, [autoTradingActive, botSettings, API_URL, publicKey, tradingMode, fetchData, fetchWalletBalance]);
 
   const startAutoTrading = async () => {
     if (!botSettings) return;
     
-    // Enable auto trading in settings
-    const newSettings = { ...botSettings, auto_trade_enabled: true };
-    await axios.put(`${API_URL}/bot/settings`, newSettings);
-    setBotSettings(newSettings);
-    setAutoTrading(true);
+    console.log('🚀 Starting Auto Trading...');
     setAutoTradingActive(true);
     
-    // Start auto trading loop
+    // Execute immediately
+    executeAutoTrade();
+    
+    // Set up interval
     autoTradingIntervalRef.current = setInterval(executeAutoTrade, botSettings.scan_interval_seconds * 1000);
     
     toast.success('🤖 Auto Trading Started', {
-      description: `Scanning every ${botSettings.scan_interval_seconds}s for opportunities`
+      description: `Scanning every ${botSettings.scan_interval_seconds}s | Mode: ${tradingMode.toUpperCase()}`
     });
   };
 
   const stopAutoTrading = async () => {
-    // Clear interval
+    console.log('🛑 Stopping Auto Trading...');
+    
     if (autoTradingIntervalRef.current) {
       clearInterval(autoTradingIntervalRef.current);
       autoTradingIntervalRef.current = null;
     }
     
-    // Disable auto trading in settings
-    if (botSettings) {
-      const newSettings = { ...botSettings, auto_trade_enabled: false };
-      await axios.put(`${API_URL}/bot/settings`, newSettings);
-      setBotSettings(newSettings);
-    }
-    
-    setAutoTrading(false);
     setAutoTradingActive(false);
     
     toast.info('🛑 Auto Trading Stopped', {
@@ -229,7 +345,7 @@ const Dashboard = () => {
     }
   };
 
-  // Cleanup on unmount
+  // Cleanup
   useEffect(() => {
     return () => {
       if (autoTradingIntervalRef.current) {
@@ -243,6 +359,11 @@ const Dashboard = () => {
     setActiveTab('chart');
   };
 
+  const handleWalletBalanceUpdate = (balance) => {
+    console.log('📥 Wallet balance update from panel:', balance);
+    setWalletBalance(balance);
+  };
+
   const formatUSD = (value) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -253,7 +374,8 @@ const Dashboard = () => {
   };
 
   const formatSOL = (value) => {
-    return `${value?.toFixed(4) || '0.0000'} SOL`;
+    if (value === null || value === undefined) return '--';
+    return `${value.toFixed(4)} SOL`;
   };
 
   return (
@@ -267,44 +389,52 @@ const Dashboard = () => {
               <span className="text-xl font-heading font-bold tracking-tight">PUMP TERMINAL</span>
             </div>
             
-            {/* Auto Trading Control */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant={autoTradingActive ? 'default' : 'outline'}
-                size="sm"
-                onClick={toggleAutoTrading}
-                className={`${autoTradingActive 
-                  ? 'bg-neon-green text-black hover:bg-neon-green/90 animate-pulse' 
-                  : 'border-neon-green/30 text-neon-green hover:bg-neon-green/10'
-                }`}
-                data-testid="auto-trade-toggle"
-              >
-                {autoTradingActive ? (
-                  <>
-                    <StopCircle className="w-4 h-4 mr-2" />
-                    Stop Auto Trade
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 mr-2" />
-                    Start Auto Trade
-                  </>
-                )}
-              </Button>
-              
-              {autoTradingActive && (
-                <Badge className="bg-neon-green/20 text-neon-green border-none animate-pulse">
-                  <Bot className="w-3 h-3 mr-1" />
-                  ACTIVE
-                </Badge>
-              )}
+            {/* Trading Mode Toggle */}
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border ${
+              tradingMode === TRADING_MODES.LIVE 
+                ? 'bg-neon-red/10 border-neon-red/30' 
+                : 'bg-neon-cyan/10 border-neon-cyan/30'
+            }`}>
+              <span className={`text-xs uppercase tracking-wider ${
+                tradingMode === TRADING_MODES.LIVE ? 'text-neon-red' : 'text-neon-cyan'
+              }`}>
+                {tradingMode === TRADING_MODES.LIVE ? '🔴 LIVE' : '🧪 PAPER'}
+              </span>
+              <Switch 
+                checked={tradingMode === TRADING_MODES.LIVE}
+                onCheckedChange={(checked) => handleTradingModeToggle(checked ? TRADING_MODES.LIVE : TRADING_MODES.PAPER)}
+                data-testid="trading-mode-toggle"
+              />
             </div>
-
-            {/* Paper Mode Indicator */}
-            {botSettings?.paper_mode && (
-              <Badge className="bg-neon-cyan/20 text-neon-cyan border-none">
-                <Shield className="w-3 h-3 mr-1" />
-                Paper Mode
+            
+            {/* Auto Trading Control */}
+            <Button
+              variant={autoTradingActive ? 'default' : 'outline'}
+              size="sm"
+              onClick={toggleAutoTrading}
+              className={`${autoTradingActive 
+                ? 'bg-neon-green text-black hover:bg-neon-green/90' 
+                : 'border-neon-green/30 text-neon-green hover:bg-neon-green/10'
+              }`}
+              data-testid="auto-trade-toggle"
+            >
+              {autoTradingActive ? (
+                <>
+                  <StopCircle className="w-4 h-4 mr-2" />
+                  Stop Auto Trade
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Start Auto Trade
+                </>
+              )}
+            </Button>
+            
+            {autoTradingActive && (
+              <Badge className="bg-neon-green/20 text-neon-green border-none animate-pulse">
+                <Bot className="w-3 h-3 mr-1" />
+                ACTIVE
               </Badge>
             )}
 
@@ -312,7 +442,7 @@ const Dashboard = () => {
             {portfolio?.is_paused && (
               <Badge className="bg-neon-red/20 text-neon-red border-none animate-pulse">
                 <Pause className="w-3 h-3 mr-1" />
-                Trading Paused
+                PAUSED
               </Badge>
             )}
           </div>
@@ -327,13 +457,15 @@ const Dashboard = () => {
               data-testid="search-button"
             >
               <Search className="w-4 h-4 mr-2" />
-              Search Token
+              Search
             </Button>
 
             {/* SOL Price */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0A0A0A] border border-[#1E293B] rounded-sm">
               <span className="text-xs text-muted-foreground">SOL</span>
-              <span className="font-mono text-sm text-neon-green" data-testid="sol-price-header">{formatUSD(solPrice)}</span>
+              <span className="font-mono text-sm text-neon-green" data-testid="sol-price-header">
+                {formatUSD(solPrice)}
+              </span>
             </div>
 
             {/* Wallet */}
@@ -374,10 +506,10 @@ const Dashboard = () => {
                 <Wallet className="w-4 h-4 text-neon-cyan" />
               </div>
               <div className="font-mono text-xl font-bold text-neon-cyan" data-testid="wallet-balance-display">
-                {connected ? formatSOL(walletBalance) : '--'}
+                {connected ? formatSOL(walletBalance) : (connecting ? 'Connecting...' : 'Not Connected')}
               </div>
               <div className="text-xs text-muted-foreground">
-                {connected ? formatUSD(walletBalance * solPrice) : 'Connect wallet'}
+                {connected ? formatUSD(walletBalance * solPrice) : 'Connect wallet to trade'}
               </div>
             </CardContent>
           </Card>
@@ -451,7 +583,7 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Pause Warning Banner */}
+        {/* Risk Warning Banner */}
         {portfolio?.is_paused && (
           <div className="mb-4 p-4 bg-neon-red/10 border border-neon-red/30 rounded-sm flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -469,6 +601,16 @@ const Dashboard = () => {
               <Settings className="w-4 h-4 mr-2" />
               Adjust Settings
             </Button>
+          </div>
+        )}
+
+        {/* Live Mode Active Warning */}
+        {tradingMode === TRADING_MODES.LIVE && (
+          <div className="mb-4 p-3 bg-neon-red/10 border border-neon-red/30 rounded-sm flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-neon-red" />
+            <span className="text-sm text-neon-red">
+              <strong>Live Trading Active:</strong> Real funds will be used for trades. Trade carefully!
+            </span>
           </div>
         )}
 
@@ -495,14 +637,11 @@ const Dashboard = () => {
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Trading Opportunities - 2 columns */}
               <div className="lg:col-span-2">
                 <TradingOpportunities onSelectToken={handleTokenSelect} />
               </div>
-              
-              {/* Wallet & Trades Panel */}
               <div className="space-y-4">
-                <WalletPanel solPrice={solPrice} />
+                <WalletPanel solPrice={solPrice} onBalanceUpdate={handleWalletBalanceUpdate} />
                 <LiveTradesPanel solPrice={solPrice} compact />
               </div>
             </div>
@@ -518,7 +657,6 @@ const Dashboard = () => {
 
           <TabsContent value="chart">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-              {/* Chart - 3 columns */}
               <div className="lg:col-span-3">
                 <Card className="bg-[#0A0A0A] border-[#1E293B] h-[600px]">
                   <CardHeader className="border-b border-[#1E293B] py-3">
@@ -544,8 +682,6 @@ const Dashboard = () => {
                   </CardContent>
                 </Card>
               </div>
-
-              {/* Trade Panel - 1 column */}
               <div>
                 <LiveTradesPanel solPrice={solPrice} compact />
               </div>
@@ -561,7 +697,7 @@ const Dashboard = () => {
           onClose={() => setShowSettings(false)} 
           onSave={(newSettings) => {
             setBotSettings(newSettings);
-            setAutoTrading(newSettings.auto_trade_enabled);
+            setTradingMode(newSettings.paper_mode ? TRADING_MODES.PAPER : TRADING_MODES.LIVE);
           }}
         />
       )}
@@ -572,6 +708,42 @@ const Dashboard = () => {
         onClose={() => setShowSearch(false)}
         onSelectToken={handleTokenSelect}
       />
+
+      {/* Live Mode Warning Dialog */}
+      <AlertDialog open={showLiveModeWarning} onOpenChange={setShowLiveModeWarning}>
+        <AlertDialogContent className="bg-[#0A0A0A] border-[#1E293B]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-neon-red">
+              <AlertTriangle className="w-5 h-5" />
+              Enable Live Trading?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              <p className="mb-4">
+                You are about to enable <strong className="text-neon-red">LIVE TRADING</strong>. 
+                This means real funds from your wallet will be used for trades.
+              </p>
+              <div className="bg-neon-red/10 border border-neon-red/30 rounded-sm p-3 space-y-2">
+                <p className="text-neon-red font-semibold">⚠️ Warning:</p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li>Real SOL will be spent on trades</li>
+                  <li>Losses are permanent and non-reversible</li>
+                  <li>Trading crypto carries significant risk</li>
+                  <li>Never trade more than you can afford to lose</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-[#1E293B]">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmLiveMode}
+              className="bg-neon-red text-white hover:bg-neon-red/90"
+            >
+              I Understand, Enable Live Trading
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

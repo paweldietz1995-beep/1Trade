@@ -1,0 +1,185 @@
+<analysis>**original_problem_statement:**
+The user wants to build a specialized, automated trading application for Pump.fun tokens on the Solana blockchain.
+
+**Initial Version (Private Tool for Creator):**
+- **Role:** The user acts as a Senior Blockchain, Trading, and AI Software Architect.
+- **Goal:** Create a detailed technical specification and then build an automated trading app.
+- **Core Function:** The app continuously analyzes new and existing Pump.fun tokens, identifies potentially profitable trades using data analysis and risk filters, and automatically executes trades to achieve small profits per trade (e.g., 0 -> 0) with controlled risk.
+
+**Key Features Requested:**
+1.  **Data Analysis:** Monitor Pump.fun tokens (new and existing) by analyzing liquidity, market cap, volume, holders, buy/sell ratio, wallet distribution, social momentum, price movements, volatility, token age, and developer wallet activity. Data sources include Pump.fun, Solana RPC Nodes, DEX Screener, and Solana Explorer APIs.
+2.  **Security Analysis:** Automatically filter tokens based on security criteria like honeypot checks, rug pull risk, liquidity locks, developer wallet share, top holder concentration, and contract security.
+3.  **Trading Engine:**
+    -   **Hybrid Mode:** The app automatically identifies opportunities and suggests trades, which the user manually confirms. An optional Auto Mode should be available.
+    -   **Functionality:** Buy/sell tokens, handle multiple trades simultaneously, and set automatic stop-loss/take-profit.
+    -   **Strategies:** Micro-scalping, momentum trading, early-launch sniping.
+    -   **Customizable Parameters:** Stake per trade, max loss, take profit, stop loss, max parallel trades.
+4.  **Wallet Integration:**
+    -   **Real Integration:** Use Phantom Wallet via the Solana Wallet Adapter to sign real transactions.
+    -   **Paper/Test Mode:** Include an optional mode for simulating trades without real transactions.
+    -   **Features:** Connect wallet, manage multiple wallets/accounts, display balance and transaction history.
+5.  **User Interface (UI):**
+    -   **Theme:** Dark trading terminal style, inspired by DEX Screener and TradingView.
+    -   **Colors:** Dark grey/black background with neon green, cyan, and violet accents.
+    -   **Dashboard:** Must display wallet balance, active trades, P&L, a token watchlist/scanner, risk analysis, and live market data.
+6.  **Authentication:** Simple local PIN/password protection for a single user/device.
+7.  **Future Expandability:** The architecture should allow for future additions like a multi-user platform, Telegram bot, copy-trading, and AI models.
+
+**User's preferred language**: The user's primary language is German. All responses should be in German.
+
+**what currently exists?**
+The project is a full-stack application with a React frontend and a FastAPI backend.
+- **Frontend:** A functional dark theme dashboard is in place. It can connect to a Phantom wallet (though it sometimes fails to read the balance correctly). It displays the SOL price, portfolio statistics (P&L, win rate), and a list of active and closed paper (simulated) trades. UI controls for starting/stopping Auto Trade and switching between Paper and Live trading modes are implemented, including a warning dialog for enabling live mode. An  is in place to catch runtime errors.
+- **Backend:** A FastAPI server with endpoints for PIN-based authentication, fetching token data (from DEX Screener), and managing simulated trades. It includes a caching mechanism for the SOL price to avoid API rate-limiting issues.
+
+**Last working item**:
+- **Last item agent was working:** The agent addressed a user report about runtime errors, wallet connection issues, and the lack of a live trading mode. The agent implemented a global  in React, added a UI toggle to switch between Paper and Live trading modes (with a confirmation dialog), improved the dashboard to correctly show wallet connection status, and ensured the P&L monitor works correctly.
+- **Status:** USER VERIFICATION PENDING
+- **Agent Testing Done:** Y (Verified via screenshots of the UI functionality)
+- **Which testing method agent to use?** both (The  should be used to run a full regression suite on both frontend and backend to ensure the recent fixes and new UI components haven't introduced regressions. Mode:  or .)
+- **User Testing Done:** N
+
+**All Pending/In progress Issue list**:
+- **Issue 1: Runtime Errors & Wallet Display (P0)**
+  - **Description:** The user reported Uncaught runtime errors and the wallet balance showing as --. The agent implemented an  and improved wallet status display logic, but this fix needs user verification and potentially further debugging if the root cause persists.
+  - **Attempted fixes:** Wrapped the main App component and other key components in an . Modified the  to better handle connection states (, ).
+  - **Next debug checklist:**
+    - Verify with the user if the runtime errors are gone.
+    - If errors persist, check browser console logs for the specific error messages that were not caught by the Error Boundary.
+    - Check the  hook's state throughout the component lifecycle (, , ).
+    - Ensure the RPC connection used to fetch the balance is stable.
+  - **Why fix this issue and what will be achieved with the fix?** A stable UI without crashes is essential for the application to be usable. Correctly displaying the wallet status and balance is a core requirement.
+  - **Status:** USER VERIFICATION PENDING
+  - **Is recurring issue?** Y
+  - **Should Test frontend/backend/both after fix?** frontend
+  - **Blocked on other issue:** None
+
+**In progress Task List**:
+There are no tasks currently in progress. The agent just completed a set of fixes and feature additions.
+
+**Upcoming and Future Tasks**
+**Upcoming Tasks:**
+- **P0: Implement Live Trading Backend Logic:** The UI toggle exists, but the backend functionality to execute real trades via the Jupiter Aggregator API when  is live needs to be built. This includes signing transactions with the connected wallet.
+- **P1: Implement Auto-Trading Engine:** The Start/Stop Auto Trade buttons are in the UI, but the backend logic for the 24/7 token scanning, risk analysis, and automatic trade execution loop is not yet implemented.
+- **P2: Implement Trade Execution Feedback:** When a live trade is executed, display a confirmation (e.g., using  toast) with the token, amount, and a link to the transaction on Solscan.
+- **P2: Improve RPC Stability:** Implement a retry mechanism for RPC calls, add timeouts, and configure a fallback RPC node to improve application stability.
+
+**Future Tasks:**
+- Multi-User Platform
+- Telegram Trading Bot Integration
+- Copy-Trading Feature
+- AI-driven Trading Models
+
+**Completed work in this session**
+- **Initial Scaffolding:** Created the full-stack React/FastAPI/MongoDB application structure.
+- **Authentication:** Implemented a PIN-based login system.
+- **UI/Dashboard:**
+  - Built a dark-themed trading dashboard.
+  - Integrated DEX Screener for live token data in a Token Scanner view.
+  - Created a  showing portfolio stats, active trades, and closed trades.
+  - Implemented UI for / mode switching and  control.
+- **Trading Simulation:** Developed a Paper Mode to simulate trades.
+- **Wallet Integration:** Integrated the Solana Wallet Adapter to connect to Phantom.
+- **Bug Fixes & Stability:**
+  - Resolved webpack/craco polyfill issues related to the wallet adapter.
+  - Fixed a PIN login bug.
+  - Added backend caching for the SOL price to prevent API rate-limiting.
+  - Implemented a React  to prevent the app from crashing on runtime errors.
+
+**Earlier issues found/mentioned but not fixed**
+All major issues reported by the user in the conversation history have been addressed in the last iteration, although their complete resolution is pending user verification. The core missing functionality (live trading) is captured in the **Upcoming Tasks**.
+
+**Known issue recurrence from previous fork**
+- **Issue recurrence in previous fork:** None. This is the first summary.
+- **Recurrence count:** 0
+- **Status:** NA
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Frontend:** React, Tailwind CSS, Shadcn/UI
+- **Backend:** FastAPI (Python)
+- **Database:** MongoDB
+- **Blockchain:** Solana
+- **Integrations:** Solana Web3.js, @solana/wallet-adapter-react, DEX Screener API, Jupiter Aggregator API (planned)
+
+**key DB schema**
+- **settings:** 
+- **trades:** 
+
+**changes in tech stack**
+None.
+
+**All files of reference**
+- : The main FastAPI application file. Contains logic for auth, data fetching, and trade simulation. Recently updated to cache SOL price.
+- : The root React component. Recently updated to include the  and  provider.
+- : The main dashboard component. Recently updated to include the  toggle and  buttons.
+- : Component for wallet connection and balance display. Updated to improve connection state handling.
+- : Component displaying active and closed trades and portfolio summary.
+- : Global state management for the frontend, including trading mode and wallet status.
+- : Configuration file used to fix webpack polyfill issues for the Solana Wallet Adapter.
+
+**Areas that need refactoring**:
+The logic for handling paper vs. live trades is currently scattered across components using . This could be centralized into a dedicated service or hook () that abstracts away the execution logic based on the current mode.
+
+**key api endpoints**
+- : Validates the user's PIN.
+- : Sets the initial PIN.
+- : Fetches the current price of SOL (with caching).
+- : Scans for new and trending tokens from DEX Screener.
+- : Fetches active paper trades.
+- : Fetches closed paper trades.
+- : Fetches overall portfolio statistics.
+
+**Critical Info for New Agent**
+- **Respond in German.** The user's primary language is German.
+- The most critical upcoming task is to implement the **backend logic for live trading**. The UI is mostly ready, but the app cannot execute real transactions on Solana yet. This will involve using the Jupiter Aggregator API.
+- The app has two modes:  and . The logic for executing trades needs to respect the  state variable, which is managed in the .
+- All wallet interactions on the frontend are handled by the  library.
+- Stability is a key user concern. Ensure RPC calls are robust.
+
+**documents and test reports created in this job**
+- 
+- 
+- 
+- 
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User (Latest):** Reports Uncaught runtime errors, wallet balance showing --, and that only paper mode is active. Asks for a fix, implementation of a live trading toggle, an auto-trade function, a live P/L panel, and stability improvements. (Status: In Progress/Addressed by last agent action).
+2.  **Agent:** Acknowledges the runtime error from the screenshot and plans to fix all reported issues.
+3.  **User:** Provided a screenshot showing the runtime error and broken UI.
+4.  **Agent:** Finished the previous iteration, fixing the P&L monitor and adding auto-trade controls.
+5.  **User:** Asks for correct wallet balance display, an auto-trade start/stop button, a live P/L window, and better trade execution feedback. (Status: Completed).
+6.  **Agent:** Finished the previous iteration, fixing a minor test failure.
+7.  **User:** Requests a full automated trading system with detailed logic for capital management, token discovery, momentum analysis, and risk management. (Status: Partially Implemented - UI/simulation done).
+8.  **Agent:** Acknowledges PIN issue and plans to add a reset endpoint and improve logic.
+9.  **User:** Reports an Invalid PIN issue despite entering the correct PIN. Asks for debugging and a fix. (Status: Completed).
+10. **Agent:** Confirms understanding of the new, more detailed requirements and plans to extend the app.
+
+**Project Health Check:**
+- **Broken:**
+  - The core live trading functionality is not implemented on the backend.
+- **Mocked:**
+  - All trading logic is currently simulated (paper trading). The auto-trade engine is also just a UI placeholder.
+
+**3rd Party Integrations**
+- **Solana Web3.js:** For interacting with the Solana blockchain.
+- **DEX Screener API:** Used for fetching token market data.
+- **Jupiter Aggregator API:** Planned for executing live trades (swaps).
+- **Phantom Wallet (via @solana/wallet-adapter):** For wallet connection and transaction signing.
+
+**Testing status**
+- **Testing agent used after significant changes:** YES
+- **Troubleshoot agent used after agent stuck in loop:** NO
+- **Test files created:**
+  - 
+  - 
+  - 
+- **Known regressions:** None.
+
+**Credentials to test flow:**
+The application uses a PIN-based login. The PIN is set by the user on the first launch. There are no other credentials required for the current functionality.
+
+**What agent forgot to execute**
+The agent has built the UI for several features requested by the user (live trading, auto-trading) but has not yet implemented the corresponding backend logic to make them functional. The specific feedback for a trade (linking to Solscan) has also not been implemented yet. These are the highest priority items for the next agent.</analysis>

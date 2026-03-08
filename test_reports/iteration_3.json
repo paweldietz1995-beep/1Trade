@@ -1,0 +1,72 @@
+{
+  "summary": "Generate-mode testing for Pump.fun Trading Terminal with new safety features. All 21 backend API tests pass (including new safety params). 48 frontend E2E tests pass (2 skipped due to external DEX API timing, 1 flaky passed on retry). New test spec added for wallet/RPC features.",
+  "mode": "generate",
+  "baseline_commit": "9d2176deee620c03216733af73f8abd7ff95c63b",
+  "head_commit": "c8aa7bd2ebfe1043caf4ee425a4a2246cc11e20f",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "regression_results": {
+    "total_specs": 51,
+    "passed": 48,
+    "failed": 0,
+    "skipped": 2,
+    "flaky": 1
+  },
+  "backend_test_results": {
+    "total": 21,
+    "passed": 21,
+    "failed": 0
+  },
+  "specs_created": [
+    "/app/tests/e2e/wallet-rpc-features.spec.ts"
+  ],
+  "specs_updated": [
+    "/app/tests/e2e/core-flows.spec.ts",
+    "/app/tests/e2e/settings-paper-mode.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts",
+    "/app/backend/tests/test_api.py",
+    "/app/backend/tests/conftest.py"
+  ],
+  "quarantined_tests": [],
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/tests/e2e/wallet-rpc-features.spec.ts"
+  ],
+  "action_items": [],
+  "updated_files": [
+    "/app/tests/e2e/core-flows.spec.ts",
+    "/app/tests/e2e/settings-paper-mode.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts",
+    "/app/tests/e2e/wallet-rpc-features.spec.ts",
+    "/app/backend/tests/test_api.py",
+    "/app/backend/tests/conftest.py"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21)",
+    "frontend": "96% (48/50 - 2 skipped due to external API)"
+  },
+  "seed_data_creation": "Test suite creates paper trades during execution and cleans them up via afterEach fixture in conftest.py",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "App is Pump.fun Solana Trading Terminal with PIN auth (PIN: 1234). Key features tested: 1) RPC Failover with Ankr primary + Solana mainnet fallback, 2) Trading mode toggle (Paper/Live) with warning dialog for Live, 3) Trading safety params (max_trade_amount_sol, max_daily_loss_sol, max_loss_streak, slippage_bps), 4) tx_signature field for Solscan links, 5) Wallet panel disconnected state. Test data isolation via cleanup fixture that closes TEST_* trades. Token scanner may show 0 tokens due to external DEX Screener API slowness - tests gracefully skip when this happens. Dashboard testids: auto-trade-toggle (not auto-trading-toggle), trading-mode-toggle, wallet-panel-disconnected.",
+  "features_verified": {
+    "backend_api_health": "PASS - /api/health returns healthy",
+    "portfolio_endpoint": "PASS - Returns correct structure with safety fields",
+    "bot_settings_endpoint": "PASS - New fields: max_trade_amount_sol, max_daily_loss_sol, max_loss_streak, slippage_bps",
+    "trades_endpoint": "PASS - tx_signature field present for Solscan links",
+    "sol_price_endpoint": "PASS - Returns live price from DEX Screener/CoinGecko",
+    "token_scan_endpoint": "PASS - Returns tokens with risk analysis",
+    "trading_opportunities": "PASS - Returns filtered opportunities",
+    "dashboard_display": "PASS - No runtime errors, all 5 stat cards visible",
+    "trading_mode_toggle": "PASS - Paper/Live toggle works with warning dialog",
+    "wallet_disconnected_state": "PASS - Shows proper disconnected message"
+  }
+}

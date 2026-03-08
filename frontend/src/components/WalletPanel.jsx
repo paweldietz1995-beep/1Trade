@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL, PublicKey, Connection } from '@solana/web3.js';
 import { 
   Wallet, 
   Copy, 
@@ -8,79 +8,183 @@ import {
   RefreshCw,
   Check,
   Coins,
-  TrendingUp
+  TrendingUp,
+  AlertCircle,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
+import { useRPC } from '../context/SolanaWalletProvider';
 
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 
-const WalletPanel = ({ solPrice = 150 }) => {
-  const { connected, publicKey, disconnect } = useWallet();
+// RPC Endpoints for failover - ordered by reliability
+const RPC_ENDPOINTS = [
+  'https://rpc.ankr.com/solana',           // Primary: Ankr (reliable, no rate limiting)
+  'https://api.mainnet-beta.solana.com'    // Fallback: Solana Mainnet
+];
+
+const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
+  const { connected, publicKey, disconnect, connecting, wallet } = useWallet();
   const { connection } = useConnection();
+  const rpcContext = useRPC();
   const [balance, setBalance] = useState(0);
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [error, setError] = useState(null);
+  const [rpcStatus, setRpcStatus] = useState({ healthy: true, endpoint: null, retries: 0 });
   const refreshIntervalRef = useRef(null);
+  const currentEndpointIndexRef = useRef(0);
 
-  const fetchBalance = useCallback(async () => {
-    if (!connected || !publicKey || !connection) {
+  // Debug logging
+  useEffect(() => {
+    console.log('🔌 Wallet State:', {
+      connected,
+      connecting,
+      publicKey: publicKey?.toBase58(),
+      wallet: wallet?.adapter?.name,
+      rpcEndpoint: rpcContext?.currentEndpoint?.substring(0, 30)
+    });
+  }, [connected, connecting, publicKey, wallet, rpcContext]);
+
+  // Create connection with specific endpoint
+  const createConnection = useCallback((endpointIndex) => {
+    const endpoint = RPC_ENDPOINTS[endpointIndex];
+    console.log(`🔗 Creating connection to: ${endpoint.substring(0, 40)}...`);
+    return new Connection(endpoint, {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 15000
+    });
+  }, []);
+
+  // Fetch balance with automatic failover
+  const fetchBalanceWithFailover = useCallback(async (maxRetries = 3) => {
+    if (!connected || !publicKey) {
+      console.log('⚠️ Wallet not connected, skipping balance fetch');
       setBalance(0);
       return;
     }
     
     setLoading(true);
-    try {
-      // Fetch SOL balance using Solana RPC
-      const lamports = await connection.getBalance(publicKey);
-      const solBalance = lamports / LAMPORTS_PER_SOL;
-      setBalance(solBalance);
-      setLastUpdate(new Date());
+    setError(null);
+    
+    let lastError = null;
+    
+    // Try each endpoint with retries
+    for (let endpointIndex = 0; endpointIndex < RPC_ENDPOINTS.length; endpointIndex++) {
+      const endpoint = RPC_ENDPOINTS[endpointIndex];
       
-      // Fetch SPL token accounts
-      try {
-        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-          publicKey,
-          { programId: TOKEN_PROGRAM_ID }
-        );
-        
-        const tokenList = tokenAccounts.value
-          .map(account => {
-            const info = account.account.data.parsed.info;
-            return {
-              mint: info.mint,
-              balance: info.tokenAmount.uiAmount || 0,
-              decimals: info.tokenAmount.decimals,
-              symbol: info.mint.slice(0, 4) + '...' + info.mint.slice(-4)
-            };
-          })
-          .filter(t => t.balance > 0)
-          .sort((a, b) => b.balance - a.balance);
-        
-        setTokens(tokenList);
-      } catch (tokenError) {
-        console.error('Error fetching tokens:', tokenError);
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          console.log(`📊 Fetching balance - Endpoint ${endpointIndex + 1}/${RPC_ENDPOINTS.length}, Attempt ${attempt + 1}/${maxRetries}`);
+          
+          // Create a fresh connection for this attempt
+          const conn = createConnection(endpointIndex);
+          
+          // Fetch SOL balance with timeout
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('RPC timeout (10s)')), 10000)
+          );
+          
+          const balancePromise = conn.getBalance(publicKey);
+          const lamports = await Promise.race([balancePromise, timeoutPromise]);
+          
+          const solBalance = lamports / LAMPORTS_PER_SOL;
+          console.log(`✅ Balance fetched: ${solBalance} SOL from ${endpoint.substring(0, 30)}...`);
+          
+          setBalance(solBalance);
+          setLastUpdate(new Date());
+          setRpcStatus({ healthy: true, endpoint: endpoint, retries: 0 });
+          currentEndpointIndexRef.current = endpointIndex;
+          
+          // Notify parent component
+          if (onBalanceUpdate) {
+            onBalanceUpdate(solBalance);
+          }
+          
+          // Fetch SPL tokens (non-critical, don't fail on error)
+          fetchTokens(conn);
+          
+          setLoading(false);
+          return; // Success!
+          
+        } catch (err) {
+          lastError = err;
+          console.warn(`❌ Balance fetch error (Endpoint ${endpointIndex + 1}, Attempt ${attempt + 1}):`, err.message);
+          
+          // Small delay before retry
+          if (attempt < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          }
+        }
       }
-    } catch (error) {
-      console.error('Error fetching balance:', error);
-      toast.error('Failed to fetch wallet balance');
+      
+      // This endpoint failed all retries, try next
+      console.log(`⚠️ Endpoint ${endpointIndex + 1} (${endpoint.substring(0, 30)}) failed, trying next...`);
     }
+    
+    // All endpoints failed
+    console.error('❌ All RPC endpoints failed:', lastError);
+    setError('Failed to fetch balance. All RPC endpoints unavailable.');
+    setRpcStatus({ healthy: false, endpoint: null, retries: maxRetries * RPC_ENDPOINTS.length });
+    toast.error('RPC Connection Failed', { 
+      description: 'Unable to connect to Solana network. Please try again.',
+      action: {
+        label: 'Retry',
+        onClick: () => fetchBalanceWithFailover()
+      }
+    });
+    
     setLoading(false);
-  }, [connected, publicKey, connection]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, publicKey, createConnection, onBalanceUpdate]);
 
-  // Auto refresh every 10 seconds when connected
+  // Fetch SPL tokens (separate function, non-blocking)
+  const fetchTokens = async (conn) => {
+    if (!publicKey) return;
+    
+    try {
+      const tokenAccounts = await conn.getParsedTokenAccountsByOwner(
+        publicKey,
+        { programId: TOKEN_PROGRAM_ID }
+      );
+      
+      const tokenList = tokenAccounts.value
+        .map(account => {
+          const info = account.account.data.parsed.info;
+          return {
+            mint: info.mint,
+            balance: info.tokenAmount.uiAmount || 0,
+            decimals: info.tokenAmount.decimals,
+            symbol: info.mint.slice(0, 4) + '...' + info.mint.slice(-4)
+          };
+        })
+        .filter(t => t.balance > 0)
+        .sort((a, b) => b.balance - a.balance);
+      
+      setTokens(tokenList);
+      console.log(`📦 Found ${tokenList.length} tokens`);
+    } catch (tokenError) {
+      console.warn('⚠️ Error fetching tokens (non-critical):', tokenError.message);
+    }
+  };
+
+  // Fetch balance on wallet connect and every 10 seconds
   useEffect(() => {
     if (connected && publicKey) {
-      // Immediate fetch on connect
-      fetchBalance();
+      console.log('🔄 Wallet connected, fetching balance...');
+      fetchBalanceWithFailover();
       
       // Set up 10-second refresh interval
-      refreshIntervalRef.current = setInterval(fetchBalance, 10000);
+      refreshIntervalRef.current = setInterval(() => {
+        fetchBalanceWithFailover();
+      }, 10000);
       
       return () => {
         if (refreshIntervalRef.current) {
@@ -90,35 +194,56 @@ const WalletPanel = ({ solPrice = 150 }) => {
     } else {
       setBalance(0);
       setTokens([]);
+      setError(null);
+      setRpcStatus({ healthy: true, endpoint: null, retries: 0 });
     }
-  }, [connected, publicKey, fetchBalance]);
+  }, [connected, publicKey, fetchBalanceWithFailover]);
 
   const copyAddress = async () => {
     if (publicKey) {
-      await navigator.clipboard.writeText(publicKey.toString());
-      setCopied(true);
-      toast.success('Address copied!');
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(publicKey.toBase58());
+        setCopied(true);
+        toast.success('Address copied to clipboard!');
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        toast.error('Failed to copy address');
+      }
     }
   };
 
   const shortenAddress = (address) => {
     if (!address) return '';
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    const str = typeof address === 'string' ? address : address.toBase58();
+    return `${str.slice(0, 6)}...${str.slice(-4)}`;
   };
 
   const openSolscan = () => {
     if (publicKey) {
-      window.open(`https://solscan.io/account/${publicKey.toString()}`, '_blank');
+      window.open(`https://solscan.io/account/${publicKey.toBase58()}`, '_blank');
     }
   };
 
-  if (!connected) {
+  // Not connected state
+  if (!connected && !connecting) {
     return (
       <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="wallet-panel-disconnected">
         <CardContent className="p-6 text-center">
           <Wallet className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground mb-4">Connect your wallet to start trading</p>
+          <p className="text-muted-foreground mb-2">Connect your wallet to start trading</p>
+          <p className="text-xs text-muted-foreground">Supports Phantom, Solflare, and more</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Connecting state
+  if (connecting) {
+    return (
+      <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="wallet-panel-connecting">
+        <CardContent className="p-6 text-center">
+          <RefreshCw className="w-12 h-12 mx-auto mb-4 text-neon-cyan animate-spin" />
+          <p className="text-muted-foreground">Connecting to wallet...</p>
         </CardContent>
       </Card>
     );
@@ -132,25 +257,35 @@ const WalletPanel = ({ solPrice = 150 }) => {
             <Wallet className="w-5 h-5 text-neon-cyan" />
             <CardTitle className="font-heading text-base">Wallet</CardTitle>
             <Badge className="bg-neon-green/20 text-neon-green border-none text-xs">
-              Connected
+              {wallet?.adapter?.name || 'Connected'}
             </Badge>
           </div>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={fetchBalance}
-            disabled={loading}
-            data-testid="refresh-balance"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* RPC Status Indicator */}
+            <div className="flex items-center gap-1" title={rpcStatus.endpoint || 'No connection'}>
+              {rpcStatus.healthy ? (
+                <Wifi className="w-3 h-3 text-neon-green" />
+              ) : (
+                <WifiOff className="w-3 h-3 text-neon-red" />
+              )}
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => fetchBalanceWithFailover()}
+              disabled={loading}
+              data-testid="refresh-balance"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-4 space-y-4">
         {/* Address */}
         <div className="flex items-center justify-between p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
           <div className="font-mono text-sm text-neon-cyan" data-testid="wallet-address">
-            {shortenAddress(publicKey?.toString())}
+            {publicKey ? shortenAddress(publicKey) : 'Loading...'}
           </div>
           <div className="flex items-center gap-1">
             <Button 
@@ -159,6 +294,7 @@ const WalletPanel = ({ solPrice = 150 }) => {
               className="h-7 w-7" 
               onClick={copyAddress}
               data-testid="copy-address"
+              disabled={!publicKey}
             >
               {copied ? <Check className="w-3 h-3 text-neon-green" /> : <Copy className="w-3 h-3" />}
             </Button>
@@ -168,11 +304,38 @@ const WalletPanel = ({ solPrice = 150 }) => {
               className="h-7 w-7"
               onClick={openSolscan}
               data-testid="view-solscan"
+              disabled={!publicKey}
             >
               <ExternalLink className="w-3 h-3" />
             </Button>
           </div>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="flex items-center gap-2 p-2 bg-neon-red/10 border border-neon-red/30 rounded-sm">
+            <AlertCircle className="w-4 h-4 text-neon-red flex-shrink-0" />
+            <div className="flex-1">
+              <span className="text-xs text-neon-red">{error}</span>
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="text-xs text-neon-cyan p-0 h-auto ml-2"
+                onClick={() => fetchBalanceWithFailover()}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* RPC Status Info */}
+        {rpcStatus.endpoint && !error && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Wifi className="w-3 h-3" />
+            <span>RPC: {rpcStatus.endpoint.includes('ankr') ? 'Ankr' : 'Solana Mainnet'}</span>
+          </div>
+        )}
 
         {/* SOL Balance */}
         <div className="p-4 bg-gradient-to-r from-neon-violet/10 to-neon-cyan/10 rounded-sm border border-[#1E293B]">
@@ -180,13 +343,13 @@ const WalletPanel = ({ solPrice = 150 }) => {
             <span className="text-xs uppercase tracking-widest text-muted-foreground">SOL Balance</span>
             {lastUpdate && (
               <span className="text-xs text-muted-foreground">
-                Updated {lastUpdate.toLocaleTimeString()}
+                {lastUpdate.toLocaleTimeString()}
               </span>
             )}
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-mono font-bold text-neon-cyan" data-testid="sol-balance">
-              {balance.toFixed(4)}
+              {loading && balance === 0 ? '...' : balance.toFixed(4)}
             </span>
             <span className="text-muted-foreground">SOL</span>
           </div>

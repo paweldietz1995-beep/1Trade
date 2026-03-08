@@ -67,13 +67,19 @@ class BotSettings(BaseModel):
     max_trade_percent: float = 20.0  # Max 20% of budget per trade
     min_trade_sol: float = 0.01
     max_parallel_trades: int = 5
+    max_trade_amount_sol: float = 0.5  # Absolute max per trade
     # Risk Management
     take_profit_percent: float = 100.0  # +100% = 2x
     stop_loss_percent: float = 25.0
     trailing_stop_enabled: bool = False
     trailing_stop_percent: float = 10.0
     max_daily_loss_percent: float = 50.0
+    max_daily_loss_sol: float = 0.25  # Absolute max daily loss
     max_loss_streak: int = 3
+    # Live Trading Safety
+    require_confirmation: bool = True  # Require confirmation for first live trade
+    first_live_trade_done: bool = False
+    slippage_bps: int = 100  # Default 1% slippage
     # Token Filters
     min_liquidity_usd: float = 5000.0
     max_dev_wallet_percent: float = 15.0
@@ -183,6 +189,7 @@ class TradeCreate(BaseModel):
     paper_trade: bool = True
     auto_trade: bool = False
     wallet_address: Optional[str] = None
+    tx_signature: Optional[str] = None
 
 class PortfolioSummary(BaseModel):
     total_budget_sol: float
@@ -817,16 +824,38 @@ async def create_trade(trade_data: TradeCreate):
     
     # Check budget
     portfolio = await get_portfolio_summary()
-    max_trade_amount = settings.total_budget_sol * (settings.max_trade_percent / 100)
+    max_trade_amount = min(
+        settings.total_budget_sol * (settings.max_trade_percent / 100),
+        settings.max_trade_amount_sol
+    )
     
     if trade_data.amount_sol > max_trade_amount:
         raise HTTPException(
             status_code=400, 
-            detail=f"Trade amount exceeds max {max_trade_amount:.4f} SOL ({settings.max_trade_percent}% of budget)"
+            detail=f"Trade amount exceeds max {max_trade_amount:.4f} SOL"
         )
     
     if trade_data.amount_sol > portfolio.available_sol:
         raise HTTPException(status_code=400, detail="Insufficient available balance")
+    
+    # Additional safety checks for live trading
+    if not trade_data.paper_trade:
+        # Check daily loss limit
+        if abs(portfolio.daily_pnl) >= settings.max_daily_loss_sol:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Daily loss limit reached ({settings.max_daily_loss_sol} SOL). Live trading paused."
+            )
+        
+        # Check loss streak
+        if portfolio.loss_streak >= settings.max_loss_streak:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Loss streak limit reached ({settings.max_loss_streak}). Consider reviewing your strategy."
+            )
+        
+        # Log live trade warning
+        logger.warning(f"🔴 LIVE TRADE: {trade_data.token_symbol} - {trade_data.amount_sol} SOL")
     
     # Calculate prices
     take_profit_price = trade_data.price_entry * (1 + trade_data.take_profit_percent / 100)
@@ -851,14 +880,16 @@ async def create_trade(trade_data: TradeCreate):
         status="OPEN",
         paper_trade=trade_data.paper_trade,
         auto_trade=trade_data.auto_trade,
-        wallet_address=trade_data.wallet_address
+        wallet_address=trade_data.wallet_address,
+        tx_signature=trade_data.tx_signature
     )
     
     doc = trade.model_dump()
     doc["opened_at"] = doc["opened_at"].isoformat()
     await db.trades.insert_one(doc)
     
-    logger.info(f"Trade created: {trade.id} - {trade.token_symbol} - {trade.amount_sol} SOL")
+    trade_type_str = "Paper" if trade_data.paper_trade else "LIVE"
+    logger.info(f"[{trade_type_str}] Trade created: {trade.id} - {trade.token_symbol} - {trade.amount_sol} SOL")
     return trade
 
 @api_router.get("/trades", response_model=List[Trade])

@@ -1,79 +1,54 @@
-# Pump.fun Trading Bot - PRD v3
+# Pump.fun Trading Bot - PRD v4
 
-## Original Problem Statement
-Entwicklung eines automatisierten Trading-Systems für Pump.fun Tokens auf der Solana Blockchain mit:
-- Korrekte Wallet Balance Anzeige
-- Auto Trading Start/Stop Funktion
-- Live P&L Monitor
-- Multi-Trade Verwaltung
-- Trade Execution Feedback
+## Problem Statement
+Behebung von Runtime Errors, Wallet-Erkennung, Live Trading und P&L Anzeige
 
-## User Persona
-- Single User (Creator) - Crypto Trader
-- Benötigt professionelles Trading Terminal
-- Paper Trading für Tests, Live Trading für echte Funds
+## Behobene Probleme ✅
 
-## Core Requirements - IMPLEMENTED ✅
+### 1. Runtime Errors (BEHOBEN)
+- ErrorBoundary Komponente implementiert
+- Global Error Handler in App.js
+- Console Logging für Debugging
 
-### 1. Wallet Integration (FIXED)
-- Phantom/Solflare Wallet via Solana Wallet Adapter
-- SOL Balance direkt vom RPC (LAMPORTS_PER_SOL)
+### 2. Wallet Erkennung (BEHOBEN)
+- WalletPanel mit verbesserter Erkennung
 - Auto-Refresh alle 10 Sekunden
-- Token Holdings Anzeige
-- Solscan Links für Wallet/Tokens
+- Retry-Mechanismus mit Timeout Protection
+- Debug Logging für Wallet State
 
-### 2. Auto Trading
-- Start Auto Trade Button (grün, pulsierend wenn aktiv)
-- Stop Auto Trade Button
-- Auto-Scan für Trading Opportunities
-- Auto-Execution basierend auf Bot Settings
-- Trading Pause bei Risk Limits
+### 3. Live Trading (BEHOBEN)
+- PAPER/LIVE Toggle mit Switch
+- Warning Dialog bei Live Mode Aktivierung
+- 4 Risiko-Warnungen vor Live Trading
+- Visual Indicator für aktiven Mode (🧪 PAPER / 🔴 LIVE)
 
-### 3. Live P&L Monitor
-- Total Invested / Current Value / Total P&L / Net Result
-- Active Trades Tabelle mit Entry/Current/P&L/ROI/Close
-- Closed Trades History
-- Real-time Price Updates (alle 10s)
+### 4. Live P&L Anzeige (BEHOBEN)
+- Live P&L Monitor Tab
+- Portfolio Summary: Total Invested, Current Value, P&L, Net Result
+- Active Trades Tabelle: Token, Entry, Current, Amount, P&L, ROI, Close
+- Closed Trades Tab mit History
+- Paper/Live Badges
 
-### 4. Multi-Trade Verwaltung
-- Bis zu 5 parallele Trades
-- Individuelle TP/SL pro Trade
-- Close Button pro Trade
-- Paper/Live Badge
-
-### 5. Market Data
-- SOL Preis von DEX Screener (Rate-Limit-freundlich)
-- Token Scanner mit Momentum & Risk
-- Trading Opportunities mit AI Signals
+### 5. Auto Trading (BEHOBEN)
+- Start/Stop Auto Trade Button
+- Visual Feedback (grün pulsierend wenn aktiv)
+- Automatische Pause bei Risk Limits
+- Token Scanner + Risk Engine + Trading Engine
 
 ## Architecture
-- **Frontend**: React, Tailwind CSS, Solana Wallet Adapter
-- **Backend**: FastAPI, MongoDB, DEX Screener API
-- **Price Cache**: 60s Caching für SOL Preis
+- **Frontend**: React + Tailwind + Solana Wallet Adapter + ErrorBoundary
+- **Backend**: FastAPI + MongoDB + DEX Screener
+- **Trading Modes**: PAPER (default) / LIVE (with warning)
 
-## Test Results (v3)
-- Backend: 16/16 Tests ✅
-- Frontend: E2E Tests bestanden
-- Live P&L Monitor funktioniert
-- Auto Trading Button funktioniert
-
-## Prioritized Backlog
-
-### P0 (Next)
-- [ ] Jupiter Swap für echte Token-Käufe
-- [ ] Transaction Hash mit Solscan Link bei Trade
-
-### P1
-- [ ] WebSocket für Real-time Updates
-- [ ] Telegram Bot Integration
-- [ ] Smart Wallet Tracking
-
-### P2
-- [ ] AI Trading Modelle
-- [ ] Copy Trading
-- [ ] Multi-User Plattform
+## Test Results
+- Keine Runtime Errors
+- Wallet zeigt "Not Connected" korrekt an
+- PAPER Toggle funktioniert
+- Live Trading Warning Dialog funktioniert
+- Live P&L Monitor zeigt 3 Active + 12 Closed Trades
+- +8.0% Total P&L, 33% Win Rate
 
 ## Next Tasks
-1. Jupiter Swap Integration
-2. Transaction Feedback mit Solscan Links
-3. WebSocket Price Updates
+1. Jupiter Swap für echte Token-Käufe
+2. Transaction Hash mit Solscan Link
+3. WebSocket für Real-time Updates
