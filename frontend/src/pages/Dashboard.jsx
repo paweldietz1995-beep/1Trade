@@ -53,6 +53,7 @@ import WalletPanel from '../components/WalletPanel';
 import TokenSearch from '../components/TokenSearch';
 import TradingViewWidget from '../components/TradingViewWidget';
 import LiveTradesPanel from '../components/LiveTradesPanel';
+import DebugPanel from '../components/DebugPanel';
 import { toast } from 'sonner';
 
 const TRADING_MODES = {
@@ -83,6 +84,7 @@ const Dashboard = () => {
   const [autoTradingActive, setAutoTradingActive] = useState(false);
   const [tradingMode, setTradingMode] = useState(TRADING_MODES.PAPER);
   const [showLiveModeWarning, setShowLiveModeWarning] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [rpcStatus, setRpcStatus] = useState({ healthy: true, endpoint: null });
   const autoTradingIntervalRef = useRef(null);
   const currentRpcIndexRef = useRef(0);
@@ -225,116 +227,81 @@ const Dashboard = () => {
     setShowLiveModeWarning(false);
   };
 
-  // Auto Trading Logic
+  // Auto Trading Logic - Now uses backend engine
   const executeAutoTrade = useCallback(async () => {
     if (!autoTradingActive || !botSettings) return;
     
     try {
-      console.log('🤖 Auto Trading: Scanning for opportunities...');
+      // Fetch status from backend auto trading engine
+      const statusRes = await axios.get(`${API_URL}/auto-trading/status`);
+      const status = statusRes.data;
       
-      const oppResponse = await axios.get(`${API_URL}/opportunities`);
-      const opportunities = oppResponse.data;
+      console.log('🤖 Auto Trading Status:', status);
       
-      if (opportunities.length === 0) {
-        console.log('🔍 No opportunities found');
-        return;
-      }
-      
-      const portfolioRes = await axios.get(`${API_URL}/portfolio`);
-      if (portfolioRes.data.open_trades >= botSettings.max_parallel_trades) {
-        console.log('⏸️ Max parallel trades reached');
-        return;
-      }
-      
-      if (portfolioRes.data.is_paused) {
-        toast.warning('Auto trading paused due to risk limits');
-        stopAutoTrading();
-        return;
-      }
-      
-      const bestOpp = opportunities[0];
-      if (bestOpp.confidence < 70) {
-        console.log(`⏭️ Skipping: confidence ${bestOpp.confidence}% < 70%`);
-        return;
-      }
-      
-      const tradeAmount = Math.min(
-        botSettings.total_budget_sol * (botSettings.max_trade_percent / 100),
-        portfolioRes.data.available_sol
-      );
-      
-      if (tradeAmount < botSettings.min_trade_sol) {
-        console.log(`⏭️ Skipping: trade amount ${tradeAmount} < min ${botSettings.min_trade_sol}`);
-        return;
-      }
-      
-      console.log(`🚀 Executing trade: ${bestOpp.token.symbol} for ${tradeAmount} SOL`);
-      
-      const tradeData = {
-        token_address: bestOpp.token.address,
-        token_symbol: bestOpp.token.symbol,
-        token_name: bestOpp.token.name,
-        pair_address: bestOpp.token.pair_address,
-        trade_type: 'BUY',
-        amount_sol: tradeAmount,
-        price_entry: bestOpp.token.price_usd,
-        take_profit_percent: botSettings.take_profit_percent,
-        stop_loss_percent: botSettings.stop_loss_percent,
-        trailing_stop_percent: botSettings.trailing_stop_enabled ? botSettings.trailing_stop_percent : null,
-        paper_trade: tradingMode === TRADING_MODES.PAPER,
-        auto_trade: true,
-        wallet_address: publicKey?.toBase58()
-      };
-      
-      const response = await axios.post(`${API_URL}/trades`, tradeData);
-      
-      toast.success(`🤖 ${tradingMode === TRADING_MODES.PAPER ? 'Paper' : 'Live'} Trade Executed!`, {
-        description: `Bought ${bestOpp.token.symbol} for ${tradeAmount.toFixed(4)} SOL`,
-        action: {
-          label: 'View',
-          onClick: () => setActiveTab('trades')
-        }
-      });
-      
+      // Update UI with latest data
       fetchData();
       fetchWalletBalance();
       
     } catch (error) {
-      console.error('❌ Auto trade error:', error);
-      toast.error('Auto trade failed', { description: error.response?.data?.detail || error.message });
+      console.error('❌ Auto trade status error:', error);
     }
-  }, [autoTradingActive, botSettings, API_URL, publicKey, tradingMode, fetchData, fetchWalletBalance]);
+  }, [autoTradingActive, botSettings, API_URL, fetchData, fetchWalletBalance]);
 
   const startAutoTrading = async () => {
     if (!botSettings) return;
     
-    console.log('🚀 Starting Auto Trading...');
-    setAutoTradingActive(true);
-    
-    // Execute immediately
-    executeAutoTrade();
-    
-    // Set up interval
-    autoTradingIntervalRef.current = setInterval(executeAutoTrade, botSettings.scan_interval_seconds * 1000);
-    
-    toast.success('🤖 Auto Trading Started', {
-      description: `Scanning every ${botSettings.scan_interval_seconds}s | Mode: ${tradingMode.toUpperCase()}`
-    });
+    try {
+      console.log('🚀 Starting Auto Trading Engine...');
+      
+      // Start backend auto trading engine
+      const response = await axios.post(`${API_URL}/auto-trading/start`);
+      
+      if (response.data.success) {
+        setAutoTradingActive(true);
+        
+        // Set up interval to check status and update UI
+        autoTradingIntervalRef.current = setInterval(executeAutoTrade, 3000);
+        
+        toast.success('🤖 Auto Trading Engine Started', {
+          description: `Scanning every 3 seconds | Mode: ${tradingMode.toUpperCase()}`
+        });
+      } else {
+        toast.error('Failed to start auto trading', {
+          description: response.data.message
+        });
+      }
+    } catch (error) {
+      console.error('Error starting auto trading:', error);
+      toast.error('Failed to start auto trading');
+    }
   };
 
   const stopAutoTrading = async () => {
-    console.log('🛑 Stopping Auto Trading...');
+    console.log('🛑 Stopping Auto Trading Engine...');
     
-    if (autoTradingIntervalRef.current) {
-      clearInterval(autoTradingIntervalRef.current);
-      autoTradingIntervalRef.current = null;
+    try {
+      // Stop backend auto trading engine
+      const response = await axios.post(`${API_URL}/auto-trading/stop`);
+      
+      if (autoTradingIntervalRef.current) {
+        clearInterval(autoTradingIntervalRef.current);
+        autoTradingIntervalRef.current = null;
+      }
+      
+      setAutoTradingActive(false);
+      
+      toast.info('🛑 Auto Trading Stopped', {
+        description: `Scans: ${response.data.stats?.scan_count || 0} | Trades: ${response.data.stats?.trades_executed || 0}`
+      });
+    } catch (error) {
+      console.error('Error stopping auto trading:', error);
+      // Still stop locally
+      if (autoTradingIntervalRef.current) {
+        clearInterval(autoTradingIntervalRef.current);
+        autoTradingIntervalRef.current = null;
+      }
+      setAutoTradingActive(false);
     }
-    
-    setAutoTradingActive(false);
-    
-    toast.info('🛑 Auto Trading Stopped', {
-      description: 'Open trades will continue to be monitored'
-    });
   };
 
   const toggleAutoTrading = () => {
@@ -448,6 +415,18 @@ const Dashboard = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Debug Panel Button */}
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowDebugPanel(true)}
+              className="border-[#1E293B]"
+              data-testid="debug-button"
+            >
+              <Activity className="w-4 h-4 mr-2" />
+              Debug
+            </Button>
+
             {/* Search */}
             <Button 
               variant="outline" 
@@ -707,6 +686,12 @@ const Dashboard = () => {
         isOpen={showSearch}
         onClose={() => setShowSearch(false)}
         onSelectToken={handleTokenSelect}
+      />
+
+      {/* Debug Panel */}
+      <DebugPanel 
+        isOpen={showDebugPanel}
+        onClose={() => setShowDebugPanel(false)}
       />
 
       {/* Live Mode Warning Dialog */}

@@ -80,18 +80,22 @@ class BotSettings(BaseModel):
     require_confirmation: bool = True  # Require confirmation for first live trade
     first_live_trade_done: bool = False
     slippage_bps: int = 100  # Default 1% slippage
-    # Token Filters
+    # Token Filters (Stricter defaults)
     min_liquidity_usd: float = 5000.0
+    min_volume_usd: float = 10000.0  # Increased from 1000 to 10000
     max_dev_wallet_percent: float = 15.0
     max_top10_wallet_percent: float = 50.0
     min_token_age_minutes: int = 5
     max_token_age_hours: int = 24
     min_buy_sell_ratio: float = 1.2
-    min_volume_usd: float = 1000.0
+    # Momentum Thresholds
+    min_momentum_score: int = 70
+    min_volume_surge_percent: float = 150.0
+    min_buyers_5m: int = 30
     # Automation
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: int = 30
+    scan_interval_seconds: int = 3  # Changed from 30 to 3 seconds
     # Advanced
     smart_wallet_tracking: bool = True
     migration_detection: bool = True
@@ -232,6 +236,471 @@ class SwapRequest(BaseModel):
     amount: float  # In SOL or tokens
     slippage_bps: int = 100
     wallet_address: str
+
+# ============== AUTO TRADING ENGINE ==============
+
+# Auto Trading State
+auto_trading_state = {
+    "is_running": False,
+    "last_scan": None,
+    "scan_count": 0,
+    "trades_executed": 0,
+    "errors": [],
+    "current_opportunities": []
+}
+
+class AutoTradingStatus(BaseModel):
+    is_running: bool
+    last_scan: Optional[str] = None
+    scan_count: int = 0
+    trades_executed: int = 0
+    scan_interval_seconds: int = 3
+    errors: List[str] = []
+    current_opportunities: int = 0
+
+class MomentumSignal(BaseModel):
+    token_address: str
+    token_symbol: str
+    signal_type: str  # VOLUME_SURGE, BUY_PRESSURE, WALLET_GROWTH, PRICE_ACCELERATION
+    strength: str  # WEAK, MEDIUM, STRONG
+    value: float
+    threshold: float
+    triggered: bool = False
+    description: str
+
+class EnhancedTokenAnalysis(BaseModel):
+    token: TokenData
+    momentum_signals: List[MomentumSignal]
+    combined_score: float  # 0-100
+    buy_signal: bool = False
+    signal_reasons: List[str] = []
+
+def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
+    """
+    Enhanced momentum detection with multiple signal types:
+    - Volume Surge Detection (volume increase > 150%)
+    - Buy Pressure Detection (buyers > 30 in 60s, ratio > 1.5)
+    - Wallet Growth Detection
+    - Price Acceleration
+    """
+    signals = []
+    
+    # Get transaction data
+    txns = pair.get("txns", {})
+    txns_5m = txns.get("m5", {})
+    txns_1h = txns.get("h1", {})
+    txns_24h = txns.get("h24", {})
+    
+    buys_5m = txns_5m.get("buys", 0)
+    sells_5m = txns_5m.get("sells", 0)
+    buys_1h = txns_1h.get("buys", 0)
+    sells_1h = txns_1h.get("sells", 0)
+    buys_24h = txns_24h.get("buys", 0)
+    sells_24h = txns_24h.get("sells", 0)
+    
+    # Get volume data
+    volume = pair.get("volume", {})
+    volume_5m = float(volume.get("m5", 0) or 0)
+    volume_1h = float(volume.get("h1", 0) or 0)
+    volume_24h = float(volume.get("h24", 0) or 0)
+    
+    # Get price change data
+    price_change = pair.get("priceChange", {})
+    price_change_5m = float(price_change.get("m5", 0) or 0)
+    price_change_1h = float(price_change.get("h1", 0) or 0)
+    price_change_24h = float(price_change.get("h24", 0) or 0)
+    
+    # Liquidity
+    liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+    
+    # ===== SIGNAL 1: VOLUME SURGE DETECTION =====
+    # Check if 5m volume is significantly higher than average
+    avg_5m_volume = volume_1h / 12 if volume_1h > 0 else 0
+    volume_surge_percent = ((volume_5m / avg_5m_volume) - 1) * 100 if avg_5m_volume > 0 else 0
+    
+    volume_surge_threshold = 150  # 150% increase
+    volume_surge_triggered = volume_surge_percent >= volume_surge_threshold
+    
+    if volume_5m > 1000:  # Minimum volume threshold
+        strength = "STRONG" if volume_surge_percent >= 300 else "MEDIUM" if volume_surge_percent >= 150 else "WEAK"
+        signals.append(MomentumSignal(
+            token_address=pair.get("baseToken", {}).get("address", ""),
+            token_symbol=pair.get("baseToken", {}).get("symbol", ""),
+            signal_type="VOLUME_SURGE",
+            strength=strength,
+            value=round(volume_surge_percent, 1),
+            threshold=volume_surge_threshold,
+            triggered=volume_surge_triggered,
+            description=f"Volume surge: +{volume_surge_percent:.0f}% (5m: ${volume_5m:.0f})"
+        ))
+    
+    # ===== SIGNAL 2: BUY PRESSURE DETECTION =====
+    # Check buyers > 30 in last 5 minutes and buy/sell ratio > 1.5
+    buy_sell_ratio_5m = buys_5m / max(sells_5m, 1)
+    buy_pressure_triggered = buys_5m >= 30 and buy_sell_ratio_5m >= 1.5
+    
+    strength = "STRONG" if buys_5m >= 50 and buy_sell_ratio_5m >= 2.5 else \
+               "MEDIUM" if buys_5m >= 30 and buy_sell_ratio_5m >= 1.5 else "WEAK"
+    
+    signals.append(MomentumSignal(
+        token_address=pair.get("baseToken", {}).get("address", ""),
+        token_symbol=pair.get("baseToken", {}).get("symbol", ""),
+        signal_type="BUY_PRESSURE",
+        strength=strength,
+        value=round(buy_sell_ratio_5m, 2),
+        threshold=1.5,
+        triggered=buy_pressure_triggered,
+        description=f"Buy pressure: {buys_5m} buyers (ratio: {buy_sell_ratio_5m:.1f}x)"
+    ))
+    
+    # ===== SIGNAL 3: WALLET GROWTH DETECTION =====
+    # Compare 5m buyers to 1h average
+    avg_buyers_5m = buys_1h / 12 if buys_1h > 0 else 0
+    wallet_growth_percent = ((buys_5m / avg_buyers_5m) - 1) * 100 if avg_buyers_5m > 0 else 0
+    wallet_growth_triggered = wallet_growth_percent >= 100 and buys_5m >= 20
+    
+    strength = "STRONG" if wallet_growth_percent >= 200 else "MEDIUM" if wallet_growth_percent >= 100 else "WEAK"
+    
+    signals.append(MomentumSignal(
+        token_address=pair.get("baseToken", {}).get("address", ""),
+        token_symbol=pair.get("baseToken", {}).get("symbol", ""),
+        signal_type="WALLET_GROWTH",
+        strength=strength,
+        value=round(wallet_growth_percent, 1),
+        threshold=100,
+        triggered=wallet_growth_triggered,
+        description=f"Wallet growth: +{wallet_growth_percent:.0f}% new buyers"
+    ))
+    
+    # ===== SIGNAL 4: PRICE ACCELERATION =====
+    # Check if price is accelerating (5m change > proportional 1h change)
+    expected_5m_change = price_change_1h / 12
+    price_acceleration = price_change_5m - expected_5m_change
+    price_acceleration_triggered = price_change_5m > 5 and price_acceleration > 2
+    
+    strength = "STRONG" if price_acceleration > 10 else "MEDIUM" if price_acceleration > 5 else "WEAK"
+    
+    signals.append(MomentumSignal(
+        token_address=pair.get("baseToken", {}).get("address", ""),
+        token_symbol=pair.get("baseToken", {}).get("symbol", ""),
+        signal_type="PRICE_ACCELERATION",
+        strength=strength,
+        value=round(price_acceleration, 2),
+        threshold=2.0,
+        triggered=price_acceleration_triggered,
+        description=f"Price acceleration: +{price_change_5m:.1f}% in 5m"
+    ))
+    
+    # ===== CALCULATE COMBINED SCORE =====
+    base_score = 40
+    
+    # Volume surge bonus
+    if volume_surge_triggered:
+        base_score += 20 if signals[0].strength == "STRONG" else 15 if signals[0].strength == "MEDIUM" else 5
+    
+    # Buy pressure bonus
+    if buy_pressure_triggered:
+        base_score += 25 if signals[1].strength == "STRONG" else 18 if signals[1].strength == "MEDIUM" else 8
+    
+    # Wallet growth bonus
+    if wallet_growth_triggered:
+        base_score += 15 if signals[2].strength == "STRONG" else 10 if signals[2].strength == "MEDIUM" else 5
+    
+    # Price acceleration bonus
+    if price_acceleration_triggered:
+        base_score += 15 if signals[3].strength == "STRONG" else 10 if signals[3].strength == "MEDIUM" else 5
+    
+    # Liquidity bonus/penalty
+    if liquidity >= 50000:
+        base_score += 5
+    elif liquidity < 5000:
+        base_score -= 10
+    
+    combined_score = min(100, max(0, base_score))
+    
+    # Determine signal strength
+    if combined_score >= 80:
+        signal_strength = "STRONG"
+    elif combined_score >= 65:
+        signal_strength = "MEDIUM"
+    elif combined_score >= 50:
+        signal_strength = "WEAK"
+    else:
+        signal_strength = "NONE"
+    
+    # Build signal reasons
+    signal_reasons = []
+    for sig in signals:
+        if sig.triggered:
+            signal_reasons.append(sig.description)
+    
+    # Determine if this is a BUY signal
+    strong_signals = sum(1 for s in signals if s.triggered and s.strength in ["STRONG", "MEDIUM"])
+    buy_signal = strong_signals >= 2 and combined_score >= 65
+    
+    return (
+        combined_score,
+        signal_strength,
+        signals,
+        signal_reasons,
+        buy_signal,
+        buys_5m,
+        sells_5m,
+        volume_5m,
+        price_change_5m,
+        price_change_1h
+    )
+
+async def execute_auto_trade_cycle():
+    """Execute one cycle of the auto trading engine"""
+    global auto_trading_state
+    
+    if not auto_trading_state["is_running"]:
+        return {"executed": False, "reason": "Auto trading not running"}
+    
+    try:
+        settings = await get_bot_settings()
+        
+        # Check if paper mode or live mode
+        is_paper = settings.paper_mode
+        
+        # Get portfolio status
+        portfolio = await get_portfolio_summary()
+        
+        # Check risk limits
+        if portfolio.is_paused:
+            return {"executed": False, "reason": portfolio.pause_reason}
+        
+        # Check max parallel trades
+        if portfolio.open_trades >= settings.max_parallel_trades:
+            return {"executed": False, "reason": "Max parallel trades reached"}
+        
+        # Scan tokens with enhanced momentum
+        logger.info("🔍 Auto Trading: Scanning tokens...")
+        
+        # Fetch tokens from multiple sources
+        pump_pairs = await fetch_pump_fun_tokens()
+        dex_pairs = await fetch_dex_screener_tokens(50)
+        
+        # Combine and dedupe
+        all_pairs = {}
+        for pair in pump_pairs + dex_pairs:
+            address = pair.get("baseToken", {}).get("address", "")
+            liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+            volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+            
+            # Apply strict filters: liquidity > $5000, volume > $10000
+            if address and address not in all_pairs:
+                if liquidity >= settings.min_liquidity_usd and volume_24h >= 10000:
+                    all_pairs[address] = pair
+        
+        # Analyze each token
+        opportunities = []
+        for address, pair in all_pairs.items():
+            try:
+                # Calculate enhanced momentum
+                (
+                    momentum_score, signal_strength, signals, signal_reasons, 
+                    buy_signal, buys_5m, sells_5m, volume_5m, price_5m, price_1h
+                ) = calculate_enhanced_momentum(pair, settings)
+                
+                # Check if token passes all filters
+                risk_analysis = calculate_risk_analysis(pair, settings)
+                
+                if not risk_analysis.passed_filters:
+                    continue
+                
+                # Check age constraints
+                created_at = pair.get("pairCreatedAt", 0)
+                if created_at:
+                    age_hours = (datetime.now(timezone.utc).timestamp() * 1000 - created_at) / (1000 * 60 * 60)
+                else:
+                    age_hours = 999
+                
+                min_age_hours = settings.min_token_age_minutes / 60
+                if age_hours < min_age_hours or age_hours > settings.max_token_age_hours:
+                    continue
+                
+                # Check buy/sell ratio
+                buy_sell_ratio = buys_5m / max(sells_5m, 1)
+                if buy_sell_ratio < settings.min_buy_sell_ratio:
+                    continue
+                
+                # Only consider strong buy signals
+                if buy_signal and momentum_score >= 70:
+                    base_token = pair.get("baseToken", {})
+                    
+                    opportunity = {
+                        "address": address,
+                        "symbol": base_token.get("symbol", "???"),
+                        "name": base_token.get("name", "Unknown"),
+                        "price_usd": float(pair.get("priceUsd", 0) or 0),
+                        "momentum_score": momentum_score,
+                        "signal_strength": signal_strength,
+                        "signal_reasons": signal_reasons,
+                        "risk_score": risk_analysis.risk_score,
+                        "liquidity": float(pair.get("liquidity", {}).get("usd", 0) or 0),
+                        "volume_24h": float(pair.get("volume", {}).get("h24", 0) or 0),
+                        "pair_address": pair.get("pairAddress"),
+                        "buy_sell_ratio": buy_sell_ratio
+                    }
+                    opportunities.append(opportunity)
+                    
+            except Exception as e:
+                logger.error(f"Error analyzing token {address}: {e}")
+                continue
+        
+        # Sort by momentum score
+        opportunities.sort(key=lambda x: x["momentum_score"], reverse=True)
+        
+        # Update state
+        auto_trading_state["last_scan"] = datetime.now(timezone.utc).isoformat()
+        auto_trading_state["scan_count"] += 1
+        auto_trading_state["current_opportunities"] = opportunities[:5]
+        
+        # If no opportunities, return
+        if not opportunities:
+            logger.info("🔍 No trading opportunities found")
+            return {"executed": False, "reason": "No opportunities found", "scan_count": auto_trading_state["scan_count"]}
+        
+        # Take the best opportunity
+        best = opportunities[0]
+        
+        # Check minimum confidence
+        if best["momentum_score"] < 70:
+            return {"executed": False, "reason": f"Best opportunity score {best['momentum_score']} < 70"}
+        
+        # Calculate trade amount
+        trade_amount = min(
+            settings.total_budget_sol * (settings.max_trade_percent / 100),
+            settings.max_trade_amount_sol,
+            portfolio.available_sol
+        )
+        
+        if trade_amount < settings.min_trade_sol:
+            return {"executed": False, "reason": f"Trade amount {trade_amount} < min {settings.min_trade_sol}"}
+        
+        # Execute trade
+        logger.info(f"🚀 Auto Trading: Executing trade for {best['symbol']} ({trade_amount} SOL)")
+        
+        trade_data = TradeCreate(
+            token_address=best["address"],
+            token_symbol=best["symbol"],
+            token_name=best["name"],
+            pair_address=best.get("pair_address"),
+            trade_type="BUY",
+            amount_sol=trade_amount,
+            price_entry=best["price_usd"],
+            take_profit_percent=settings.take_profit_percent,
+            stop_loss_percent=settings.stop_loss_percent,
+            trailing_stop_percent=settings.trailing_stop_percent if settings.trailing_stop_enabled else None,
+            paper_trade=is_paper,
+            auto_trade=True
+        )
+        
+        trade = await create_trade(trade_data)
+        auto_trading_state["trades_executed"] += 1
+        
+        return {
+            "executed": True,
+            "trade_id": trade.id,
+            "token": best["symbol"],
+            "amount": trade_amount,
+            "momentum_score": best["momentum_score"],
+            "signal_reasons": best["signal_reasons"],
+            "paper_trade": is_paper
+        }
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ Auto trading error: {error_msg}")
+        auto_trading_state["errors"].append({
+            "time": datetime.now(timezone.utc).isoformat(),
+            "error": error_msg
+        })
+        # Keep only last 10 errors
+        auto_trading_state["errors"] = auto_trading_state["errors"][-10:]
+        return {"executed": False, "error": error_msg}
+
+# Background task for auto trading loop
+auto_trading_task = None
+
+async def auto_trading_loop():
+    """Background loop that runs every 3 seconds"""
+    global auto_trading_state
+    
+    while auto_trading_state["is_running"]:
+        try:
+            result = await execute_auto_trade_cycle()
+            if result.get("executed"):
+                logger.info(f"✅ Auto trade executed: {result.get('token')} for {result.get('amount')} SOL")
+        except Exception as e:
+            logger.error(f"Auto trading loop error: {e}")
+        
+        # Wait 3 seconds before next cycle
+        await asyncio.sleep(3)
+
+@api_router.post("/auto-trading/start")
+async def start_auto_trading(background_tasks: BackgroundTasks):
+    """Start the auto trading engine"""
+    global auto_trading_state, auto_trading_task
+    
+    if auto_trading_state["is_running"]:
+        return {"success": False, "message": "Auto trading already running"}
+    
+    auto_trading_state["is_running"] = True
+    auto_trading_state["scan_count"] = 0
+    auto_trading_state["trades_executed"] = 0
+    auto_trading_state["errors"] = []
+    
+    # Start background task
+    auto_trading_task = asyncio.create_task(auto_trading_loop())
+    
+    logger.info("🚀 Auto Trading Engine Started (3s interval)")
+    return {"success": True, "message": "Auto trading started", "interval": 3}
+
+@api_router.post("/auto-trading/stop")
+async def stop_auto_trading():
+    """Stop the auto trading engine"""
+    global auto_trading_state, auto_trading_task
+    
+    auto_trading_state["is_running"] = False
+    
+    if auto_trading_task:
+        auto_trading_task.cancel()
+        try:
+            await auto_trading_task
+        except asyncio.CancelledError:
+            pass
+        auto_trading_task = None
+    
+    logger.info("🛑 Auto Trading Engine Stopped")
+    return {
+        "success": True, 
+        "message": "Auto trading stopped",
+        "stats": {
+            "scan_count": auto_trading_state["scan_count"],
+            "trades_executed": auto_trading_state["trades_executed"]
+        }
+    }
+
+@api_router.get("/auto-trading/status", response_model=AutoTradingStatus)
+async def get_auto_trading_status():
+    """Get current auto trading status"""
+    return AutoTradingStatus(
+        is_running=auto_trading_state["is_running"],
+        last_scan=auto_trading_state["last_scan"],
+        scan_count=auto_trading_state["scan_count"],
+        trades_executed=auto_trading_state["trades_executed"],
+        scan_interval_seconds=3,
+        errors=[e.get("error", "") for e in auto_trading_state["errors"][-5:]],
+        current_opportunities=len(auto_trading_state.get("current_opportunities", []))
+    )
+
+@api_router.get("/auto-trading/opportunities")
+async def get_current_opportunities():
+    """Get current detected opportunities from auto trading"""
+    return auto_trading_state.get("current_opportunities", [])
 
 # ============== CONSTANTS ==============
 

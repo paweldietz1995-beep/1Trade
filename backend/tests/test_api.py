@@ -288,3 +288,120 @@ class TestTradingOpportunities:
             assert "suggested_action" in opp
             assert "confidence" in opp
             assert "risk_level" in opp
+
+
+
+class TestAutoTrading:
+    """Test auto trading engine endpoints"""
+
+    def test_auto_trading_status_initial(self, api_client):
+        """GET /auto-trading/status returns status structure"""
+        resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "is_running" in data
+        assert "scan_count" in data
+        assert "trades_executed" in data
+        assert "scan_interval_seconds" in data
+        assert isinstance(data["is_running"], bool)
+        assert isinstance(data["scan_count"], int)
+        assert isinstance(data["scan_interval_seconds"], int)
+
+    def test_auto_trading_start(self, api_client):
+        """POST /auto-trading/start starts the engine"""
+        # First ensure it's stopped
+        api_client.post(f"{BASE_URL}/api/auto-trading/stop")
+        
+        resp = api_client.post(f"{BASE_URL}/api/auto-trading/start")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "interval" in data
+        assert data["interval"] == 3
+        
+        # Check status is running
+        status_resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
+        assert status_resp.json()["is_running"] is True
+        
+        # Cleanup: stop it
+        api_client.post(f"{BASE_URL}/api/auto-trading/stop")
+
+    def test_auto_trading_stop(self, api_client):
+        """POST /auto-trading/stop stops the engine and returns stats"""
+        # Start first
+        api_client.post(f"{BASE_URL}/api/auto-trading/start")
+        time.sleep(0.5)  # Let it run briefly
+        
+        resp = api_client.post(f"{BASE_URL}/api/auto-trading/stop")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "stats" in data
+        assert "scan_count" in data["stats"]
+        assert "trades_executed" in data["stats"]
+        
+        # Verify stopped
+        status_resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
+        assert status_resp.json()["is_running"] is False
+
+    def test_auto_trading_opportunities_endpoint(self, api_client):
+        """GET /auto-trading/opportunities returns list"""
+        resp = api_client.get(f"{BASE_URL}/api/auto-trading/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+
+    def test_auto_trading_status_has_scan_interval_3_seconds(self, api_client):
+        """Auto trading engine uses 3-second scan interval"""
+        resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["scan_interval_seconds"] == 3
+
+
+class TestMomentumThresholds:
+    """Test new momentum detection thresholds in bot settings"""
+
+    def test_settings_has_momentum_thresholds(self, api_client):
+        """Bot settings include new momentum threshold fields"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        # New momentum threshold fields
+        assert "min_momentum_score" in data
+        assert "min_volume_surge_percent" in data
+        assert "min_buyers_5m" in data
+
+    def test_momentum_thresholds_values(self, api_client):
+        """Momentum thresholds have expected default values"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["min_momentum_score"] == 70
+        assert data["min_volume_surge_percent"] == 150.0
+        assert data["min_buyers_5m"] == 30
+
+
+class TestTokenFilters:
+    """Test stricter token filters"""
+
+    def test_min_liquidity_filter(self, api_client):
+        """Minimum liquidity filter is set to $5000"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["min_liquidity_usd"] >= 5000.0
+
+    def test_min_volume_filter(self, api_client):
+        """Minimum volume filter is set to $10000"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["min_volume_usd"] >= 10000.0
+
+    def test_scan_interval_is_3_seconds(self, api_client):
+        """Scan interval is set to 3 seconds"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["scan_interval_seconds"] == 3
