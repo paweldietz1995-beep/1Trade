@@ -64,33 +64,39 @@ class TestSettings:
     """Test settings endpoints"""
 
     def test_get_settings(self, api_client):
-        """GET /settings returns trading settings"""
-        resp = api_client.get(f"{BASE_URL}/api/settings")
+        """GET /bot/settings returns trading settings"""
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
         assert resp.status_code == 200
         data = resp.json()
-        assert "stake_per_trade" in data
-        assert "max_loss_percent" in data
+        assert "total_budget_sol" in data
+        assert "max_trade_percent" in data
         assert "take_profit_percent" in data
         assert "stop_loss_percent" in data
         assert "paper_mode" in data
+        assert "auto_trade_enabled" in data
 
     def test_update_settings(self, api_client):
-        """PUT /settings updates settings and persists"""
+        """PUT /bot/settings updates settings and persists"""
         # Get current settings first
-        resp = api_client.get(f"{BASE_URL}/api/settings")
+        resp = api_client.get(f"{BASE_URL}/api/bot/settings")
         settings = resp.json()
         
-        # Update stake per trade
-        settings["stake_per_trade"] = 0.25
+        # Update budget
+        original_budget = settings["total_budget_sol"]
+        settings["total_budget_sol"] = 1.0
         settings["paper_mode"] = True
         
-        update_resp = api_client.put(f"{BASE_URL}/api/settings", json=settings)
+        update_resp = api_client.put(f"{BASE_URL}/api/bot/settings", json=settings)
         assert update_resp.status_code == 200
         
         # Verify persistence
-        get_resp = api_client.get(f"{BASE_URL}/api/settings")
+        get_resp = api_client.get(f"{BASE_URL}/api/bot/settings")
         updated = get_resp.json()
-        assert updated["stake_per_trade"] == 0.25
+        assert updated["total_budget_sol"] == 1.0
+        
+        # Restore original
+        settings["total_budget_sol"] = original_budget
+        api_client.put(f"{BASE_URL}/api/bot/settings", json=settings)
 
 
 class TestTokenScanner:
@@ -204,7 +210,9 @@ class TestPortfolio:
         resp = api_client.get(f"{BASE_URL}/api/portfolio")
         assert resp.status_code == 200
         data = resp.json()
-        assert "total_value_sol" in data
+        assert "total_budget_sol" in data
+        assert "available_sol" in data
+        assert "in_trades_sol" in data
         assert "total_pnl" in data
         assert "open_trades" in data
         assert "closed_trades" in data

@@ -1,0 +1,900 @@
+{
+  "config": {
+    "configFile": "/app/tests/playwright.config.ts",
+    "rootDir": "/app/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/app/tests/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/app/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "./test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "runAgents": "none",
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.58.2",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "core-flows.spec.ts",
+      "file": "core-flows.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Authentication Flow",
+          "file": "core-flows.spec.ts",
+          "line": 6,
+          "column": 6,
+          "specs": [
+            {
+              "title": "login page loads correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-416aa5462e0f656bf43c",
+              "file": "core-flows.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "login button disabled when PIN is less than 4 digits",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-b45150ae196978f75a46",
+              "file": "core-flows.spec.ts",
+              "line": 22,
+              "column": 7
+            },
+            {
+              "title": "login button enabled when PIN is 4+ digits",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-d0ecfade64b523845de6",
+              "file": "core-flows.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "invalid PIN shows error message",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-35337fcfd12c5f1500c7",
+              "file": "core-flows.spec.ts",
+              "line": 34,
+              "column": 7
+            },
+            {
+              "title": "valid PIN logs in and redirects to dashboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-bf07ed98bed708492fbf",
+              "file": "core-flows.spec.ts",
+              "line": 41,
+              "column": 7
+            },
+            {
+              "title": "unauthenticated user redirected to login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-650a5b79bbcd79587614",
+              "file": "core-flows.spec.ts",
+              "line": 48,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "Dashboard Navigation",
+          "file": "core-flows.spec.ts",
+          "line": 54,
+          "column": 6,
+          "specs": [
+            {
+              "title": "dashboard header is visible with key elements",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-6e0b5b2a857b79dd6c6b",
+              "file": "core-flows.spec.ts",
+              "line": 64,
+              "column": 7
+            },
+            {
+              "title": "dashboard shows stats cards",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-9cea88e07c47e1d80b4c",
+              "file": "core-flows.spec.ts",
+              "line": 70,
+              "column": 7
+            },
+            {
+              "title": "tab navigation works - Token Scanner",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-83a492cd2657d207f3bd",
+              "file": "core-flows.spec.ts",
+              "line": 77,
+              "column": 7
+            },
+            {
+              "title": "tab navigation works - Active Trades",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-49ebb018de039ae2d3cf",
+              "file": "core-flows.spec.ts",
+              "line": 82,
+              "column": 7
+            },
+            {
+              "title": "logout button works",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "28695e5e3430c54ac89e-b0d4d37295ff9438b144",
+              "file": "core-flows.spec.ts",
+              "line": 88,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "golden-path.spec.ts",
+      "file": "golden-path.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Golden Path - Full Trading Journey",
+          "file": "golden-path.spec.ts",
+          "line": 6,
+          "column": 6,
+          "specs": [
+            {
+              "title": "complete user journey: login → dashboard → scan → trade → verify → settings",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d6dd496e245cb9874cb8-719dd75ece8346cf7ef6",
+              "file": "golden-path.spec.ts",
+              "line": 7,
+              "column": 7
+            },
+            {
+              "title": "portfolio data is displayed after trading",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d6dd496e245cb9874cb8-79eaca540a9781f709c6",
+              "file": "golden-path.spec.ts",
+              "line": 73,
+              "column": 7
+            },
+            {
+              "title": "DEX screener API integration - tokens have price and risk data",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d6dd496e245cb9874cb8-ca96256beac20e16e6d8",
+              "file": "golden-path.spec.ts",
+              "line": 86,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "settings-paper-mode.spec.ts",
+      "file": "settings-paper-mode.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Settings Panel",
+          "file": "settings-paper-mode.spec.ts",
+          "line": 6,
+          "column": 6,
+          "specs": [
+            {
+              "title": "settings panel opens when settings button clicked",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-272e153cc1dec6c702ab",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "settings panel has all trading parameter controls",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-6d9885acc3d6ea1318ad",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 21,
+              "column": 7
+            },
+            {
+              "title": "settings panel has paper mode and auto mode toggles",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-4c54601e3cfdbd9ab675",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 37,
+              "column": 7
+            },
+            {
+              "title": "settings panel has save button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-2fa2f7ee209e877b37e9",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 49,
+              "column": 7
+            },
+            {
+              "title": "close button closes settings panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-47d334c4bcaaf6020cf7",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 59,
+              "column": 7
+            },
+            {
+              "title": "can update stake per trade and save",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-d18f2f04566976518cd5",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 70,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "Paper Mode Toggle",
+          "file": "settings-paper-mode.spec.ts",
+          "line": 89,
+          "column": 6,
+          "specs": [
+            {
+              "title": "paper mode toggle is visible in header",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-1b5eee26e08c60ea3d40",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 95,
+              "column": 7
+            },
+            {
+              "title": "paper mode shows correct label",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-6ed00862d06d49026daf",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 99,
+              "column": 7
+            },
+            {
+              "title": "paper mode toggle can be switched",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-42a648137262bfd0b885",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 105,
+              "column": 7
+            },
+            {
+              "title": "SOL price is displayed in header",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "8651730a1acd474cf87c-0cc01da71d1a42ec83d8",
+              "file": "settings-paper-mode.spec.ts",
+              "line": 123,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "trading-features.spec.ts",
+      "file": "trading-features.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Token Scanner",
+          "file": "trading-features.spec.ts",
+          "line": 6,
+          "column": 6,
+          "specs": [
+            {
+              "title": "token scanner tab shows scanner component",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-b8adebb6ef2cd89e189d",
+              "file": "trading-features.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "token scanner has search input and refresh button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-3c25f086f2f6c6ef9eaa",
+              "file": "trading-features.spec.ts",
+              "line": 17,
+              "column": 7
+            },
+            {
+              "title": "token scanner loads and displays tokens",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-45d80e57d1403b4a71ba",
+              "file": "trading-features.spec.ts",
+              "line": 23,
+              "column": 7
+            },
+            {
+              "title": "token search filters tokens",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-1ff296649f2e870fed09",
+              "file": "trading-features.spec.ts",
+              "line": 29,
+              "column": 7
+            },
+            {
+              "title": "refresh button reloads tokens",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-3127d1f82dfe8a991de4",
+              "file": "trading-features.spec.ts",
+              "line": 40,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "Trade Modal",
+          "file": "trading-features.spec.ts",
+          "line": 49,
+          "column": 6,
+          "specs": [
+            {
+              "title": "clicking token row opens trade modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-bfbdfe77003fb5e40cb9",
+              "file": "trading-features.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "trade modal has buy and sell buttons",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-a21f78742b70456c9e6b",
+              "file": "trading-features.spec.ts",
+              "line": 63,
+              "column": 7
+            },
+            {
+              "title": "trade modal has amount input",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-52f38a044c5eb40b475a",
+              "file": "trading-features.spec.ts",
+              "line": 69,
+              "column": 7
+            },
+            {
+              "title": "trade modal has TP and SL sliders",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-fd5b839d3372f6becc1c",
+              "file": "trading-features.spec.ts",
+              "line": 74,
+              "column": 7
+            },
+            {
+              "title": "trade modal has paper mode toggle",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-876232c1c8e16ae2c0c5",
+              "file": "trading-features.spec.ts",
+              "line": 80,
+              "column": 7
+            },
+            {
+              "title": "close button closes trade modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-74ed66d4760dc1093f5e",
+              "file": "trading-features.spec.ts",
+              "line": 85,
+              "column": 7
+            },
+            {
+              "title": "switching to SELL changes button state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-b20cda8cbf5f2d95daa1",
+              "file": "trading-features.spec.ts",
+              "line": 92,
+              "column": 7
+            },
+            {
+              "title": "can place a paper trade",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "13b8843fc5e368ffa020-299fe09004b399efe5cc",
+              "file": "trading-features.spec.ts",
+              "line": 98,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-03-08T20:01:48.896Z",
+    "duration": 280.46299999999997,
+    "expected": 0,
+    "skipped": 37,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

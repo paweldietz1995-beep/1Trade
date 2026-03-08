@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -9,12 +9,13 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import secrets
 import hashlib
 import httpx
 import asyncio
 from decimal import Decimal
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -50,17 +51,36 @@ class AuthResponse(BaseModel):
     token: Optional[str] = None
     message: str
 
-class TradingSettings(BaseModel):
+class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    stake_per_trade: float = 10.0
-    max_loss_percent: float = 50.0
-    take_profit_percent: float = 100.0
-    stop_loss_percent: float = 30.0
-    max_parallel_trades: int = 3
-    max_daily_trades: int = 10
+    # Capital Management
+    total_budget_sol: float = 0.5
+    max_trade_percent: float = 20.0  # Max 20% of budget per trade
+    min_trade_sol: float = 0.01
+    max_parallel_trades: int = 5
+    # Risk Management
+    take_profit_percent: float = 100.0  # +100% = 2x
+    stop_loss_percent: float = 25.0
+    trailing_stop_enabled: bool = False
+    trailing_stop_percent: float = 10.0
+    max_daily_loss_percent: float = 50.0
+    max_loss_streak: int = 3
+    # Token Filters
+    min_liquidity_usd: float = 5000.0
+    max_dev_wallet_percent: float = 15.0
+    max_top10_wallet_percent: float = 50.0
+    min_token_age_minutes: int = 5
+    max_token_age_hours: int = 24
+    min_buy_sell_ratio: float = 1.2
+    min_volume_usd: float = 1000.0
+    # Automation
+    auto_trade_enabled: bool = False
     paper_mode: bool = True
-    auto_mode: bool = False
+    scan_interval_seconds: int = 30
+    # Advanced
+    smart_wallet_tracking: bool = True
+    migration_detection: bool = True
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class TokenRiskAnalysis(BaseModel):
@@ -70,6 +90,8 @@ class TokenRiskAnalysis(BaseModel):
     dev_wallet_percent: float
     top_holder_percent: float
     risk_score: int  # 0-100
+    passed_filters: bool = False
+    filter_reasons: List[str] = []
 
 class TokenData(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -77,16 +99,25 @@ class TokenData(BaseModel):
     name: str
     symbol: str
     price_usd: float
-    price_change_24h: float
+    price_change_5m: float = 0.0
+    price_change_1h: float = 0.0
+    price_change_24h: float = 0.0
     market_cap: float
     liquidity: float
     volume_24h: float
+    volume_5m: float = 0.0
     holders: int
     buyers_24h: int
     sellers_24h: int
+    buyers_5m: int = 0
+    sellers_5m: int = 0
     buy_sell_ratio: float
     age_hours: float
     risk_analysis: Optional[TokenRiskAnalysis] = None
+    momentum_score: float = 0.0  # 0-100
+    signal_strength: str = "NONE"  # NONE, WEAK, MEDIUM, STRONG
+    pair_address: Optional[str] = None
+    dex_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class TradeOpportunity(BaseModel):
@@ -98,6 +129,8 @@ class TradeOpportunity(BaseModel):
     potential_profit: float
     risk_level: str  # LOW, MEDIUM, HIGH
     reason: str
+    priority: int = 0  # Higher = more urgent
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) + timedelta(minutes=5))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Trade(BaseModel):
@@ -106,20 +139,25 @@ class Trade(BaseModel):
     token_address: str
     token_symbol: str
     token_name: str
+    pair_address: Optional[str] = None
     trade_type: str  # BUY, SELL
     amount_sol: float
-    amount_tokens: float
+    amount_tokens: float = 0.0
     price_entry: float
     price_current: float
+    price_peak: float = 0.0  # For trailing stop
     price_exit: Optional[float] = None
     take_profit: float
     stop_loss: float
-    status: str = "OPEN"  # OPEN, CLOSED, PENDING
+    trailing_stop: Optional[float] = None
+    status: str = "PENDING"  # PENDING, OPEN, CLOSED, CANCELLED, FAILED
     pnl: float = 0.0
     pnl_percent: float = 0.0
     paper_trade: bool = True
+    auto_trade: bool = False
     wallet_address: Optional[str] = None
     tx_signature: Optional[str] = None
+    close_reason: Optional[str] = None  # TP_HIT, SL_HIT, TRAILING_STOP, MANUAL, AUTO_CLOSE
     opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     closed_at: Optional[datetime] = None
 
@@ -127,16 +165,21 @@ class TradeCreate(BaseModel):
     token_address: str
     token_symbol: str
     token_name: str
+    pair_address: Optional[str] = None
     trade_type: str
     amount_sol: float
     price_entry: float
     take_profit_percent: float
     stop_loss_percent: float
+    trailing_stop_percent: Optional[float] = None
     paper_trade: bool = True
+    auto_trade: bool = False
     wallet_address: Optional[str] = None
 
 class PortfolioSummary(BaseModel):
-    total_value_sol: float
+    total_budget_sol: float
+    available_sol: float
+    in_trades_sol: float
     total_pnl: float
     total_pnl_percent: float
     open_trades: int
@@ -144,12 +187,41 @@ class PortfolioSummary(BaseModel):
     win_rate: float
     best_trade_pnl: float
     worst_trade_pnl: float
+    daily_pnl: float
+    loss_streak: int
+    is_paused: bool = False
+    pause_reason: Optional[str] = None
 
-class WalletInfo(BaseModel):
+class SmartWallet(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     address: str
-    balance_sol: float
-    balance_usd: float
-    nickname: Optional[str] = None
+    win_rate: float = 0.0
+    total_trades: int = 0
+    profit_trades: int = 0
+    avg_profit_percent: float = 0.0
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    tokens_bought: List[str] = []
+    is_tracking: bool = True
+
+class JupiterQuote(BaseModel):
+    input_mint: str
+    output_mint: str
+    amount: int
+    slippage_bps: int = 100
+    out_amount: Optional[int] = None
+    price_impact: Optional[float] = None
+
+class SwapRequest(BaseModel):
+    input_mint: str
+    output_mint: str
+    amount: float  # In SOL or tokens
+    slippage_bps: int = 100
+    wallet_address: str
+
+# ============== CONSTANTS ==============
+
+SOL_MINT = "So11111111111111111111111111111111111111112"
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 # ============== HELPER FUNCTIONS ==============
 
@@ -162,7 +234,7 @@ def generate_token() -> str:
 async def get_sol_price() -> float:
     """Get current SOL price from CoinGecko"""
     try:
-        async with httpx.AsyncClient() as client_http:
+        async with httpx.AsyncClient(timeout=5.0) as client_http:
             response = await client_http.get(
                 "https://api.coingecko.com/api/v3/simple/price",
                 params={"ids": "solana", "vs_currencies": "usd"}
@@ -173,44 +245,89 @@ async def get_sol_price() -> float:
         logger.error(f"Error fetching SOL price: {e}")
         return 150.0
 
-async def fetch_dex_screener_tokens(limit: int = 20) -> List[Dict]:
-    """Fetch trending tokens from DEX Screener"""
+async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
+    """Fetch trending Solana tokens from DEX Screener"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client_http:
-            # DEX Screener Solana pairs endpoint
+        async with httpx.AsyncClient(timeout=15.0) as client_http:
+            # Get trending pairs
+            response = await client_http.get(
+                "https://api.dexscreener.com/latest/dex/search",
+                params={"q": "solana"}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                pairs = data.get("pairs", [])
+                # Filter Solana pairs
+                solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
+                return solana_pairs[:limit]
+    except Exception as e:
+        logger.error(f"Error fetching DEX Screener data: {e}")
+    return []
+
+async def fetch_pump_fun_tokens() -> List[Dict]:
+    """Fetch new tokens from Pump.fun via DEX Screener"""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client_http:
             response = await client_http.get(
                 "https://api.dexscreener.com/latest/dex/search",
                 params={"q": "pump.fun"}
             )
             if response.status_code == 200:
                 data = response.json()
-                pairs = data.get("pairs", [])[:limit]
-                return pairs
+                pairs = data.get("pairs", [])
+                return [p for p in pairs if p.get("chainId") == "solana"][:30]
     except Exception as e:
-        logger.error(f"Error fetching DEX Screener data: {e}")
+        logger.error(f"Error fetching Pump.fun data: {e}")
     return []
 
-def calculate_risk_score(token_data: Dict) -> TokenRiskAnalysis:
-    """Calculate risk analysis for a token"""
-    # Simulated risk analysis based on available data
-    liquidity = float(token_data.get("liquidity", {}).get("usd", 0) or 0)
-    volume = float(token_data.get("volume", {}).get("h24", 0) or 0)
-    price_change = float(token_data.get("priceChange", {}).get("h24", 0) or 0)
+def calculate_risk_analysis(pair: Dict, settings: BotSettings) -> TokenRiskAnalysis:
+    """Calculate comprehensive risk analysis for a token"""
+    liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+    volume = float(pair.get("volume", {}).get("h24", 0) or 0)
+    price_change = float(pair.get("priceChange", {}).get("h24", 0) or 0)
+    
+    filter_reasons = []
+    passed = True
     
     # Risk calculations
-    honeypot_risk = "LOW" if liquidity > 10000 else "MEDIUM" if liquidity > 1000 else "HIGH"
+    honeypot_risk = "LOW" if liquidity > 10000 else "MEDIUM" if liquidity > 2000 else "HIGH"
     rugpull_risk = "LOW" if liquidity > 50000 else "MEDIUM" if liquidity > 5000 else "HIGH"
     liquidity_locked = liquidity > 20000
-    dev_wallet_percent = 5.0 if liquidity > 10000 else 15.0
-    top_holder_percent = 20.0 if volume > 10000 else 40.0
     
-    # Overall risk score (0-100, higher = riskier)
-    risk_score = 50
+    # Simulated holder analysis (in production, query on-chain data)
+    dev_wallet_percent = 5.0 if liquidity > 20000 else 10.0 if liquidity > 5000 else 20.0
+    top_holder_percent = 25.0 if volume > 50000 else 40.0 if volume > 5000 else 60.0
+    
+    # Apply filters
+    if liquidity < settings.min_liquidity_usd:
+        passed = False
+        filter_reasons.append(f"Liquidity ${liquidity:.0f} < ${settings.min_liquidity_usd:.0f}")
+    
+    if dev_wallet_percent > settings.max_dev_wallet_percent:
+        passed = False
+        filter_reasons.append(f"Dev wallet {dev_wallet_percent:.1f}% > {settings.max_dev_wallet_percent:.1f}%")
+    
+    if top_holder_percent > settings.max_top10_wallet_percent:
+        passed = False
+        filter_reasons.append(f"Top holders {top_holder_percent:.1f}% > {settings.max_top10_wallet_percent:.1f}%")
+    
+    if honeypot_risk == "HIGH":
+        passed = False
+        filter_reasons.append("High honeypot risk")
+    
+    # Calculate overall risk score (0-100, higher = riskier)
+    risk_score = 30
     if liquidity < 5000:
-        risk_score += 20
-    if volume < 1000:
+        risk_score += 25
+    elif liquidity < 10000:
         risk_score += 15
-    if abs(price_change) > 50:
+    if volume < 1000:
+        risk_score += 20
+    elif volume < 5000:
+        risk_score += 10
+    if abs(price_change) > 80:
+        risk_score += 15
+    if dev_wallet_percent > 10:
         risk_score += 10
     risk_score = min(100, max(0, risk_score))
     
@@ -220,15 +337,129 @@ def calculate_risk_score(token_data: Dict) -> TokenRiskAnalysis:
         liquidity_locked=liquidity_locked,
         dev_wallet_percent=dev_wallet_percent,
         top_holder_percent=top_holder_percent,
-        risk_score=risk_score
+        risk_score=risk_score,
+        passed_filters=passed,
+        filter_reasons=filter_reasons
     )
+
+def calculate_momentum_score(pair: Dict) -> tuple:
+    """Calculate momentum score and signal strength"""
+    price_change_5m = float(pair.get("priceChange", {}).get("m5", 0) or 0)
+    price_change_1h = float(pair.get("priceChange", {}).get("h1", 0) or 0)
+    price_change_24h = float(pair.get("priceChange", {}).get("h24", 0) or 0)
+    
+    txns = pair.get("txns", {})
+    txns_5m = txns.get("m5", {})
+    txns_1h = txns.get("h1", {})
+    txns_24h = txns.get("h24", {})
+    
+    buys_5m = txns_5m.get("buys", 0)
+    sells_5m = txns_5m.get("sells", 0)
+    buys_1h = txns_1h.get("buys", 0)
+    sells_1h = txns_1h.get("sells", 0)
+    
+    volume_5m = float(pair.get("volume", {}).get("m5", 0) or 0)
+    volume_1h = float(pair.get("volume", {}).get("h1", 0) or 0)
+    
+    # Calculate momentum score
+    score = 50  # Base score
+    
+    # Price momentum
+    if price_change_5m > 10:
+        score += 15
+    elif price_change_5m > 5:
+        score += 10
+    elif price_change_5m > 0:
+        score += 5
+    elif price_change_5m < -10:
+        score -= 15
+    
+    # Buy pressure
+    buy_ratio_5m = buys_5m / max(sells_5m, 1)
+    if buy_ratio_5m > 3:
+        score += 20
+    elif buy_ratio_5m > 2:
+        score += 15
+    elif buy_ratio_5m > 1.5:
+        score += 10
+    elif buy_ratio_5m < 0.5:
+        score -= 15
+    
+    # Volume surge
+    if volume_5m > 5000:
+        score += 10
+    elif volume_5m > 1000:
+        score += 5
+    
+    # Acceleration (comparing 5m to 1h trends)
+    if price_change_5m > price_change_1h / 12:  # Accelerating
+        score += 10
+    
+    score = min(100, max(0, score))
+    
+    # Determine signal strength
+    if score >= 80:
+        signal = "STRONG"
+    elif score >= 65:
+        signal = "MEDIUM"
+    elif score >= 50:
+        signal = "WEAK"
+    else:
+        signal = "NONE"
+    
+    return score, signal, buys_5m, sells_5m, volume_5m, price_change_5m, price_change_1h
+
+async def get_jupiter_quote(input_mint: str, output_mint: str, amount: int, slippage_bps: int = 100) -> Optional[Dict]:
+    """Get swap quote from Jupiter API"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            response = await client_http.get(
+                "https://quote-api.jup.ag/v6/quote",
+                params={
+                    "inputMint": input_mint,
+                    "outputMint": output_mint,
+                    "amount": str(amount),
+                    "slippageBps": slippage_bps,
+                    "onlyDirectRoutes": False,
+                    "asLegacyTransaction": False
+                }
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Jupiter quote error: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"Error getting Jupiter quote: {e}")
+    return None
+
+async def build_jupiter_swap(quote: Dict, user_public_key: str) -> Optional[str]:
+    """Build swap transaction from Jupiter quote"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            response = await client_http.post(
+                "https://quote-api.jup.ag/v6/swap",
+                json={
+                    "quoteResponse": quote,
+                    "userPublicKey": user_public_key,
+                    "wrapAndUnwrapSol": True,
+                    "dynamicComputeUnitLimit": True,
+                    "prioritizationFeeLamports": "auto"
+                }
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("swapTransaction")
+            else:
+                logger.error(f"Jupiter swap build error: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"Error building Jupiter swap: {e}")
+    return None
 
 # ============== AUTH ENDPOINTS ==============
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(request: AuthRequest):
     """Simple PIN-based authentication for single user"""
-    # Get stored PIN hash or create default
     auth_doc = await db.auth.find_one({"type": "pin"})
     
     if not auth_doc:
@@ -263,91 +494,127 @@ async def verify_token(token: str):
     session = await db.sessions.find_one({"token": token})
     return {"valid": session is not None}
 
-# ============== SETTINGS ENDPOINTS ==============
+@api_router.post("/auth/reset")
+async def reset_pin():
+    """Reset PIN (for recovery)"""
+    await db.auth.delete_many({"type": "pin"})
+    await db.sessions.delete_many({})
+    return {"success": True, "message": "PIN reset. Set new PIN on next login."}
 
-@api_router.get("/settings", response_model=TradingSettings)
-async def get_settings():
-    """Get current trading settings"""
-    settings = await db.settings.find_one({"type": "trading"}, {"_id": 0})
+# ============== BOT SETTINGS ENDPOINTS ==============
+
+@api_router.get("/bot/settings", response_model=BotSettings)
+async def get_bot_settings():
+    """Get current bot settings"""
+    settings = await db.bot_settings.find_one({"type": "bot"}, {"_id": 0})
     if not settings:
-        default_settings = TradingSettings()
+        default_settings = BotSettings()
         doc = default_settings.model_dump()
-        doc["type"] = "trading"
+        doc["type"] = "bot"
         doc["updated_at"] = doc["updated_at"].isoformat()
-        await db.settings.insert_one(doc)
+        await db.bot_settings.insert_one(doc)
         return default_settings
     
     if isinstance(settings.get("updated_at"), str):
         settings["updated_at"] = datetime.fromisoformat(settings["updated_at"])
-    return TradingSettings(**settings)
+    return BotSettings(**settings)
 
-@api_router.put("/settings", response_model=TradingSettings)
-async def update_settings(settings: TradingSettings):
-    """Update trading settings"""
+@api_router.put("/bot/settings", response_model=BotSettings)
+async def update_bot_settings(settings: BotSettings):
+    """Update bot settings"""
     doc = settings.model_dump()
-    doc["type"] = "trading"
+    doc["type"] = "bot"
     doc["updated_at"] = datetime.now(timezone.utc).isoformat()
     
-    await db.settings.update_one(
-        {"type": "trading"},
+    await db.bot_settings.update_one(
+        {"type": "bot"},
         {"$set": doc},
         upsert=True
     )
     return settings
 
-# ============== TOKEN SCANNER ENDPOINTS ==============
+# ============== TOKEN DISCOVERY ENGINE ==============
 
 @api_router.get("/tokens/scan", response_model=List[TokenData])
-async def scan_tokens(limit: int = 20):
-    """Scan for new and trending pump.fun tokens"""
-    pairs = await fetch_dex_screener_tokens(limit)
+async def scan_tokens(limit: int = 30):
+    """Scan for new and trending tokens with full analysis"""
+    settings = await get_bot_settings()
+    
+    # Fetch from multiple sources
+    pump_pairs = await fetch_pump_fun_tokens()
+    dex_pairs = await fetch_dex_screener_tokens(limit)
+    
+    # Combine and dedupe
+    all_pairs = {}
+    for pair in pump_pairs + dex_pairs:
+        address = pair.get("baseToken", {}).get("address", "")
+        if address and address not in all_pairs:
+            all_pairs[address] = pair
     
     tokens = []
-    for pair in pairs:
+    for address, pair in list(all_pairs.items())[:limit]:
         try:
             base_token = pair.get("baseToken", {})
             price_change = pair.get("priceChange", {})
             volume = pair.get("volume", {})
             liquidity = pair.get("liquidity", {})
+            txns = pair.get("txns", {}).get("h24", {})
             
-            # Calculate age in hours
+            # Calculate age
             created_at = pair.get("pairCreatedAt", 0)
             if created_at:
                 age_hours = (datetime.now(timezone.utc).timestamp() * 1000 - created_at) / (1000 * 60 * 60)
             else:
-                age_hours = 0
+                age_hours = 999
             
-            # Calculate buy/sell ratio from txns
-            txns = pair.get("txns", {}).get("h24", {})
-            buys = txns.get("buys", 1)
-            sells = txns.get("sells", 1)
+            # Risk analysis
+            risk_analysis = calculate_risk_analysis(pair, settings)
+            
+            # Momentum analysis
+            momentum_score, signal, buys_5m, sells_5m, volume_5m, price_5m, price_1h = calculate_momentum_score(pair)
+            
+            buys_24h = txns.get("buys", 1)
+            sells_24h = txns.get("sells", 1)
             
             token_data = TokenData(
-                address=base_token.get("address", ""),
+                address=address,
                 name=base_token.get("name", "Unknown"),
                 symbol=base_token.get("symbol", "???"),
                 price_usd=float(pair.get("priceUsd", 0) or 0),
+                price_change_5m=price_5m,
+                price_change_1h=price_1h,
                 price_change_24h=float(price_change.get("h24", 0) or 0),
                 market_cap=float(pair.get("fdv", 0) or 0),
                 liquidity=float(liquidity.get("usd", 0) or 0),
                 volume_24h=float(volume.get("h24", 0) or 0),
+                volume_5m=volume_5m,
                 holders=int(pair.get("holders", 0) or 0),
-                buyers_24h=buys,
-                sellers_24h=sells,
-                buy_sell_ratio=round(buys / max(sells, 1), 2),
+                buyers_24h=buys_24h,
+                sellers_24h=sells_24h,
+                buyers_5m=buys_5m,
+                sellers_5m=sells_5m,
+                buy_sell_ratio=round(buys_24h / max(sells_24h, 1), 2),
                 age_hours=round(age_hours, 1),
-                risk_analysis=calculate_risk_score(pair)
+                risk_analysis=risk_analysis,
+                momentum_score=momentum_score,
+                signal_strength=signal,
+                pair_address=pair.get("pairAddress"),
+                dex_id=pair.get("dexId")
             )
             tokens.append(token_data)
         except Exception as e:
             logger.error(f"Error processing token: {e}")
             continue
     
+    # Sort by momentum score
+    tokens.sort(key=lambda x: x.momentum_score, reverse=True)
     return tokens
 
 @api_router.get("/tokens/{address}", response_model=TokenData)
 async def get_token_details(address: str):
     """Get detailed information about a specific token"""
+    settings = await get_bot_settings()
+    
     try:
         async with httpx.AsyncClient(timeout=10.0) as client_http:
             response = await client_http.get(
@@ -357,7 +624,9 @@ async def get_token_details(address: str):
                 data = response.json()
                 pairs = data.get("pairs", [])
                 if pairs:
-                    pair = pairs[0]  # Get the main pair
+                    # Get the best pair (highest liquidity)
+                    pair = max(pairs, key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0))
+                    
                     base_token = pair.get("baseToken", {})
                     price_change = pair.get("priceChange", {})
                     volume = pair.get("volume", {})
@@ -367,21 +636,33 @@ async def get_token_details(address: str):
                     created_at = pair.get("pairCreatedAt", 0)
                     age_hours = (datetime.now(timezone.utc).timestamp() * 1000 - created_at) / (1000 * 60 * 60) if created_at else 0
                     
+                    risk_analysis = calculate_risk_analysis(pair, settings)
+                    momentum_score, signal, buys_5m, sells_5m, volume_5m, price_5m, price_1h = calculate_momentum_score(pair)
+                    
                     return TokenData(
                         address=address,
                         name=base_token.get("name", "Unknown"),
                         symbol=base_token.get("symbol", "???"),
                         price_usd=float(pair.get("priceUsd", 0) or 0),
+                        price_change_5m=price_5m,
+                        price_change_1h=price_1h,
                         price_change_24h=float(price_change.get("h24", 0) or 0),
                         market_cap=float(pair.get("fdv", 0) or 0),
                         liquidity=float(liquidity.get("usd", 0) or 0),
                         volume_24h=float(volume.get("h24", 0) or 0),
+                        volume_5m=volume_5m,
                         holders=int(pair.get("holders", 0) or 0),
                         buyers_24h=txns.get("buys", 0),
                         sellers_24h=txns.get("sells", 0),
+                        buyers_5m=buys_5m,
+                        sellers_5m=sells_5m,
                         buy_sell_ratio=round(txns.get("buys", 1) / max(txns.get("sells", 1), 1), 2),
                         age_hours=round(age_hours, 1),
-                        risk_analysis=calculate_risk_score(pair)
+                        risk_analysis=risk_analysis,
+                        momentum_score=momentum_score,
+                        signal_strength=signal,
+                        pair_address=pair.get("pairAddress"),
+                        dex_id=pair.get("dexId")
                     )
     except Exception as e:
         logger.error(f"Error fetching token details: {e}")
@@ -392,60 +673,141 @@ async def get_token_details(address: str):
 
 @api_router.get("/opportunities", response_model=List[TradeOpportunity])
 async def get_trading_opportunities():
-    """Get AI-suggested trading opportunities"""
-    tokens = await scan_tokens(limit=10)
+    """Get AI-suggested trading opportunities based on analysis"""
+    settings = await get_bot_settings()
+    tokens = await scan_tokens(limit=20)
     opportunities = []
     
     for token in tokens:
-        if token.risk_analysis and token.risk_analysis.risk_score < 70:
+        # Only consider tokens that pass all filters
+        if not token.risk_analysis or not token.risk_analysis.passed_filters:
+            continue
+        
+        # Check age constraints
+        min_age_hours = settings.min_token_age_minutes / 60
+        if token.age_hours < min_age_hours or token.age_hours > settings.max_token_age_hours:
+            continue
+        
+        # Check buy/sell ratio
+        if token.buy_sell_ratio < settings.min_buy_sell_ratio:
+            continue
+        
+        # Strong momentum signals
+        if token.momentum_score >= 65 and token.signal_strength in ["MEDIUM", "STRONG"]:
+            confidence = min(95, token.momentum_score + (10 if token.signal_strength == "STRONG" else 0))
+            
             # Calculate potential profit based on momentum
-            if token.buy_sell_ratio > 1.5 and token.price_change_24h > 5:
-                confidence = min(90, 50 + token.buy_sell_ratio * 10 + token.price_change_24h * 0.5)
-                potential_profit = min(200, token.price_change_24h * 2)
-                
-                opportunity = TradeOpportunity(
-                    token=token,
-                    suggested_action="BUY",
-                    confidence=round(confidence, 1),
-                    potential_profit=round(potential_profit, 1),
-                    risk_level="LOW" if token.risk_analysis.risk_score < 40 else "MEDIUM",
-                    reason=f"Strong momentum: {token.buy_sell_ratio}x buy/sell ratio, +{token.price_change_24h}% 24h"
-                )
-                opportunities.append(opportunity)
+            potential_profit = min(200, token.price_change_5m * 3 + token.momentum_score * 0.5)
+            
+            # Determine risk level
+            if token.risk_analysis.risk_score < 40:
+                risk_level = "LOW"
+            elif token.risk_analysis.risk_score < 60:
+                risk_level = "MEDIUM"
+            else:
+                risk_level = "HIGH"
+            
+            # Build reason
+            reasons = []
+            if token.signal_strength == "STRONG":
+                reasons.append("🚀 Strong momentum")
+            if token.buy_sell_ratio > 2:
+                reasons.append(f"📈 {token.buy_sell_ratio:.1f}x buy pressure")
+            if token.price_change_5m > 5:
+                reasons.append(f"⚡ +{token.price_change_5m:.1f}% in 5min")
+            if token.volume_5m > 5000:
+                reasons.append(f"💰 ${token.volume_5m:.0f} volume surge")
+            
+            opportunity = TradeOpportunity(
+                token=token,
+                suggested_action="BUY",
+                confidence=round(confidence, 1),
+                potential_profit=round(max(potential_profit, 20), 1),
+                risk_level=risk_level,
+                reason=" | ".join(reasons) if reasons else "Momentum detected",
+                priority=int(token.momentum_score)
+            )
+            opportunities.append(opportunity)
     
-    return sorted(opportunities, key=lambda x: x.confidence, reverse=True)[:5]
+    # Sort by priority (momentum score)
+    opportunities.sort(key=lambda x: x.priority, reverse=True)
+    return opportunities[:10]
+
+# ============== JUPITER SWAP ENDPOINTS ==============
+
+@api_router.post("/swap/quote")
+async def get_swap_quote(request: JupiterQuote):
+    """Get a swap quote from Jupiter"""
+    quote = await get_jupiter_quote(
+        request.input_mint,
+        request.output_mint,
+        request.amount,
+        request.slippage_bps
+    )
+    
+    if not quote:
+        raise HTTPException(status_code=400, detail="Failed to get quote")
+    
+    return quote
+
+@api_router.post("/swap/build")
+async def build_swap_transaction(quote: Dict, user_public_key: str):
+    """Build a swap transaction from quote"""
+    tx = await build_jupiter_swap(quote, user_public_key)
+    
+    if not tx:
+        raise HTTPException(status_code=400, detail="Failed to build transaction")
+    
+    return {"transaction": tx}
 
 # ============== TRADES ENDPOINTS ==============
 
 @api_router.post("/trades", response_model=Trade)
 async def create_trade(trade_data: TradeCreate):
-    """Create a new trade (paper or real)"""
-    settings = await get_settings()
+    """Create a new trade"""
+    settings = await get_bot_settings()
     
     # Check trade limits
     open_trades = await db.trades.count_documents({"status": "OPEN"})
     if open_trades >= settings.max_parallel_trades:
         raise HTTPException(status_code=400, detail="Maximum parallel trades reached")
     
-    # Calculate take profit and stop loss prices
+    # Check budget
+    portfolio = await get_portfolio_summary()
+    max_trade_amount = settings.total_budget_sol * (settings.max_trade_percent / 100)
+    
+    if trade_data.amount_sol > max_trade_amount:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Trade amount exceeds max {max_trade_amount:.4f} SOL ({settings.max_trade_percent}% of budget)"
+        )
+    
+    if trade_data.amount_sol > portfolio.available_sol:
+        raise HTTPException(status_code=400, detail="Insufficient available balance")
+    
+    # Calculate prices
     take_profit_price = trade_data.price_entry * (1 + trade_data.take_profit_percent / 100)
     stop_loss_price = trade_data.price_entry * (1 - trade_data.stop_loss_percent / 100)
-    
-    # Calculate token amount
-    amount_tokens = trade_data.amount_sol / trade_data.price_entry if trade_data.price_entry > 0 else 0
+    trailing_stop = None
+    if trade_data.trailing_stop_percent:
+        trailing_stop = trade_data.price_entry * (1 - trade_data.trailing_stop_percent / 100)
     
     trade = Trade(
         token_address=trade_data.token_address,
         token_symbol=trade_data.token_symbol,
         token_name=trade_data.token_name,
+        pair_address=trade_data.pair_address,
         trade_type=trade_data.trade_type,
         amount_sol=trade_data.amount_sol,
-        amount_tokens=amount_tokens,
         price_entry=trade_data.price_entry,
         price_current=trade_data.price_entry,
+        price_peak=trade_data.price_entry,
         take_profit=take_profit_price,
         stop_loss=stop_loss_price,
+        trailing_stop=trailing_stop,
+        status="OPEN",
         paper_trade=trade_data.paper_trade,
+        auto_trade=trade_data.auto_trade,
         wallet_address=trade_data.wallet_address
     )
     
@@ -453,16 +815,17 @@ async def create_trade(trade_data: TradeCreate):
     doc["opened_at"] = doc["opened_at"].isoformat()
     await db.trades.insert_one(doc)
     
+    logger.info(f"Trade created: {trade.id} - {trade.token_symbol} - {trade.amount_sol} SOL")
     return trade
 
 @api_router.get("/trades", response_model=List[Trade])
-async def get_trades(status: Optional[str] = None):
+async def get_trades(status: Optional[str] = None, limit: int = 100):
     """Get all trades, optionally filtered by status"""
     query = {}
     if status:
         query["status"] = status
     
-    trades = await db.trades.find(query, {"_id": 0}).sort("opened_at", -1).to_list(100)
+    trades = await db.trades.find(query, {"_id": 0}).sort("opened_at", -1).to_list(limit)
     
     for trade in trades:
         if isinstance(trade.get("opened_at"), str):
@@ -470,95 +833,177 @@ async def get_trades(status: Optional[str] = None):
         if isinstance(trade.get("closed_at"), str):
             trade["closed_at"] = datetime.fromisoformat(trade["closed_at"])
     
-    return trades
-
-@api_router.get("/trades/{trade_id}", response_model=Trade)
-async def get_trade(trade_id: str):
-    """Get a specific trade"""
-    trade = await db.trades.find_one({"id": trade_id}, {"_id": 0})
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-    
-    if isinstance(trade.get("opened_at"), str):
-        trade["opened_at"] = datetime.fromisoformat(trade["opened_at"])
-    if isinstance(trade.get("closed_at"), str):
-        trade["closed_at"] = datetime.fromisoformat(trade["closed_at"])
-    
-    return Trade(**trade)
+    return [Trade(**t) for t in trades]
 
 @api_router.put("/trades/{trade_id}/close")
-async def close_trade(trade_id: str, exit_price: float):
+async def close_trade(trade_id: str, exit_price: float, reason: str = "MANUAL"):
     """Close a trade"""
     trade = await db.trades.find_one({"id": trade_id}, {"_id": 0})
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
     
+    if trade["status"] != "OPEN":
+        raise HTTPException(status_code=400, detail="Trade is not open")
+    
     # Calculate PnL
-    pnl = (exit_price - trade["price_entry"]) * trade["amount_tokens"]
     pnl_percent = ((exit_price / trade["price_entry"]) - 1) * 100
+    pnl_sol = trade["amount_sol"] * (pnl_percent / 100)
     
     update_data = {
         "status": "CLOSED",
         "price_exit": exit_price,
         "price_current": exit_price,
-        "pnl": round(pnl, 6),
+        "pnl": round(pnl_sol, 6),
         "pnl_percent": round(pnl_percent, 2),
+        "close_reason": reason,
         "closed_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.trades.update_one({"id": trade_id}, {"$set": update_data})
     
-    return {"success": True, "pnl": pnl, "pnl_percent": pnl_percent}
+    logger.info(f"Trade closed: {trade_id} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
+    return {"success": True, "pnl": pnl_sol, "pnl_percent": pnl_percent}
+
+@api_router.put("/trades/{trade_id}/update-price")
+async def update_trade_price(trade_id: str, current_price: float):
+    """Update current price and check TP/SL"""
+    trade = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not trade or trade["status"] != "OPEN":
+        raise HTTPException(status_code=404, detail="Open trade not found")
+    
+    settings = await get_bot_settings()
+    update_data = {"price_current": current_price}
+    should_close = False
+    close_reason = None
+    
+    # Update peak price for trailing stop
+    if current_price > trade.get("price_peak", trade["price_entry"]):
+        update_data["price_peak"] = current_price
+        
+        # Update trailing stop
+        if settings.trailing_stop_enabled and trade.get("trailing_stop"):
+            new_trailing = current_price * (1 - settings.trailing_stop_percent / 100)
+            if new_trailing > trade["trailing_stop"]:
+                update_data["trailing_stop"] = new_trailing
+    
+    # Check take profit
+    if current_price >= trade["take_profit"]:
+        should_close = True
+        close_reason = "TP_HIT"
+    
+    # Check stop loss
+    elif current_price <= trade["stop_loss"]:
+        should_close = True
+        close_reason = "SL_HIT"
+    
+    # Check trailing stop
+    elif trade.get("trailing_stop") and current_price <= trade["trailing_stop"]:
+        should_close = True
+        close_reason = "TRAILING_STOP"
+    
+    await db.trades.update_one({"id": trade_id}, {"$set": update_data})
+    
+    if should_close:
+        return await close_trade(trade_id, current_price, close_reason)
+    
+    return {"updated": True, "should_close": False}
 
 # ============== PORTFOLIO ENDPOINTS ==============
 
 @api_router.get("/portfolio", response_model=PortfolioSummary)
 async def get_portfolio_summary():
-    """Get portfolio summary and statistics"""
+    """Get comprehensive portfolio summary"""
+    settings = await get_bot_settings()
     trades = await db.trades.find({}, {"_id": 0}).to_list(1000)
     
     open_trades = [t for t in trades if t.get("status") == "OPEN"]
     closed_trades = [t for t in trades if t.get("status") == "CLOSED"]
     
-    total_value = sum(t.get("amount_sol", 0) for t in open_trades)
+    # Calculate values
+    in_trades_sol = sum(t.get("amount_sol", 0) for t in open_trades)
+    available_sol = max(0, settings.total_budget_sol - in_trades_sol)
+    
     total_pnl = sum(t.get("pnl", 0) for t in closed_trades)
     
+    # Win rate
     winning_trades = [t for t in closed_trades if t.get("pnl", 0) > 0]
     win_rate = (len(winning_trades) / len(closed_trades) * 100) if closed_trades else 0
     
+    # Best/worst trades
     pnls = [t.get("pnl", 0) for t in closed_trades]
     best_trade = max(pnls) if pnls else 0
     worst_trade = min(pnls) if pnls else 0
     
-    initial_capital = sum(t.get("amount_sol", 0) for t in closed_trades)
-    total_pnl_percent = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
+    # Calculate daily PnL
+    today = datetime.now(timezone.utc).date()
+    today_trades = [
+        t for t in closed_trades 
+        if t.get("closed_at") and 
+        (datetime.fromisoformat(t["closed_at"]) if isinstance(t["closed_at"], str) else t["closed_at"]).date() == today
+    ]
+    daily_pnl = sum(t.get("pnl", 0) for t in today_trades)
+    
+    # Calculate loss streak
+    loss_streak = 0
+    for trade in reversed(closed_trades):
+        if trade.get("pnl", 0) < 0:
+            loss_streak += 1
+        else:
+            break
+    
+    # Check if trading should be paused
+    is_paused = False
+    pause_reason = None
+    
+    daily_loss_percent = abs(daily_pnl / settings.total_budget_sol * 100) if daily_pnl < 0 else 0
+    if daily_loss_percent >= settings.max_daily_loss_percent:
+        is_paused = True
+        pause_reason = f"Daily loss limit reached ({daily_loss_percent:.1f}%)"
+    elif loss_streak >= settings.max_loss_streak:
+        is_paused = True
+        pause_reason = f"Loss streak limit reached ({loss_streak} consecutive losses)"
+    
+    total_pnl_percent = (total_pnl / settings.total_budget_sol * 100) if settings.total_budget_sol > 0 else 0
     
     return PortfolioSummary(
-        total_value_sol=round(total_value, 4),
+        total_budget_sol=settings.total_budget_sol,
+        available_sol=round(available_sol, 4),
+        in_trades_sol=round(in_trades_sol, 4),
         total_pnl=round(total_pnl, 6),
         total_pnl_percent=round(total_pnl_percent, 2),
         open_trades=len(open_trades),
         closed_trades=len(closed_trades),
         win_rate=round(win_rate, 1),
         best_trade_pnl=round(best_trade, 6),
-        worst_trade_pnl=round(worst_trade, 6)
+        worst_trade_pnl=round(worst_trade, 6),
+        daily_pnl=round(daily_pnl, 6),
+        loss_streak=loss_streak,
+        is_paused=is_paused,
+        pause_reason=pause_reason
     )
 
-# ============== WALLET ENDPOINTS ==============
+# ============== SMART WALLET TRACKING ==============
 
-@api_router.get("/wallet/balance/{address}")
-async def get_wallet_balance(address: str):
-    """Get wallet SOL balance"""
-    sol_price = await get_sol_price()
+@api_router.get("/smart-wallets", response_model=List[SmartWallet])
+async def get_smart_wallets():
+    """Get list of tracked smart wallets"""
+    wallets = await db.smart_wallets.find({"is_tracking": True}, {"_id": 0}).to_list(100)
+    return [SmartWallet(**w) for w in wallets]
+
+@api_router.post("/smart-wallets")
+async def add_smart_wallet(address: str):
+    """Add a wallet to track"""
+    existing = await db.smart_wallets.find_one({"address": address})
+    if existing:
+        raise HTTPException(status_code=400, detail="Wallet already tracked")
     
-    # In production, this would query the Solana RPC
-    # For now, return mock data
-    return {
-        "address": address,
-        "balance_sol": 0.0,
-        "balance_usd": 0.0,
-        "sol_price": sol_price
-    }
+    wallet = SmartWallet(address=address)
+    doc = wallet.model_dump()
+    doc["last_seen"] = doc["last_seen"].isoformat()
+    await db.smart_wallets.insert_one(doc)
+    return wallet
+
+# ============== MARKET DATA ==============
 
 @api_router.get("/market/sol-price")
 async def get_current_sol_price():
@@ -566,11 +1011,17 @@ async def get_current_sol_price():
     price = await get_sol_price()
     return {"price": price, "currency": "USD"}
 
+@api_router.get("/market/trending")
+async def get_trending_tokens():
+    """Get trending tokens sorted by momentum"""
+    tokens = await scan_tokens(limit=10)
+    return [t for t in tokens if t.signal_strength in ["MEDIUM", "STRONG"]]
+
 # ============== HEALTH CHECK ==============
 
 @api_router.get("/")
 async def root():
-    return {"message": "Pump.fun Trading Terminal API", "version": "1.0.0"}
+    return {"message": "Pump.fun Trading Bot API", "version": "2.0.0"}
 
 @api_router.get("/health")
 async def health_check():

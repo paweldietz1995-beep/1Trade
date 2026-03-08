@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useApp } from '../context/AppContext';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -13,7 +13,7 @@ import {
   Percent,
   Zap,
   Check,
-  ExternalLink
+  Activity
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -24,16 +24,38 @@ import { Switch } from './ui/switch';
 import { Progress } from './ui/progress';
 import { toast } from 'sonner';
 
-const TradeModal = ({ token, opportunity = null, onClose }) => {
-  const { API_URL, settings, paperMode, solPrice } = useApp();
+const TradeModal = ({ token, opportunity = null, onClose, onSuccess }) => {
+  const { API_URL } = useApp();
   const { connected, publicKey } = useWallet();
   
+  const [botSettings, setBotSettings] = useState(null);
   const [tradeType, setTradeType] = useState('BUY');
-  const [amountSOL, setAmountSOL] = useState(settings?.stake_per_trade || 0.1);
-  const [takeProfitPercent, setTakeProfitPercent] = useState(settings?.take_profit_percent || 100);
-  const [stopLossPercent, setStopLossPercent] = useState(settings?.stop_loss_percent || 30);
-  const [usePaperMode, setUsePaperMode] = useState(paperMode);
+  const [amountSOL, setAmountSOL] = useState(0.1);
+  const [takeProfitPercent, setTakeProfitPercent] = useState(100);
+  const [stopLossPercent, setStopLossPercent] = useState(25);
+  const [trailingStopEnabled, setTrailingStopEnabled] = useState(false);
+  const [trailingStopPercent, setTrailingStopPercent] = useState(10);
+  const [usePaperMode, setUsePaperMode] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/bot/settings`);
+        const settings = response.data;
+        setBotSettings(settings);
+        setAmountSOL(settings.total_budget_sol * (settings.max_trade_percent / 100));
+        setTakeProfitPercent(settings.take_profit_percent);
+        setStopLossPercent(settings.stop_loss_percent);
+        setTrailingStopEnabled(settings.trailing_stop_enabled);
+        setTrailingStopPercent(settings.trailing_stop_percent);
+        setUsePaperMode(settings.paper_mode);
+      } catch (error) {
+        console.error('Error fetching settings:', error);
+      }
+    };
+    fetchSettings();
+  }, [API_URL]);
 
   const formatPrice = (price) => {
     if (!price) return '0';
@@ -46,13 +68,12 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
     const entryPrice = token.price_usd;
     const takeProfitPrice = entryPrice * (1 + takeProfitPercent / 100);
     const stopLossPrice = entryPrice * (1 - stopLossPercent / 100);
-    const potentialProfit = amountSOL * solPrice * (takeProfitPercent / 100);
-    const potentialLoss = amountSOL * solPrice * (stopLossPercent / 100);
     
-    return { takeProfitPrice, stopLossPrice, potentialProfit, potentialLoss };
+    return { takeProfitPrice, stopLossPrice };
   };
 
-  const { takeProfitPrice, stopLossPrice, potentialProfit, potentialLoss } = calculatePrices();
+  const { takeProfitPrice, stopLossPrice } = calculatePrices();
+  const maxTradeAmount = botSettings ? botSettings.total_budget_sol * (botSettings.max_trade_percent / 100) : 0.1;
 
   const handleSubmit = async () => {
     if (!usePaperMode && !connected) {
@@ -66,24 +87,28 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
         token_address: token.address,
         token_symbol: token.symbol,
         token_name: token.name,
+        pair_address: token.pair_address,
         trade_type: tradeType,
         amount_sol: amountSOL,
         price_entry: token.price_usd,
         take_profit_percent: takeProfitPercent,
         stop_loss_percent: stopLossPercent,
+        trailing_stop_percent: trailingStopEnabled ? trailingStopPercent : null,
         paper_trade: usePaperMode,
+        auto_trade: false,
         wallet_address: publicKey?.toString() || null
       };
 
       await axios.post(`${API_URL}/trades`, tradeData);
       
       toast.success(
-        `${usePaperMode ? 'Paper' : 'Live'} ${tradeType} order placed for ${token.symbol}`,
+        `${usePaperMode ? 'Paper' : 'Live'} ${tradeType} order placed!`,
         {
-          description: `Amount: ${amountSOL} SOL | TP: +${takeProfitPercent}% | SL: -${stopLossPercent}%`
+          description: `${token.symbol} | ${amountSOL.toFixed(4)} SOL | TP: +${takeProfitPercent}% | SL: -${stopLossPercent}%`
         }
       );
       
+      onSuccess && onSuccess();
       onClose();
     } catch (error) {
       console.error('Error placing trade:', error);
@@ -100,11 +125,28 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#1E293B]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neon-violet to-neon-cyan flex items-center justify-center text-sm font-bold">
-              {token.symbol.slice(0, 2)}
+            <div className="relative">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-neon-violet to-neon-cyan flex items-center justify-center text-sm font-bold">
+                {token.symbol.slice(0, 2)}
+              </div>
+              {token.signal_strength && (
+                <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center ${
+                  token.signal_strength === 'STRONG' ? 'bg-neon-green' : 
+                  token.signal_strength === 'MEDIUM' ? 'bg-yellow-500' : 'bg-gray-500'
+                }`}>
+                  <Activity className="w-2.5 h-2.5 text-black" />
+                </div>
+              )}
             </div>
             <div>
-              <h2 className="font-heading font-bold text-lg">{token.symbol}</h2>
+              <h2 className="font-heading font-bold text-lg flex items-center gap-2">
+                {token.symbol}
+                {opportunity && (
+                  <Badge className="bg-neon-green/20 text-neon-green border-none text-xs">
+                    {opportunity.confidence.toFixed(0)}% Confidence
+                  </Badge>
+                )}
+              </h2>
               <p className="text-sm text-muted-foreground">{token.name}</p>
             </div>
           </div>
@@ -115,24 +157,30 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
 
         {/* Token Stats */}
         <div className="p-4 border-b border-[#1E293B]">
-          <div className="grid grid-cols-4 gap-3">
-            <div className="text-center">
+          <div className="grid grid-cols-5 gap-2 text-center">
+            <div>
               <div className="text-xs text-muted-foreground mb-1">Price</div>
-              <div className="font-mono font-semibold">${formatPrice(token.price_usd)}</div>
+              <div className="font-mono text-sm">${formatPrice(token.price_usd)}</div>
             </div>
-            <div className="text-center">
-              <div className="text-xs text-muted-foreground mb-1">24h</div>
-              <div className={`font-mono font-semibold ${token.price_change_24h >= 0 ? 'text-neon-green' : 'text-neon-red'}`}>
-                {token.price_change_24h >= 0 ? '+' : ''}{token.price_change_24h?.toFixed(1)}%
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">5m</div>
+              <div className={`font-mono text-sm ${(token.price_change_5m || 0) >= 0 ? 'text-neon-green' : 'text-neon-red'}`}>
+                {(token.price_change_5m || 0) >= 0 ? '+' : ''}{(token.price_change_5m || 0).toFixed(1)}%
               </div>
             </div>
-            <div className="text-center">
+            <div>
               <div className="text-xs text-muted-foreground mb-1">Liquidity</div>
-              <div className="font-mono font-semibold">
+              <div className="font-mono text-sm">
                 ${token.liquidity >= 1000 ? `${(token.liquidity / 1000).toFixed(1)}K` : token.liquidity?.toFixed(0)}
               </div>
             </div>
-            <div className="text-center">
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">B/S Ratio</div>
+              <div className={`font-mono text-sm ${token.buy_sell_ratio >= 1 ? 'text-neon-green' : 'text-neon-red'}`}>
+                {token.buy_sell_ratio?.toFixed(1)}x
+              </div>
+            </div>
+            <div>
               <div className="text-xs text-muted-foreground mb-1">Risk</div>
               <Badge 
                 variant="outline" 
@@ -148,6 +196,17 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
               </Badge>
             </div>
           </div>
+
+          {/* Momentum Bar */}
+          {token.momentum_score !== undefined && (
+            <div className="mt-3">
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-muted-foreground">Momentum</span>
+                <span className="font-mono">{token.momentum_score.toFixed(0)}/100</span>
+              </div>
+              <Progress value={token.momentum_score} className="h-1.5" />
+            </div>
+          )}
         </div>
 
         {/* Trade Form */}
@@ -176,33 +235,34 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
 
           {/* Amount */}
           <div>
-            <Label className="text-xs uppercase tracking-widest text-muted-foreground">
-              Amount (SOL)
-            </Label>
-            <div className="flex items-center gap-2 mt-2">
-              <Input
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={amountSOL}
-                onChange={(e) => setAmountSOL(parseFloat(e.target.value) || 0)}
-                className="bg-[#0F172A] border-[#1E293B] font-mono"
-                data-testid="amount-input"
-              />
-              <div className="text-sm text-muted-foreground whitespace-nowrap">
-                ≈ ${(amountSOL * solPrice).toFixed(2)}
-              </div>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                Amount (SOL)
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                Max: {maxTradeAmount.toFixed(4)} SOL
+              </span>
             </div>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              max={maxTradeAmount}
+              value={amountSOL}
+              onChange={(e) => setAmountSOL(Math.min(parseFloat(e.target.value) || 0, maxTradeAmount))}
+              className="bg-[#0F172A] border-[#1E293B] font-mono"
+              data-testid="amount-input"
+            />
             <div className="flex gap-2 mt-2">
-              {[0.05, 0.1, 0.25, 0.5, 1].map((amount) => (
+              {[0.25, 0.5, 0.75, 1].map((pct) => (
                 <Button
-                  key={amount}
+                  key={pct}
                   variant="outline"
                   size="sm"
                   className="flex-1 text-xs"
-                  onClick={() => setAmountSOL(amount)}
+                  onClick={() => setAmountSOL(maxTradeAmount * pct)}
                 >
-                  {amount}
+                  {pct * 100}%
                 </Button>
               ))}
             </div>
@@ -219,15 +279,13 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
             <Slider
               value={[takeProfitPercent]}
               onValueChange={(value) => setTakeProfitPercent(value[0])}
-              min={10}
+              min={20}
               max={500}
               step={10}
-              className="mt-2"
               data-testid="take-profit-slider"
             />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>Target: ${formatPrice(takeProfitPrice)}</span>
-              <span className="text-neon-green">+${potentialProfit.toFixed(2)}</span>
+            <div className="text-xs text-muted-foreground mt-1">
+              Target: ${formatPrice(takeProfitPrice)}
             </div>
           </div>
 
@@ -243,16 +301,41 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
               value={[stopLossPercent]}
               onValueChange={(value) => setStopLossPercent(value[0])}
               min={5}
-              max={80}
+              max={50}
               step={5}
-              className="mt-2"
               data-testid="stop-loss-slider"
             />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>Trigger: ${formatPrice(stopLossPrice)}</span>
-              <span className="text-neon-red">-${potentialLoss.toFixed(2)}</span>
+            <div className="text-xs text-muted-foreground mt-1">
+              Trigger: ${formatPrice(stopLossPrice)}
             </div>
           </div>
+
+          {/* Trailing Stop */}
+          <div className="flex items-center justify-between p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-yellow-500" />
+              <div>
+                <span className="text-sm">Trailing Stop</span>
+                {trailingStopEnabled && (
+                  <span className="ml-2 text-xs text-yellow-500">-{trailingStopPercent}%</span>
+                )}
+              </div>
+            </div>
+            <Switch 
+              checked={trailingStopEnabled} 
+              onCheckedChange={setTrailingStopEnabled}
+            />
+          </div>
+
+          {trailingStopEnabled && (
+            <Slider
+              value={[trailingStopPercent]}
+              onValueChange={(value) => setTrailingStopPercent(value[0])}
+              min={5}
+              max={30}
+              step={1}
+            />
+          )}
 
           {/* Paper Mode Toggle */}
           <div className="flex items-center justify-between p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
@@ -270,11 +353,11 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
           {/* Warning for Live Trading */}
           {!usePaperMode && (
             <div className="flex items-start gap-2 p-3 bg-neon-red/10 border border-neon-red/30 rounded-sm">
-              <AlertTriangle className="w-4 h-4 text-neon-red mt-0.5" />
+              <AlertTriangle className="w-4 h-4 text-neon-red mt-0.5 flex-shrink-0" />
               <div className="text-sm">
                 <span className="font-semibold text-neon-red">Live Trading:</span>{' '}
                 <span className="text-muted-foreground">
-                  Real funds will be used. Make sure you understand the risks.
+                  Real funds will be used. Ensure you understand the risks.
                 </span>
               </div>
             </div>
@@ -301,7 +384,7 @@ const TradeModal = ({ token, opportunity = null, onClose }) => {
             ) : (
               <span className="flex items-center gap-2">
                 <Check className="w-5 h-5" />
-                Confirm {tradeType} {usePaperMode ? '(Paper)' : '(Live)'}
+                {tradeType} {token.symbol} ({usePaperMode ? 'Paper' : 'Live'})
               </span>
             )}
           </Button>

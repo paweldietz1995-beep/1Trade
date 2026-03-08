@@ -16,9 +16,6 @@ export const useApp = () => {
 export const AppProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [token, setToken] = useState(localStorage.getItem('auth_token'));
-  const [settings, setSettings] = useState(null);
-  const [paperMode, setPaperMode] = useState(true);
-  const [solPrice, setSolPrice] = useState(150);
   const [loading, setLoading] = useState(true);
 
   // Verify token on mount
@@ -41,40 +38,9 @@ export const AppProvider = ({ children }) => {
     verifyAuth();
   }, [token]);
 
-  // Fetch settings
-  useEffect(() => {
-    const fetchSettings = async () => {
-      if (isAuthenticated) {
-        try {
-          const response = await axios.get(`${API_URL}/settings`);
-          setSettings(response.data);
-          setPaperMode(response.data.paper_mode);
-        } catch (error) {
-          console.error('Error fetching settings:', error);
-        }
-      }
-    };
-    fetchSettings();
-  }, [isAuthenticated]);
-
-  // Fetch SOL price
-  useEffect(() => {
-    const fetchSolPrice = async () => {
-      try {
-        const response = await axios.get(`${API_URL}/market/sol-price`);
-        setSolPrice(response.data.price);
-      } catch {
-        // Use default price
-      }
-    };
-    fetchSolPrice();
-    const interval = setInterval(fetchSolPrice, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
   const login = async (pin) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/login`, { pin });
+      const response = await axios.post(`${API_URL}/auth/login`, { pin: pin.toString().trim() });
       if (response.data.success) {
         localStorage.setItem('auth_token', response.data.token);
         setToken(response.data.token);
@@ -83,7 +49,8 @@ export const AppProvider = ({ children }) => {
       }
       return { success: false, message: response.data.message };
     } catch (error) {
-      return { success: false, message: 'Connection error' };
+      console.error('Login error:', error);
+      return { success: false, message: error.response?.data?.message || 'Connection error' };
     }
   };
 
@@ -91,37 +58,24 @@ export const AppProvider = ({ children }) => {
     localStorage.removeItem('auth_token');
     setToken(null);
     setIsAuthenticated(false);
-    setSettings(null);
   };
 
-  const updateSettings = async (newSettings) => {
+  const resetPin = async () => {
     try {
-      const response = await axios.put(`${API_URL}/settings`, newSettings);
-      setSettings(response.data);
-      setPaperMode(response.data.paper_mode);
+      await axios.post(`${API_URL}/auth/reset`);
+      logout();
       return { success: true };
     } catch (error) {
-      return { success: false, message: 'Failed to update settings' };
+      return { success: false, message: 'Failed to reset PIN' };
     }
   };
-
-  const togglePaperMode = useCallback(async () => {
-    if (settings) {
-      const newMode = !paperMode;
-      await updateSettings({ ...settings, paper_mode: newMode });
-    }
-  }, [settings, paperMode]);
 
   const value = {
     isAuthenticated,
     loading,
-    settings,
-    paperMode,
-    solPrice,
     login,
     logout,
-    updateSettings,
-    togglePaperMode,
+    resetPin,
     API_URL
   };
 

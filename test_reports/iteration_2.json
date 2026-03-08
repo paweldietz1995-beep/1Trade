@@ -1,0 +1,73 @@
+{
+  "summary": "Update-mode regression testing for Pump.fun Trading Terminal. App upgraded from initial version (SettingsPanel → BotSettingsPanel with 4 tabs, Dashboard redesign with 5 stat cards, Token click behavior changed from trade modal to chart navigation). All 16 backend tests and 39 frontend E2E tests now passing (1 skipped).",
+  "mode": "update",
+  "baseline_commit": "1eacfec40944050066fe4db0b95fa01177fb256e",
+  "head_commit": "9d2176deee620c03216733af73f8abd7ff95c63b",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "TradeModal via TokenScanner",
+        "issue": "TradeModal is no longer accessible via TokenScanner row click when used inside Dashboard (onSelectToken prop always provided). Token click now navigates to chart tab. TradeModal is only accessible via TradingOpportunities 'Custom' button when opportunities exist.",
+        "affected_selectors": ["token-row-0", "trade-modal"],
+        "priority": "MEDIUM"
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Trading Opportunities",
+        "issues": [
+          "TradingOpportunities shows 'Scanning for opportunities...' because no tokens meet buy criteria (buy_sell_ratio > 1.5 AND price_change_24h > 5). TradeModal cannot be tested through this path under current market conditions."
+        ]
+      }
+    ]
+  },
+  "regression_results": {
+    "total_specs": 39,
+    "passed": 38,
+    "failed": 0,
+    "skipped": 1
+  },
+  "backend_test_results": {
+    "total": 16,
+    "passed": 16,
+    "failed": 0
+  },
+  "specs_created": [],
+  "specs_updated": [
+    "/app/tests/e2e/core-flows.spec.ts",
+    "/app/tests/e2e/settings-paper-mode.spec.ts",
+    "/app/tests/e2e/trading-features.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts",
+    "/app/backend/tests/test_api.py"
+  ],
+  "quarantined_tests": [],
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "TradeModal is only accessible via TradingOpportunities 'Custom' button when opportunities exist. Consider adding a 'Trade' button directly in the Token Scanner view, or ensure the TokenScanner has an alternate trade entry point for better UX.",
+    "Portfolio available_sol can hit 0 from test runs due to open paper trades consuming the 0.5 SOL budget. Consider resetting trades on app restart or adding admin endpoint to clear test data."
+  ],
+  "updated_files": [
+    "/app/tests/e2e/core-flows.spec.ts",
+    "/app/tests/e2e/settings-paper-mode.spec.ts",
+    "/app/tests/e2e/trading-features.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts",
+    "/app/backend/tests/test_api.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "97% (38/39 - 1 intentionally skipped due to no market opportunities)"
+  },
+  "seed_data_creation": "Test suite creates paper trades during execution and cleans them up via afterEach API calls. Previous run left 4 open paper trades consuming all available budget - these were manually cleaned up.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "App is a Solana Trading Bot with PIN auth (PIN: 1234), Dashboard with 5 stat cards, BotSettingsPanel (4 tabs: Capital/Trading/Filters/Automation), TokenScanner with DEX screener data. Key changes from v1: SettingsPanel → BotSettingsPanel (testid: bot-settings-panel), portfolio-value-card → budget-card, paper-mode-toggle header → auto-trading-toggle, clicking token in scanner navigates to chart tab (not trade modal). TradeModal only accessible when trading opportunities exist (currently empty in market). Backend uses /api/bot/settings (not /api/settings). API endpoints tested: /health, /auth/login, /auth/verify, /bot/settings, /tokens/scan, /trades, /portfolio, /market/sol-price.",
+  "rca_of_issue": "The app was upgraded from v1 to v2 with significant component changes: 1) SettingsPanel was replaced with BotSettingsPanel (new testids, 4 tabs vs old controls), 2) Dashboard stat cards were redesigned (portfolio-value-card → budget-card, in-trades-card added), 3) TokenScanner click behavior changed from opening TradeModal to navigating to chart tab via onSelectToken prop, 4) API endpoints changed (/api/settings → /api/bot/settings, portfolio schema changed). All tests updated to reflect new component structure."
+}
