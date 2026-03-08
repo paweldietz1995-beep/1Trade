@@ -766,19 +766,90 @@ async def get_sol_price() -> float:
 
 async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
     """Fetch trending Solana tokens from DEX Screener"""
+    all_pairs = []
+    
     try:
         async with httpx.AsyncClient(timeout=15.0) as client_http:
-            # Get trending pairs
-            response = await client_http.get(
-                "https://api.dexscreener.com/latest/dex/search",
-                params={"q": "solana"}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                pairs = data.get("pairs", [])
-                # Filter Solana pairs
-                solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
-                return solana_pairs[:limit]
+            # Search for multiple queries to get diverse results
+            search_queries = [
+                "solana SOL",
+                "raydium",
+                "jupiter SOL",
+                "orca solana"
+            ]
+            
+            for query in search_queries:
+                try:
+                    response = await client_http.get(
+                        "https://api.dexscreener.com/latest/dex/search",
+                        params={"q": query}
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        pairs = data.get("pairs", [])
+                        
+                        # Filter for Solana pairs with reasonable values
+                        for p in pairs:
+                            if p.get("chainId") != "solana":
+                                continue
+                            
+                            # Filter out unrealistic liquidity (likely fake/test tokens)
+                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                            vol = float(p.get("volume", {}).get("h24", 0) or 0)
+                            
+                            # Skip if liquidity is unrealistically high (>$100M for memecoins)
+                            if liq > 100000000:
+                                continue
+                            
+                            # Only include pairs with some activity
+                            if liq >= 1000 or vol >= 100:
+                                all_pairs.append(p)
+                                
+                except Exception as e:
+                    logger.warning(f"Search query '{query}' failed: {e}")
+                    continue
+            
+            # Also try token profiles for latest tokens
+            try:
+                response = await client_http.get(
+                    "https://api.dexscreener.com/token-profiles/latest/v1"
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    solana_profiles = [p for p in data if p.get("chainId") == "solana"]
+                    
+                    if solana_profiles:
+                        token_addresses = [p.get("tokenAddress") for p in solana_profiles[:20] if p.get("tokenAddress")]
+                        
+                        if token_addresses:
+                            tokens_str = ",".join(token_addresses[:20])
+                            detail_response = await client_http.get(
+                                f"https://api.dexscreener.com/latest/dex/tokens/{tokens_str}"
+                            )
+                            if detail_response.status_code == 200:
+                                detail_data = detail_response.json()
+                                for p in detail_data.get("pairs", []):
+                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                    if 1000 <= liq < 100000000:
+                                        all_pairs.append(p)
+            except Exception as e:
+                logger.warning(f"Token profiles failed: {e}")
+            
+            # Deduplicate by pair address
+            seen = set()
+            unique_pairs = []
+            for p in all_pairs:
+                addr = p.get("pairAddress", "")
+                if addr and addr not in seen:
+                    seen.add(addr)
+                    unique_pairs.append(p)
+            
+            # Sort by volume descending
+            unique_pairs.sort(key=lambda x: float(x.get("volume", {}).get("h24", 0) or 0), reverse=True)
+            
+            logger.info(f"📊 Loaded {len(unique_pairs)} valid Solana pairs from DEX Screener")
+            return unique_pairs[:limit]
+            
     except Exception as e:
         logger.error(f"Error fetching DEX Screener data: {e}")
     return []
@@ -787,6 +858,7 @@ async def fetch_pump_fun_tokens() -> List[Dict]:
     """Fetch new tokens from Pump.fun via DEX Screener"""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client_http:
+            # Search for Pump.fun tokens
             response = await client_http.get(
                 "https://api.dexscreener.com/latest/dex/search",
                 params={"q": "pump.fun"}
@@ -794,7 +866,21 @@ async def fetch_pump_fun_tokens() -> List[Dict]:
             if response.status_code == 200:
                 data = response.json()
                 pairs = data.get("pairs", [])
-                return [p for p in pairs if p.get("chainId") == "solana"][:30]
+                solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
+                logger.info(f"🚀 Loaded {len(solana_pairs)} Pump.fun pairs")
+                return solana_pairs[:30]
+                
+            # Alternative: Search for raydium pairs
+            response = await client_http.get(
+                "https://api.dexscreener.com/latest/dex/search",
+                params={"q": "raydium SOL"}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                pairs = data.get("pairs", [])
+                solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
+                return solana_pairs[:30]
+                
     except Exception as e:
         logger.error(f"Error fetching Pump.fun data: {e}")
     return []
@@ -1063,12 +1149,28 @@ async def scan_tokens(limit: int = 30):
     pump_pairs = await fetch_pump_fun_tokens()
     dex_pairs = await fetch_dex_screener_tokens(limit)
     
-    # Combine and dedupe
+    # Combine and dedupe with strict filtering
     all_pairs = {}
-    for pair in pump_pairs + dex_pairs:
+    for pair in dex_pairs + pump_pairs:  # DEX pairs first (better quality)
         address = pair.get("baseToken", {}).get("address", "")
-        if address and address not in all_pairs:
-            all_pairs[address] = pair
+        if not address or address in all_pairs:
+            continue
+        
+        # Apply strict filters
+        liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+        vol_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+        
+        # FILTER: Skip unrealistic liquidity (>$100M for memecoins)
+        if liq > 100000000:
+            continue
+        
+        # FILTER: Minimum liquidity requirement
+        if liq < settings.min_liquidity_usd and vol_24h < settings.min_volume_usd:
+            continue
+        
+        all_pairs[address] = pair
+    
+    logger.info(f"📊 Processing {len(all_pairs)} tokens after filtering")
     
     tokens = []
     for address, pair in list(all_pairs.items())[:limit]:
