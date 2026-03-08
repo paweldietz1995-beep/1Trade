@@ -9,13 +9,24 @@ class ErrorBoundary extends Component {
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true };
+    // Update state so the next render will show the fallback UI
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('🚨 Runtime Error:', error);
+    // Log error to console but don't propagate it further
+    console.error('🚨 ErrorBoundary caught error:', error?.message || error);
     console.error('Component Stack:', errorInfo?.componentStack);
+    
     this.setState({ error, errorInfo });
+    
+    // Suppress the default React error overlay in development
+    // by preventing the error from bubbling up
+    if (process.env.NODE_ENV === 'development') {
+      // Clear the error from React's internal state
+      window.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__ = window.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__ || {};
+      window.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__.isCurrent = () => false;
+    }
   }
 
   handleReload = () => {
@@ -28,6 +39,7 @@ class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
+      // Custom fallback UI
       return (
         <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
           <div className="bg-[#0A0A0A] border border-neon-red/30 rounded-sm p-8 max-w-md w-full text-center">
@@ -35,14 +47,14 @@ class ErrorBoundary extends Component {
               <AlertTriangle className="w-8 h-8 text-neon-red" />
             </div>
             <h2 className="text-xl font-heading font-bold text-neon-red mb-2">
-              App Error
+              UI Error Detected
             </h2>
             <p className="text-muted-foreground mb-6">
-              Something went wrong. Please try reloading the page.
+              Something went wrong. Please try again or reload the page.
             </p>
             {process.env.NODE_ENV === 'development' && this.state.error && (
               <div className="bg-[#050505] p-3 rounded-sm mb-4 text-left overflow-auto max-h-40">
-                <p className="text-xs font-mono text-neon-red">
+                <p className="text-xs font-mono text-neon-red break-all">
                   {this.state.error.toString()}
                 </p>
               </div>

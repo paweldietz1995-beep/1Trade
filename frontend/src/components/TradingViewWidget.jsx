@@ -1,58 +1,62 @@
 import React, { useEffect, useRef, memo, useState } from 'react';
-import { Eye, AlertCircle } from 'lucide-react';
+import { Eye, AlertCircle, TrendingUp } from 'lucide-react';
 
-// Valid symbol patterns for TradingView
-const VALID_EXCHANGES = ['COINBASE', 'BINANCE', 'RAYDIUM', 'ORCA', 'JUPITER'];
+// Known tokens that have valid TradingView charts
+const TRADINGVIEW_PAIRS = {
+  'SOL': 'COINBASE:SOLUSD',
+  'SOLUSD': 'COINBASE:SOLUSD',
+  'RAY': 'BINANCE:RAYUSDT',
+  'JUP': 'BINANCE:JUPUSDT',
+  'BONK': 'BINANCE:BONKUSDT',
+  'WIF': 'BINANCE:WIFUSDT',
+  'ORCA': 'BINANCE:ORCAUSDT',
+  'PYTH': 'BINANCE:PYTHUSDT',
+  'JTO': 'BINANCE:JTOUSDT',
+  'RENDER': 'BINANCE:RENDERUSDT',
+  'HNT': 'BINANCE:HNTUSDT',
+};
 
-const TradingViewWidget = memo(({ symbol = 'COINBASE:SOLUSD', interval = '15' }) => {
+const TradingViewWidget = memo(({ symbol, selectedToken = null, interval = '15' }) => {
   const containerRef = useRef(null);
   const scriptAddedRef = useRef(false);
-  const [isValidSymbol, setIsValidSymbol] = useState(true);
-  const [currentSymbol, setCurrentSymbol] = useState(symbol);
+  const [chartSymbol, setChartSymbol] = useState(null);
+  const [showPlaceholder, setShowPlaceholder] = useState(true);
 
-  // Validate and normalize symbol
-  const normalizeSymbol = (sym) => {
-    if (!sym) return null;
-    
-    // Check if symbol has exchange prefix
-    const hasExchange = VALID_EXCHANGES.some(ex => sym.toUpperCase().startsWith(ex + ':'));
-    
-    // If it's a random memecoin address or invalid format, return null
-    if (sym.length > 50) return null; // Token address, not a symbol
-    if (sym.includes('...')) return null; // Truncated address
-    
-    // Default to COINBASE:SOLUSD for safety
-    if (!hasExchange && !sym.includes(':')) {
-      // Check if it's a known token
-      if (sym.toUpperCase() === 'SOL' || sym.toUpperCase() === 'SOLUSD') {
-        return 'COINBASE:SOLUSD';
-      }
-      // For memecoins, we can't reliably get TradingView charts
-      return null;
-    }
-    
-    return sym;
-  };
-
+  // Determine valid chart symbol
   useEffect(() => {
-    const normalizedSymbol = normalizeSymbol(symbol);
-    
-    if (!normalizedSymbol) {
-      setIsValidSymbol(false);
-      setCurrentSymbol(null);
+    // No token selected - show placeholder
+    if (!selectedToken && !symbol) {
+      setShowPlaceholder(true);
+      setChartSymbol(null);
       return;
     }
+
+    const tokenSymbol = selectedToken?.symbol || symbol;
     
-    setIsValidSymbol(true);
-    setCurrentSymbol(normalizedSymbol);
+    // Check if we have a known TradingView pair for this token
+    const upperSymbol = tokenSymbol?.toUpperCase();
     
-    // Reset script added flag when symbol changes
-    if (scriptAddedRef.current && normalizedSymbol !== currentSymbol) {
-      scriptAddedRef.current = false;
+    if (upperSymbol && TRADINGVIEW_PAIRS[upperSymbol]) {
+      setChartSymbol(TRADINGVIEW_PAIRS[upperSymbol]);
+      setShowPlaceholder(false);
+    } else if (tokenSymbol && tokenSymbol.includes(':')) {
+      // Already has exchange prefix
+      setChartSymbol(tokenSymbol);
+      setShowPlaceholder(false);
+    } else {
+      // Unknown token - show placeholder with token info
+      setChartSymbol(null);
+      setShowPlaceholder(true);
     }
-    
-    if (scriptAddedRef.current) return;
-    
+  }, [symbol, selectedToken]);
+
+  // Load TradingView widget when we have a valid symbol
+  useEffect(() => {
+    if (showPlaceholder || !chartSymbol) {
+      scriptAddedRef.current = false;
+      return;
+    }
+
     const container = containerRef.current;
     if (!container) return;
 
@@ -65,7 +69,7 @@ const TradingViewWidget = memo(({ symbol = 'COINBASE:SOLUSD', interval = '15' })
     script.async = true;
     script.innerHTML = JSON.stringify({
       autosize: true,
-      symbol: normalizedSymbol,
+      symbol: chartSymbol,
       interval: interval,
       timezone: 'Etc/UTC',
       theme: 'dark',
@@ -87,24 +91,63 @@ const TradingViewWidget = memo(({ symbol = 'COINBASE:SOLUSD', interval = '15' })
     return () => {
       scriptAddedRef.current = false;
     };
-  }, [symbol, interval, currentSymbol]);
+  }, [chartSymbol, interval, showPlaceholder]);
 
-  // Show placeholder for invalid symbols
-  if (!isValidSymbol) {
+  // Placeholder when no valid chart
+  if (showPlaceholder) {
     return (
       <div 
         className="h-full w-full flex flex-col items-center justify-center bg-[#050505] border border-[#1E293B] rounded-sm"
         data-testid="tradingview-placeholder"
       >
-        <Eye className="w-16 h-16 text-muted-foreground/30 mb-4" />
-        <p className="text-muted-foreground text-lg mb-2">Select a token to display chart</p>
-        <p className="text-xs text-muted-foreground/50">
-          Charts available for major pairs (SOL, RAY, JUP, etc.)
-        </p>
-        <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground/70">
-          <AlertCircle className="w-4 h-4" />
-          <span>Memecoin charts not available on TradingView</span>
-        </div>
+        {selectedToken ? (
+          // Token selected but no TradingView chart available
+          <>
+            <div className="w-20 h-20 rounded-full bg-neon-violet/20 flex items-center justify-center mb-4">
+              <TrendingUp className="w-10 h-10 text-neon-violet" />
+            </div>
+            <p className="text-lg font-semibold text-foreground mb-1">
+              {selectedToken.symbol}
+            </p>
+            <p className="text-sm text-muted-foreground mb-4">
+              ${selectedToken.price_usd?.toFixed(8) || '0.00'}
+            </p>
+            <div className="bg-[#0A0A0A] border border-[#1E293B] rounded-sm p-4 max-w-sm">
+              <div className="flex items-center gap-2 text-yellow-500 mb-2">
+                <AlertCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">Chart Unavailable</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                TradingView charts are not available for this memecoin. 
+                Use DEX Screener or Birdeye for price charts.
+              </p>
+            </div>
+            {selectedToken.pair_address && (
+              <a 
+                href={`https://dexscreener.com/solana/${selectedToken.pair_address}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 text-sm text-neon-cyan hover:underline"
+              >
+                View on DEX Screener →
+              </a>
+            )}
+          </>
+        ) : (
+          // No token selected
+          <>
+            <Eye className="w-16 h-16 text-muted-foreground/30 mb-4" />
+            <p className="text-muted-foreground text-lg mb-2">Select a token to display chart</p>
+            <p className="text-xs text-muted-foreground/50">
+              Click on any token in the Scanner to view its chart
+            </p>
+            <div className="mt-6 grid grid-cols-3 gap-2 text-xs">
+              <span className="px-2 py-1 bg-[#0A0A0A] border border-[#1E293B] rounded text-muted-foreground">SOL/USD</span>
+              <span className="px-2 py-1 bg-[#0A0A0A] border border-[#1E293B] rounded text-muted-foreground">JUP/USD</span>
+              <span className="px-2 py-1 bg-[#0A0A0A] border border-[#1E293B] rounded text-muted-foreground">RAY/USD</span>
+            </div>
+          </>
+        )}
       </div>
     );
   }

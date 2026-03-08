@@ -465,7 +465,7 @@ const Dashboard = () => {
 
             {/* SOL Price */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0A0A0A] border border-[#1E293B] rounded-sm">
-              <span className="text-xs text-muted-foreground">SOL</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">SOL Price:</span>
               <span className="font-mono text-sm text-neon-green" data-testid="sol-price-header">
                 {formatUSD(solPrice)}
               </span>
@@ -680,7 +680,8 @@ const Dashboard = () => {
                   </CardHeader>
                   <CardContent className="p-0 h-[540px]">
                     <TradingViewWidget 
-                      symbol={selectedToken ? `RAYDIUM:${selectedToken.symbol}USD` : 'COINBASE:SOLUSD'} 
+                      symbol={selectedToken ? selectedToken.symbol : null}
+                      selectedToken={selectedToken}
                     />
                   </CardContent>
                 </Card>
