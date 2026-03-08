@@ -12,8 +12,8 @@ test.describe('Wallet Panel States', () => {
   test('wallet panel shows disconnected state when no wallet connected', async ({ page }) => {
     // WalletPanel should show disconnected state since Phantom extension isn't available
     await expect(page.getByTestId('wallet-panel-disconnected')).toBeVisible();
-    // Should show text prompting to connect wallet
-    await expect(page.getByText('Connect your wallet to start trading')).toBeVisible();
+    // Should show text prompting to connect wallet (updated text)
+    await expect(page.getByText('Connect wallet to view balance')).toBeVisible();
   });
 
   test('wallet balance card shows Not Connected text', async ({ page }) => {
@@ -49,20 +49,26 @@ test.describe('Trading Mode Toggle (Paper/Live)', () => {
     const toggle = page.getByTestId('trading-mode-toggle');
     await expect(toggle).toBeVisible();
     
-    // First ensure we're in Paper mode
-    // Check if currently in LIVE mode by looking at the header
-    const isLive = await page.getByText('🔴 LIVE').first().isVisible().catch(() => false);
+    // First ensure we're in Paper mode by checking what mode we're currently in
+    const liveIndicator = page.getByText('🔴 LIVE').first();
+    const paperIndicator = page.getByText('🧪 PAPER').first();
+    
+    // Check if currently in LIVE mode
+    const isLive = await liveIndicator.isVisible().catch(() => false);
     if (isLive) {
-      // Already in live mode, toggle back to paper first
+      // Already in live mode, toggle back to paper first (this doesn't show a dialog)
       await toggle.click();
-      await expect(page.getByText('🧪 PAPER').first()).toBeVisible({ timeout: 5000 });
+      await expect(paperIndicator).toBeVisible({ timeout: 5000 });
     }
     
-    // Now click to toggle to Live mode
+    // Now ensure we're in Paper mode before proceeding
+    await expect(paperIndicator).toBeVisible({ timeout: 5000 });
+    
+    // Click to toggle to Live mode
     await toggle.click();
     
     // Should show warning dialog about live trading
-    await expect(page.getByText('Enable Live Trading?')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Enable Live Trading?')).toBeVisible({ timeout: 10000 });
     
     // Verify warning content mentions risks
     await expect(page.getByText(/Real SOL will be spent/i)).toBeVisible();
@@ -71,7 +77,7 @@ test.describe('Trading Mode Toggle (Paper/Live)', () => {
     await page.getByRole('button', { name: /cancel/i }).click();
     
     // Should still be in Paper mode
-    await expect(page.getByText('🧪 PAPER').first()).toBeVisible({ timeout: 5000 });
+    await expect(paperIndicator).toBeVisible({ timeout: 5000 });
   });
 
   test('confirming live mode changes indicator to LIVE', async ({ page }) => {

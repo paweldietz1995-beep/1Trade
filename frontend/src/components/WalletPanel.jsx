@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { LAMPORTS_PER_SOL, PublicKey, Connection } from '@solana/web3.js';
+import { useWallet } from '@solana/wallet-adapter-react';
+import axios from 'axios';
 import { 
   Wallet, 
   Copy, 
@@ -18,29 +18,19 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
-import { useRPC } from '../context/SolanaWalletProvider';
-
-const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
-
-// RPC Endpoints for failover - ordered by reliability
-const RPC_ENDPOINTS = [
-  'https://rpc.ankr.com/solana',           // Primary: Ankr (reliable, no rate limiting)
-  'https://api.mainnet-beta.solana.com'    // Fallback: Solana Mainnet
-];
+import { useApp } from '../context/AppContext';
 
 const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
   const { connected, publicKey, disconnect, connecting, wallet } = useWallet();
-  const { connection } = useConnection();
-  const rpcContext = useRPC();
+  const { API_URL } = useApp();
   const [balance, setBalance] = useState(0);
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [error, setError] = useState(null);
-  const [rpcStatus, setRpcStatus] = useState({ healthy: true, endpoint: null, retries: 0 });
+  const [rpcStatus, setRpcStatus] = useState({ healthy: true, endpoint: null });
   const refreshIntervalRef = useRef(null);
-  const currentEndpointIndexRef = useRef(0);
 
   // Debug logging
   useEffect(() => {
@@ -48,23 +38,12 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
       connected,
       connecting,
       publicKey: publicKey?.toBase58(),
-      wallet: wallet?.adapter?.name,
-      rpcEndpoint: rpcContext?.currentEndpoint?.substring(0, 30)
+      wallet: wallet?.adapter?.name
     });
-  }, [connected, connecting, publicKey, wallet, rpcContext]);
+  }, [connected, connecting, publicKey, wallet]);
 
-  // Create connection with specific endpoint
-  const createConnection = useCallback((endpointIndex) => {
-    const endpoint = RPC_ENDPOINTS[endpointIndex];
-    console.log(`🔗 Creating connection to: ${endpoint.substring(0, 40)}...`);
-    return new Connection(endpoint, {
-      commitment: 'confirmed',
-      confirmTransactionInitialTimeout: 15000
-    });
-  }, []);
-
-  // Fetch balance with automatic failover
-  const fetchBalanceWithFailover = useCallback(async (maxRetries = 3) => {
+  // Fetch balance via Backend API (not direct RPC)
+  const fetchBalanceViaBackend = useCallback(async () => {
     if (!connected || !publicKey) {
       console.log('⚠️ Wallet not connected, skipping balance fetch');
       setBalance(0);
@@ -74,102 +53,73 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
     setLoading(true);
     setError(null);
     
-    let lastError = null;
-    
-    // Try each endpoint with retries
-    for (let endpointIndex = 0; endpointIndex < RPC_ENDPOINTS.length; endpointIndex++) {
-      const endpoint = RPC_ENDPOINTS[endpointIndex];
-      
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          console.log(`📊 Fetching balance - Endpoint ${endpointIndex + 1}/${RPC_ENDPOINTS.length}, Attempt ${attempt + 1}/${maxRetries}`);
-          
-          // Create a fresh connection for this attempt
-          const conn = createConnection(endpointIndex);
-          
-          // Fetch SOL balance with timeout
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('RPC timeout (10s)')), 10000)
-          );
-          
-          const balancePromise = conn.getBalance(publicKey);
-          const lamports = await Promise.race([balancePromise, timeoutPromise]);
-          
-          const solBalance = lamports / LAMPORTS_PER_SOL;
-          console.log(`✅ Balance fetched: ${solBalance} SOL from ${endpoint.substring(0, 30)}...`);
-          
-          setBalance(solBalance);
-          setLastUpdate(new Date());
-          setRpcStatus({ healthy: true, endpoint: endpoint, retries: 0 });
-          currentEndpointIndexRef.current = endpointIndex;
-          
-          // Notify parent component
-          if (onBalanceUpdate) {
-            onBalanceUpdate(solBalance);
-          }
-          
-          // Fetch SPL tokens (non-critical, don't fail on error)
-          fetchTokens(conn);
-          
-          setLoading(false);
-          return; // Success!
-          
-        } catch (err) {
-          lastError = err;
-          console.warn(`❌ Balance fetch error (Endpoint ${endpointIndex + 1}, Attempt ${attempt + 1}):`, err.message);
-          
-          // Small delay before retry
-          if (attempt < maxRetries - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
-          }
-        }
-      }
-      
-      // This endpoint failed all retries, try next
-      console.log(`⚠️ Endpoint ${endpointIndex + 1} (${endpoint.substring(0, 30)}) failed, trying next...`);
-    }
-    
-    // All endpoints failed
-    console.error('❌ All RPC endpoints failed:', lastError);
-    setError('Failed to fetch balance. All RPC endpoints unavailable.');
-    setRpcStatus({ healthy: false, endpoint: null, retries: maxRetries * RPC_ENDPOINTS.length });
-    toast.error('RPC Connection Failed', { 
-      description: 'Unable to connect to Solana network. Please try again.',
-      action: {
-        label: 'Retry',
-        onClick: () => fetchBalanceWithFailover()
-      }
-    });
-    
-    setLoading(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, publicKey, createConnection, onBalanceUpdate]);
-
-  // Fetch SPL tokens (separate function, non-blocking)
-  const fetchTokens = async (conn) => {
-    if (!publicKey) return;
-    
     try {
-      const tokenAccounts = await conn.getParsedTokenAccountsByOwner(
-        publicKey,
-        { programId: TOKEN_PROGRAM_ID }
-      );
+      const address = publicKey.toBase58();
+      console.log(`📊 Fetching balance via backend for ${address.substring(0, 8)}...`);
       
-      const tokenList = tokenAccounts.value
-        .map(account => {
-          const info = account.account.data.parsed.info;
-          return {
-            mint: info.mint,
-            balance: info.tokenAmount.uiAmount || 0,
-            decimals: info.tokenAmount.decimals,
-            symbol: info.mint.slice(0, 4) + '...' + info.mint.slice(-4)
-          };
-        })
-        .filter(t => t.balance > 0)
-        .sort((a, b) => b.balance - a.balance);
+      const response = await axios.get(`${API_URL}/wallet/balance`, {
+        params: { address },
+        timeout: 15000
+      });
       
-      setTokens(tokenList);
-      console.log(`📦 Found ${tokenList.length} tokens`);
+      if (response.data.success) {
+        const solBalance = response.data.balance;
+        console.log(`✅ Balance fetched: ${solBalance} SOL via ${response.data.endpoint}`);
+        
+        setBalance(solBalance);
+        setLastUpdate(new Date());
+        setRpcStatus({ 
+          healthy: true, 
+          endpoint: response.data.endpoint 
+        });
+        
+        // Notify parent component
+        if (onBalanceUpdate) {
+          onBalanceUpdate(solBalance);
+        }
+        
+        // Fetch tokens via backend (non-critical)
+        fetchTokensViaBackend(address);
+      } else {
+        throw new Error(response.data.error || 'Failed to fetch balance');
+      }
+      
+    } catch (err) {
+      console.error('❌ Balance fetch error:', err.message);
+      setError('Failed to fetch balance. Network unavailable.');
+      setRpcStatus({ healthy: false, endpoint: null });
+      
+      toast.error('RPC Connection Failed', { 
+        description: 'Unable to connect to Solana network via backend.',
+        action: {
+          label: 'Retry',
+          onClick: () => fetchBalanceViaBackend()
+        }
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [connected, publicKey, API_URL, onBalanceUpdate]);
+
+  // Fetch tokens via Backend API
+  const fetchTokensViaBackend = async (address) => {
+    try {
+      const response = await axios.get(`${API_URL}/wallet/tokens`, {
+        params: { address },
+        timeout: 15000
+      });
+      
+      if (response.data.success) {
+        const tokenList = response.data.tokens.map(t => ({
+          mint: t.mint,
+          balance: t.balance,
+          decimals: t.decimals,
+          symbol: t.mint.slice(0, 4) + '...' + t.mint.slice(-4)
+        }));
+        
+        setTokens(tokenList);
+        console.log(`📦 Found ${tokenList.length} tokens via backend`);
+      }
     } catch (tokenError) {
       console.warn('⚠️ Error fetching tokens (non-critical):', tokenError.message);
     }
@@ -178,12 +128,12 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
   // Fetch balance on wallet connect and every 10 seconds
   useEffect(() => {
     if (connected && publicKey) {
-      console.log('🔄 Wallet connected, fetching balance...');
-      fetchBalanceWithFailover();
+      console.log('🔄 Wallet connected, fetching balance via backend...');
+      fetchBalanceViaBackend();
       
       // Set up 10-second refresh interval
       refreshIntervalRef.current = setInterval(() => {
-        fetchBalanceWithFailover();
+        fetchBalanceViaBackend();
       }, 10000);
       
       return () => {
@@ -192,12 +142,13 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         }
       };
     } else {
+      // Reset state when disconnected
       setBalance(0);
       setTokens([]);
       setError(null);
-      setRpcStatus({ healthy: true, endpoint: null, retries: 0 });
+      setRpcStatus({ healthy: true, endpoint: null });
     }
-  }, [connected, publicKey, fetchBalanceWithFailover]);
+  }, [connected, publicKey, fetchBalanceViaBackend]);
 
   const copyAddress = async () => {
     if (publicKey) {
@@ -224,14 +175,35 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
     }
   };
 
-  // Not connected state
+  // Not connected state - show 0 values
   if (!connected && !connecting) {
     return (
       <Card className="bg-[#0A0A0A] border-[#1E293B]" data-testid="wallet-panel-disconnected">
-        <CardContent className="p-6 text-center">
-          <Wallet className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground mb-2">Connect your wallet to start trading</p>
-          <p className="text-xs text-muted-foreground">Supports Phantom, Solflare, and more</p>
+        <CardHeader className="border-b border-[#1E293B] pb-3">
+          <div className="flex items-center gap-2">
+            <Wallet className="w-5 h-5 text-muted-foreground" />
+            <CardTitle className="font-heading text-base">Wallet</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 space-y-4">
+          {/* SOL Balance - Show 0 when disconnected */}
+          <div className="p-4 bg-gradient-to-r from-neon-violet/10 to-neon-cyan/10 rounded-sm border border-[#1E293B]">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">SOL Balance</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-mono font-bold text-muted-foreground" data-testid="sol-balance">
+                0.00
+              </span>
+              <span className="text-muted-foreground">SOL</span>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-muted-foreground" data-testid="usd-value">
+                ≈ $0.00 USD
+              </span>
+            </div>
+          </div>
+          <p className="text-muted-foreground text-center text-sm">Connect wallet to view balance</p>
         </CardContent>
       </Card>
     );
@@ -262,7 +234,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
           </div>
           <div className="flex items-center gap-2">
             {/* RPC Status Indicator */}
-            <div className="flex items-center gap-1" title={rpcStatus.endpoint || 'No connection'}>
+            <div className="flex items-center gap-1" title={rpcStatus.endpoint || 'Backend RPC'}>
               {rpcStatus.healthy ? (
                 <Wifi className="w-3 h-3 text-neon-green" />
               ) : (
@@ -272,7 +244,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={() => fetchBalanceWithFailover()}
+              onClick={() => fetchBalanceViaBackend()}
               disabled={loading}
               data-testid="refresh-balance"
             >
@@ -321,7 +293,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
                 variant="link" 
                 size="sm" 
                 className="text-xs text-neon-cyan p-0 h-auto ml-2"
-                onClick={() => fetchBalanceWithFailover()}
+                onClick={() => fetchBalanceViaBackend()}
               >
                 Retry
               </Button>
@@ -333,7 +305,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         {rpcStatus.endpoint && !error && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Wifi className="w-3 h-3" />
-            <span>RPC: {rpcStatus.endpoint.includes('ankr') ? 'Ankr' : 'Solana Mainnet'}</span>
+            <span>Backend RPC: {rpcStatus.endpoint}</span>
           </div>
         )}
 

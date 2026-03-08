@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { dismissToasts, loginWithPin } from '../fixtures/helpers';
 
 const VALID_PIN = '1234';
-const API_BASE = process.env.REACT_APP_BACKEND_URL || '';
+// Use explicit URL since process.env isn't available in Playwright context
+const API_BASE = 'https://trading-engine-18.preview.emergentagent.com';
 
 test.describe('Token Scanner', () => {
   test.beforeEach(async ({ page }) => {

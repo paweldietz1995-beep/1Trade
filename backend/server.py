@@ -1667,6 +1667,351 @@ async def root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+# ============== RPC CONNECTION MANAGER ==============
+
+# Load Helius API key from environment (optional - use public RPCs as fallback)
+HELIUS_API_KEY = os.environ.get('HELIUS_API_KEY', '')
+HELIUS_RPC_URL = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else None
+
+# RPC Configuration with failover
+# Priority: 1. Helius (if key provided), 2. Ankr, 3. Solana Public
+RPC_ENDPOINTS = []
+if HELIUS_RPC_URL and HELIUS_API_KEY:
+    RPC_ENDPOINTS.append(HELIUS_RPC_URL)
+RPC_ENDPOINTS.extend([
+    "https://rpc.ankr.com/solana",
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-mainnet.rpc.extrnode.com"
+])
+
+RPC_CONFIG = {
+    "primary": RPC_ENDPOINTS[0],
+    "endpoints": RPC_ENDPOINTS,
+    "timeout": 10,
+    "retry_interval": 5,
+    "max_retries": 3
+}
+
+# RPC State Manager
+rpc_state = {
+    "connected": False,
+    "current_endpoint": None,
+    "current_endpoint_index": 0,
+    "latency_ms": None,
+    "last_check": None,
+    "last_slot": None,
+    "consecutive_failures": 0,
+    "total_requests": 0,
+    "failed_requests": 0
+}
+
+class RPCStatus(BaseModel):
+    connected: bool
+    endpoint: Optional[str] = None
+    latency_ms: Optional[float] = None
+    last_check: Optional[str] = None
+    last_slot: Optional[int] = None
+    consecutive_failures: int = 0
+    success_rate: float = 100.0
+
+async def test_rpc_endpoint(endpoint: str, timeout: int = 10) -> dict:
+    """Test a single RPC endpoint and return status"""
+    try:
+        async with httpx.AsyncClient(timeout=float(timeout)) as client:
+            start_time = datetime.now()
+            response = await client.post(
+                endpoint,
+                json={"jsonrpc": "2.0", "id": 1, "method": "getSlot"},
+                headers={"Content-Type": "application/json"}
+            )
+            latency = (datetime.now() - start_time).total_seconds() * 1000
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "result" in data:
+                    return {
+                        "success": True,
+                        "latency_ms": round(latency, 1),
+                        "slot": data["result"],
+                        "endpoint": endpoint
+                    }
+                elif "error" in data:
+                    return {"success": False, "error": data["error"].get("message", "RPC error")}
+            
+            return {"success": False, "error": f"HTTP {response.status_code}"}
+            
+    except httpx.TimeoutException:
+        return {"success": False, "error": "Timeout"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+async def get_working_rpc() -> dict:
+    """Find a working RPC endpoint with automatic failover"""
+    global rpc_state
+    
+    # Try endpoints in order, starting from current
+    for i in range(len(RPC_CONFIG["endpoints"])):
+        idx = (rpc_state["current_endpoint_index"] + i) % len(RPC_CONFIG["endpoints"])
+        endpoint = RPC_CONFIG["endpoints"][idx]
+        
+        result = await test_rpc_endpoint(endpoint, RPC_CONFIG["timeout"])
+        rpc_state["total_requests"] += 1
+        
+        if result["success"]:
+            # Update state on success
+            rpc_state["connected"] = True
+            rpc_state["current_endpoint"] = endpoint
+            rpc_state["current_endpoint_index"] = idx
+            rpc_state["latency_ms"] = result["latency_ms"]
+            rpc_state["last_slot"] = result["slot"]
+            rpc_state["last_check"] = datetime.now(timezone.utc).isoformat()
+            rpc_state["consecutive_failures"] = 0
+            
+            logger.info(f"✅ RPC connected: {endpoint[:40]}... ({result['latency_ms']}ms, slot {result['slot']})")
+            return result
+        else:
+            rpc_state["failed_requests"] += 1
+            logger.warning(f"⚠️ RPC endpoint {idx+1} failed: {result['error']}")
+    
+    # All endpoints failed
+    rpc_state["connected"] = False
+    rpc_state["consecutive_failures"] += 1
+    rpc_state["last_check"] = datetime.now(timezone.utc).isoformat()
+    
+    logger.error("❌ All RPC endpoints failed")
+    return {"success": False, "error": "All RPC endpoints unavailable"}
+
+async def make_rpc_call(method: str, params: list = None, retries: int = 3) -> dict:
+    """Make an RPC call with automatic retry and failover"""
+    global rpc_state
+    
+    for attempt in range(retries):
+        # Ensure we have a working endpoint
+        if not rpc_state["connected"] or rpc_state["current_endpoint"] is None:
+            await get_working_rpc()
+        
+        if not rpc_state["connected"]:
+            if attempt < retries - 1:
+                await asyncio.sleep(RPC_CONFIG["retry_interval"])
+                continue
+            return {"success": False, "error": "No RPC connection available"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=float(RPC_CONFIG["timeout"])) as client:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": method
+                }
+                if params:
+                    payload["params"] = params
+                
+                start_time = datetime.now()
+                response = await client.post(
+                    rpc_state["current_endpoint"],
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                latency = (datetime.now() - start_time).total_seconds() * 1000
+                
+                rpc_state["total_requests"] += 1
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if "result" in data:
+                        rpc_state["latency_ms"] = round(latency, 1)
+                        rpc_state["consecutive_failures"] = 0
+                        return {"success": True, "result": data["result"], "latency_ms": latency}
+                    elif "error" in data:
+                        raise Exception(data["error"].get("message", "RPC error"))
+                
+                raise Exception(f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            rpc_state["failed_requests"] += 1
+            rpc_state["consecutive_failures"] += 1
+            logger.warning(f"RPC call failed (attempt {attempt+1}/{retries}): {e}")
+            
+            # Try next endpoint on failure
+            if rpc_state["consecutive_failures"] >= 2:
+                rpc_state["connected"] = False
+                await get_working_rpc()
+            
+            if attempt < retries - 1:
+                await asyncio.sleep(1)
+    
+    return {"success": False, "error": "RPC call failed after retries"}
+
+# Background task for RPC health monitoring
+rpc_monitor_task = None
+
+async def rpc_health_monitor():
+    """Background task that checks RPC health every 30 seconds"""
+    while True:
+        try:
+            await get_working_rpc()
+        except Exception as e:
+            logger.error(f"RPC monitor error: {e}")
+        
+        await asyncio.sleep(30)
+
+@app.on_event("startup")
+async def start_rpc_monitor():
+    """Start RPC health monitor on app startup"""
+    global rpc_monitor_task
+    
+    # Initial connection test
+    await get_working_rpc()
+    
+    # Start background monitor
+    rpc_monitor_task = asyncio.create_task(rpc_health_monitor())
+    logger.info("🔌 RPC Health Monitor started")
+
+@app.on_event("shutdown")
+async def stop_rpc_monitor():
+    """Stop RPC monitor on shutdown"""
+    global rpc_monitor_task
+    if rpc_monitor_task:
+        rpc_monitor_task.cancel()
+
+# ============== RPC API ENDPOINTS ==============
+
+@api_router.get("/rpc/status", response_model=RPCStatus)
+async def get_rpc_status():
+    """Get current RPC connection status"""
+    success_rate = 100.0
+    if rpc_state["total_requests"] > 0:
+        success_rate = ((rpc_state["total_requests"] - rpc_state["failed_requests"]) / rpc_state["total_requests"]) * 100
+    
+    return RPCStatus(
+        connected=rpc_state["connected"],
+        endpoint=rpc_state["current_endpoint"][:40] + "..." if rpc_state["current_endpoint"] else None,
+        latency_ms=rpc_state["latency_ms"],
+        last_check=rpc_state["last_check"],
+        last_slot=rpc_state["last_slot"],
+        consecutive_failures=rpc_state["consecutive_failures"],
+        success_rate=round(success_rate, 1)
+    )
+
+@api_router.post("/rpc/reconnect")
+async def reconnect_rpc():
+    """Force RPC reconnection"""
+    global rpc_state
+    rpc_state["connected"] = False
+    rpc_state["current_endpoint"] = None
+    
+    result = await get_working_rpc()
+    
+    return {
+        "success": result["success"],
+        "endpoint": rpc_state["current_endpoint"][:40] + "..." if rpc_state["current_endpoint"] else None,
+        "latency_ms": rpc_state["latency_ms"]
+    }
+
+@api_router.get("/rpc/test")
+async def test_all_endpoints():
+    """Test all RPC endpoints and return status"""
+    results = []
+    for endpoint in RPC_CONFIG["endpoints"]:
+        result = await test_rpc_endpoint(endpoint)
+        results.append({
+            "endpoint": endpoint[:50] + "..." if len(endpoint) > 50 else endpoint,
+            "success": result["success"],
+            "latency_ms": result.get("latency_ms"),
+            "slot": result.get("slot"),
+            "error": result.get("error")
+        })
+    
+    return {
+        "endpoints": results,
+        "primary": RPC_CONFIG["primary"][:50] + "...",
+        "working_count": sum(1 for r in results if r["success"])
+    }
+
+# ============== WALLET BALANCE ENDPOINT (Backend RPC) ==============
+
+@api_router.get("/wallet/balance")
+async def get_wallet_balance(address: str):
+    """
+    Fetch wallet balance via backend RPC
+    All Solana RPC calls go through backend - not frontend
+    """
+    if not address:
+        return {"success": False, "balance": 0, "error": "No address provided"}
+    
+    # Check RPC connection
+    if not rpc_state["connected"]:
+        await get_working_rpc()
+    
+    if not rpc_state["connected"]:
+        return {
+            "success": False,
+            "balance": 0,
+            "error": "Solana network unavailable",
+            "rpc_status": "disconnected"
+        }
+    
+    # Make RPC call
+    result = await make_rpc_call("getBalance", [address])
+    
+    if result["success"]:
+        lamports = result["result"].get("value", 0)
+        sol_balance = lamports / 1e9
+        
+        return {
+            "success": True,
+            "balance": round(sol_balance, 6),
+            "lamports": lamports,
+            "endpoint": rpc_state["current_endpoint"][:30] + "...",
+            "latency_ms": result.get("latency_ms"),
+            "rpc_status": "connected"
+        }
+    
+    return {
+        "success": False,
+        "balance": 0,
+        "error": result.get("error", "Failed to fetch balance"),
+        "rpc_status": "error"
+    }
+
+@api_router.get("/wallet/tokens")
+async def get_wallet_tokens(address: str):
+    """Get SPL tokens for a wallet address"""
+    if not address:
+        return {"success": False, "tokens": [], "error": "No address provided"}
+    
+    if not rpc_state["connected"]:
+        await get_working_rpc()
+    
+    if not rpc_state["connected"]:
+        return {"success": False, "tokens": [], "error": "Solana network unavailable"}
+    
+    # Get token accounts
+    result = await make_rpc_call("getTokenAccountsByOwner", [
+        address,
+        {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+        {"encoding": "jsonParsed"}
+    ])
+    
+    if result["success"]:
+        tokens = []
+        for account in result["result"].get("value", []):
+            try:
+                info = account["account"]["data"]["parsed"]["info"]
+                token_amount = info.get("tokenAmount", {})
+                if token_amount.get("uiAmount", 0) > 0:
+                    tokens.append({
+                        "mint": info.get("mint"),
+                        "balance": token_amount.get("uiAmount", 0),
+                        "decimals": token_amount.get("decimals", 0)
+                    })
+            except:
+                continue
+        
+        return {"success": True, "tokens": tokens, "count": len(tokens)}
+    
+    return {"success": False, "tokens": [], "error": result.get("error")}
+
 # ============== SYSTEM DIAGNOSTICS ==============
 
 class SystemHealthStatus(BaseModel):
@@ -1678,13 +2023,6 @@ class SystemHealthStatus(BaseModel):
     overall_ok: bool = False
     details: Dict[str, Any] = {}
     timestamp: str
-
-# RPC Endpoints for health check
-RPC_ENDPOINTS = [
-    "https://rpc.ankr.com/solana",
-    "https://api.mainnet-beta.solana.com",
-    "https://solana-mainnet.rpc.extrnode.com"
-]
 
 @api_router.get("/system/health", response_model=SystemHealthStatus)
 async def system_health_check():
@@ -1781,50 +2119,6 @@ async def system_health_check():
     )
     
     return SystemHealthStatus(**status)
-
-@api_router.get("/wallet/balance")
-async def get_wallet_balance(address: str):
-    """
-    Fetch wallet balance via backend RPC
-    This avoids CORS and rate-limiting issues on frontend
-    """
-    if not address:
-        return {"balance": 0, "error": "No address provided"}
-    
-    for endpoint in RPC_ENDPOINTS:
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client_http:
-                response = await client_http.post(
-                    endpoint,
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "getBalance",
-                        "params": [address]
-                    }
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data:
-                        lamports = data["result"].get("value", 0)
-                        sol_balance = lamports / 1e9
-                        
-                        return {
-                            "balance": round(sol_balance, 6),
-                            "lamports": lamports,
-                            "endpoint": endpoint[:30] + "...",
-                            "success": True
-                        }
-        except Exception as e:
-            logger.warning(f"RPC {endpoint[:30]} failed for balance: {e}")
-            continue
-    
-    return {
-        "balance": 0,
-        "error": "All RPC endpoints failed",
-        "success": False
-    }
 
 @api_router.post("/trading/reset-loss-streak")
 async def reset_loss_streak():
