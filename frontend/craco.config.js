@@ -1,5 +1,6 @@
 // craco.config.js
 const path = require("path");
+const webpack = require("webpack");
 require("dotenv").config();
 
 // Check if we're in development/preview mode (not production build)
@@ -37,6 +38,54 @@ let webpackConfig = {
       '@': path.resolve(__dirname, 'src'),
     },
     configure: (webpackConfig) => {
+      // Node.js polyfills for Solana Web3.js
+      webpackConfig.resolve = webpackConfig.resolve || {};
+      webpackConfig.resolve.fallback = {
+        ...webpackConfig.resolve.fallback,
+        crypto: require.resolve('crypto-browserify'),
+        stream: require.resolve('stream-browserify'),
+        http: require.resolve('stream-http'),
+        https: require.resolve('https-browserify'),
+        os: require.resolve('os-browserify/browser'),
+        url: require.resolve('url/'),
+        buffer: require.resolve('buffer/'),
+        assert: require.resolve('assert/'),
+        zlib: false,
+        fs: false,
+        net: false,
+        tls: false,
+        child_process: false,
+        path: false,
+        vm: false,
+      };
+
+      // Fix fully specified ESM imports
+      webpackConfig.module.rules.push({
+        test: /\.m?js$/,
+        resolve: {
+          fullySpecified: false,
+        },
+      });
+
+      // Ignore source-map warnings for problematic packages
+      webpackConfig.ignoreWarnings = [
+        /Failed to parse source map/,
+        /source-map-loader/,
+      ];
+
+      // Add Buffer and process polyfills
+      webpackConfig.plugins.push(
+        new webpack.ProvidePlugin({
+          Buffer: ['buffer', 'Buffer'],
+          process: require.resolve('process/browser.js'),
+        })
+      );
+
+      // Add alias for process/browser
+      webpackConfig.resolve.alias = {
+        ...webpackConfig.resolve.alias,
+        'process/browser': require.resolve('process/browser.js'),
+      };
 
       // Add ignored patterns to reduce watched directories
         webpackConfig.watchOptions = {

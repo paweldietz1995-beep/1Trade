@@ -1,34 +1,139 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
+.App {
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
 }
 
-.App-link {
-    color: #61dafb;
+/* Custom scrollbar for dark theme */
+.App ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
 }
 
-@keyframes App-logo-spin {
+.App ::-webkit-scrollbar-track {
+    background: #0A0A0A;
+}
+
+.App ::-webkit-scrollbar-thumb {
+    background: #1E293B;
+    border-radius: 3px;
+}
+
+.App ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+}
+
+/* Animations */
+@keyframes fadeIn {
     from {
-        transform: rotate(0deg);
+        opacity: 0;
+        transform: translateY(10px);
     }
     to {
-        transform: rotate(360deg);
+        opacity: 1;
+        transform: translateY(0);
     }
+}
+
+.animate-in {
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* Card hover effects */
+.card-hover {
+    transition: all 0.2s ease-out;
+}
+
+.card-hover:hover {
+    border-color: rgba(139, 92, 246, 0.5);
+    transform: translateY(-2px);
+}
+
+/* Glow effects */
+.glow-green {
+    box-shadow: 0 0 20px rgba(0, 255, 148, 0.3);
+}
+
+.glow-cyan {
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+}
+
+.glow-violet {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+}
+
+.glow-red {
+    box-shadow: 0 0 20px rgba(255, 42, 109, 0.3);
+}
+
+/* Text gradient */
+.text-gradient-neon {
+    background: linear-gradient(135deg, #00FF94, #00F0FF);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Pulse animation for live indicators */
+@keyframes pulse-dot {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.pulse-dot {
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Shimmer effect */
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.shimmer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.1),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+/* Trading chart placeholder */
+.chart-grid {
+    background-image: 
+        linear-gradient(to right, rgba(128, 128, 128, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(128, 128, 128, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+/* Focus styles */
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid #00F0FF;
+    outline-offset: 2px;
+}
+
+/* Disable focus outline for mouse users */
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible) {
+    outline: none;
 }

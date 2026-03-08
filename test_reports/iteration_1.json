@@ -1,0 +1,66 @@
+{
+  "summary": "Initial generate-mode testing of Pump.fun Trading Terminal. 16 backend API tests and 37 frontend E2E tests created and all passing. App is fully functional with PIN auth, dashboard stats, DEX Screener token scanner, trade modal, paper trading mode, and settings panel.",
+  "mode": "generate",
+  "baseline_commit": "1eacfec40944050066fe4db0b95fa01177fb256e",
+  "head_commit": "1eacfec40944050066fe4db0b95fa01177fb256e",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Token Scanner",
+        "issues": [
+          "Multiple tokens show as 'PUMP / Pump.fun' with nearly identical data - this is likely real DEX Screener data but may confuse users; actual tokens just have identical names",
+          "Trading Opportunities section shows 'Scanning for opportunities...' with no results because no tokens meet the buy criteria (buy_sell_ratio > 1.5 AND price_change_24h > 5) - this is expected behavior for current market conditions"
+        ]
+      }
+    ]
+  },
+  "regression_results": {
+    "total_specs": 37,
+    "passed": 37,
+    "failed": 0,
+    "skipped": 0
+  },
+  "backend_test_results": {
+    "total": 16,
+    "passed": 16,
+    "failed": 0
+  },
+  "specs_created": [
+    "/app/tests/e2e/core-flows.spec.ts",
+    "/app/tests/e2e/trading-features.spec.ts",
+    "/app/tests/e2e/settings-paper-mode.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts"
+  ],
+  "specs_updated": [],
+  "quarantined_tests": [],
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "updated_files": [
+    "/app/tests/playwright.config.ts",
+    "/app/tests/fixtures/helpers.ts",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_api.py",
+    "/app/tests/e2e/core-flows.spec.ts",
+    "/app/tests/e2e/trading-features.spec.ts",
+    "/app/tests/e2e/settings-paper-mode.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "Test runs created paper trades via API tests and E2E tests. Max parallel trades setting was increased to 20 to allow continued testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PIN is '1234' (SHA256 hash verified from MongoDB). Max parallel trades setting was updated to 20 during tests. Several open test trades exist in the DB (paper trades only). Baseline commit saved to /app/.emergent/testing_baseline_commit. All 4 spec files in /app/tests/e2e/ and backend tests in /app/backend/tests/test_api.py. The app fetches live data from DEX Screener so token names/prices will differ between runs.",
+  "rca_of_issue": "No critical bugs found. Minor note: Trading Opportunities shows empty state when no tokens meet the criteria (buy_sell_ratio>1.5 AND price_change>5%) - this is expected behavior during low-volatility market conditions, not a bug."
+}
