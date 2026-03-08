@@ -463,12 +463,13 @@ const Dashboard = () => {
               Search
             </Button>
 
-            {/* SOL Price */}
+            {/* SOL Market Price */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0A0A0A] border border-[#1E293B] rounded-sm">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">SOL Price:</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Market:</span>
               <span className="font-mono text-sm text-neon-green" data-testid="sol-price-header">
                 {formatUSD(solPrice)}
               </span>
+              <span className="text-[10px] text-muted-foreground">/SOL</span>
             </div>
 
             {/* Wallet */}
