@@ -1,124 +1,124 @@
-# Pump.fun Trading Bot - PRD v5
+# Pump.fun Trading Bot - PRD v6
 
 ## Problem Statement
-Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit Wallet-Integration, Live-Trading und Paper-Modus.
+Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit Wallet-Integration, Live-Trading, Paper-Modus und 24/7 Auto-Trading Engine.
 
-## Erledigte Aufgaben ✅
+## Phase 1 - Abgeschlossen ✅
 
-### Session 1: Grundlagen
-- ErrorBoundary Komponente implementiert
-- PIN-basierte Authentifizierung
-- Dashboard UI mit Dark Theme
-- DEX Screener Integration
-- Paper Trading Simulation
+### 1. Auto Trading Engine (3s Intervall)
+- **Backend Loop:** Asynchroner Background-Task mit 3-Sekunden-Zyklus
+- **Endpoints:**
+  - `POST /api/auto-trading/start` - Engine starten
+  - `POST /api/auto-trading/stop` - Engine stoppen
+  - `GET /api/auto-trading/status` - Status abrufen
+  - `GET /api/auto-trading/opportunities` - Aktuelle Signale
 
-### Session 2: RPC & Live Trading (Aktuell)
+- **Workflow pro Zyklus:**
+  1. Token-Scan (DEX Screener + Pump.fun)
+  2. Filter anwenden (Liquidität > $5000, Volumen > $10000)
+  3. Risk Analysis durchführen
+  4. Momentum Signals berechnen
+  5. Bei starkem Signal → Trade ausführen
 
-#### 1. RPC Failover System ✅
-- **Primary RPC:** https://rpc.ankr.com/solana (Ankr - keine Rate-Limits)
-- **Fallback RPC:** https://api.mainnet-beta.solana.com
-- Automatischer Endpoint-Wechsel bei Fehlern
-- Retry-Mechanismus mit exponentieller Backoff
-- RPC-Status-Anzeige im Wallet Panel
+### 2. Enhanced Momentum Detection
+Vier Signal-Typen implementiert:
 
-#### 2. Wallet Balance Fix ✅
-- Verbesserte Balance-Abfrage mit Failover
-- 10-Sekunden Auto-Refresh
-- Detailliertes Fehler-Feedback
-- SPL Token-Anzeige
+| Signal | Threshold | Beschreibung |
+|--------|-----------|--------------|
+| VOLUME_SURGE | +150% | 5min Volumen vs. 1h Durchschnitt |
+| BUY_PRESSURE | 30 Käufer + 1.5x Ratio | Käufer in 5min + Buy/Sell Ratio |
+| WALLET_GROWTH | +100% | Neue Wallet-Käufer vs. Durchschnitt |
+| PRICE_ACCELERATION | +5% + 2% über Trend | Preis-Beschleunigung in 5min |
 
-#### 3. Jupiter API Integration ✅
-- `/app/frontend/src/services/jupiterService.js` erstellt
-- Token Buy/Sell über Jupiter Aggregator
-- Swap-Quote-Abfrage
-- Transaction-Signierung mit Wallet
-- Slippage-Konfiguration (Standard: 1%)
+**BUY Signal:** Mindestens 2 starke Signale + Momentum Score ≥ 70
 
-#### 4. Trading Sicherheits-Features ✅
-- `max_trade_amount_sol`: Absolute Max pro Trade
-- `max_daily_loss_sol`: Tägliches Verlust-Limit
-- `max_loss_streak`: Maximale Verlustserie
-- `slippage_bps`: Konfigurierbare Slippage
-- `require_confirmation`: Bestätigung für ersten Live-Trade
-- `tx_signature`: Solscan-Link für Transaktionen
+### 3. Debug Monitoring Panel
+Neues Panel zeigt:
+- Wallet Status (Connected/Disconnected)
+- RPC Status (Endpoint, Latenz)
+- Backend Status (Healthy, Version)
+- Auto Trading Status (Active, Scans, Trades)
+- Activity Log (Echtzeit)
 
-#### 5. UI Verbesserungen ✅
-- Live/Paper Mode Toggle mit Warndialog
-- RPC-Status-Indikator
-- Verbesserte Fehlerbehandlung
-- Transaction-Feedback mit Solscan-Links
+### 4. Strengere Token-Filter
+- Min. Liquidität: **$5,000** (vorher $1,000)
+- Min. Volumen 24h: **$10,000** (vorher $1,000)
+- Min. Momentum Score: **70** (für Auto-Trade)
+- Min. Käufer 5min: **30**
+- Max. Token-Alter: **24 Stunden**
 
-## Architektur
-
-```
-Frontend:
-├── React + Tailwind CSS
-├── @solana/wallet-adapter-react (Phantom, Solflare)
-├── Jupiter Service (Token Swaps)
-└── RPC Failover System
-
-Backend:
-├── FastAPI + MongoDB
-├── DEX Screener API
-└── Trading Safety Checks
-
-RPC Endpoints:
-├── Primary: Ankr (https://rpc.ankr.com/solana)
-└── Fallback: Solana Mainnet
-```
-
-## Test Ergebnisse
-- **Backend:** 21/21 Tests PASS (100%)
-- **Frontend:** 48/50 Tests PASS (96%)
+## Test-Ergebnisse Phase 1
+- **Backend:** 31/31 Tests PASS (100%)
+- **Frontend:** 71/76 Tests PASS (93%)
 - **Keine kritischen Bugs**
 
-## Nächste Aufgaben (Priorisiert)
+## Code-Architektur
 
-### P1: Auto-Trading Engine
-- Token-Scanner-Loop implementieren
-- Automatische Trade-Ausführung basierend auf Opportunities
-- Risk-Management während Auto-Trading
+```
+Backend (/app/backend/server.py):
+├── Auto Trading Engine
+│   ├── auto_trading_state (Global State)
+│   ├── auto_trading_loop() (Background Task)
+│   └── execute_auto_trade_cycle() (Pro Zyklus)
+├── Enhanced Momentum Detection
+│   └── calculate_enhanced_momentum() (4 Signal-Typen)
+└── API Endpoints (41 total)
+
+Frontend:
+├── /app/frontend/src/pages/Dashboard.jsx (Hauptansicht)
+├── /app/frontend/src/components/DebugPanel.jsx (NEU)
+└── /app/frontend/src/services/jupiterService.js (Live Trades)
+```
+
+## Phase 2 - Ausstehend 🔜
+
+### 1. Liquidity Migration Detector
+- Erkennung von Pump.fun → Raydium/Orca Migration
+- Automatisches Signal bei Migration
+
+### 2. Smart Wallet Tracking
+- Profitable Wallets tracken
+- Signal verstärken bei Smart Wallet Aktivität
+
+### 3. Performance-Optimierungen
 - WebSocket für Real-time Updates
+- RPC Latenz-Monitoring
 
-### P2: Verbesserungen
-- Token-Sell mit Balance-Abfrage
-- Portfolio-Übersicht verbessern
-- Trading-History mit Solscan-Links
-- Performance-Optimierungen
+## Phase 3 - Backlog 📋
 
-### P3: Erweiterte Features
-- Multi-Wallet Support
+- Ultra-Fast Sniper Module
+- MEV/Sandwich Protection
 - Telegram Bot Integration
+- Multi-Wallet Support
 - Copy-Trading Feature
 - AI Trading Models
 
-## API Endpoints
+## API Endpoints (Komplett)
 
-| Endpoint | Beschreibung |
-|----------|-------------|
-| `POST /api/auth/login` | PIN-Login |
-| `GET /api/portfolio` | Portfolio-Übersicht |
-| `GET /api/bot/settings` | Bot-Einstellungen |
-| `PUT /api/bot/settings` | Einstellungen aktualisieren |
-| `GET /api/tokens/scan` | Token-Scanner |
-| `POST /api/trades` | Trade erstellen |
-| `GET /api/trades` | Trades abrufen |
-| `GET /api/market/sol-price` | SOL Preis |
-| `GET /api/opportunities` | Trading-Signale |
-
-## Dateien
-
-### Neue Dateien
-- `/app/frontend/src/services/jupiterService.js` - Jupiter Swap Integration
-
-### Aktualisierte Dateien
-- `/app/frontend/src/context/SolanaWalletProvider.jsx` - RPC Failover
-- `/app/frontend/src/components/WalletPanel.jsx` - Balance mit Retry
-- `/app/frontend/src/pages/Dashboard.jsx` - RPC Status
-- `/app/frontend/src/components/TradeModal.jsx` - Live Trading
-- `/app/backend/server.py` - Safety Features
+| Kategorie | Endpoint | Beschreibung |
+|-----------|----------|--------------|
+| **Auth** | POST /api/auth/login | PIN-Login |
+| **Auto Trading** | POST /api/auto-trading/start | Engine starten |
+| | POST /api/auto-trading/stop | Engine stoppen |
+| | GET /api/auto-trading/status | Status |
+| | GET /api/auto-trading/opportunities | Signale |
+| **Portfolio** | GET /api/portfolio | Übersicht |
+| **Settings** | GET /api/bot/settings | Einstellungen |
+| | PUT /api/bot/settings | Aktualisieren |
+| **Tokens** | GET /api/tokens/scan | Scanner |
+| | GET /api/tokens/{address} | Details |
+| **Trades** | POST /api/trades | Erstellen |
+| | GET /api/trades | Liste |
+| | PUT /api/trades/{id}/close | Schließen |
+| **Market** | GET /api/market/sol-price | SOL Preis |
+| | GET /api/market/trending | Trending |
 
 ## Credentials
-- **PIN:** Vom Benutzer beim ersten Login gesetzt
-- **RPC:** Keine API-Keys erforderlich (öffentliche Endpoints)
-- **Jupiter:** Keine API-Keys erforderlich
+- **PIN:** Vom Benutzer gesetzt
+- **RPC:** Ankr (Primary), Solana Mainnet (Fallback)
+- **Jupiter API:** Keine Keys erforderlich
+
+## Bekannte Limitierungen
+- Wallet-Verbindung erfordert Phantom Extension
+- Rate Limiting bei schnellen API-Calls möglich
+- Paper Mode ist Standard (Live erfordert Bestätigung)
