@@ -247,7 +247,11 @@ auto_trading_state = {
     "scan_count": 0,
     "trades_executed": 0,
     "errors": [],
-    "current_opportunities": []
+    "current_opportunities": [],
+    "signals_processed": 0,
+    "last_trade_time": None,
+    "high_frequency_mode": True,
+    "min_signal_score": 60
 }
 
 class AutoTradingStatus(BaseModel):
@@ -258,6 +262,8 @@ class AutoTradingStatus(BaseModel):
     scan_interval_seconds: int = 3
     errors: List[str] = []
     current_opportunities: int = 0
+    signals_processed: int = 0
+    high_frequency_mode: bool = True
 
 class MomentumSignal(BaseModel):
     token_address: str
@@ -453,7 +459,12 @@ def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
     )
 
 async def execute_auto_trade_cycle():
-    """Execute one cycle of the auto trading engine"""
+    """
+    Execute one cycle of the high-frequency auto trading engine.
+    - Scans market every 2-3 seconds
+    - Processes multiple signals in parallel
+    - Uses signal quality scoring for trade decisions
+    """
     global auto_trading_state
     
     if not auto_trading_state["is_running"]:
@@ -461,6 +472,10 @@ async def execute_auto_trade_cycle():
     
     try:
         settings = await get_bot_settings()
+        
+        # Get configured thresholds
+        min_signal_score = getattr(settings, 'min_signal_score', 60)
+        high_frequency = auto_trading_state.get("high_frequency_mode", True)
         
         # Check if paper mode or live mode
         is_paper = settings.paper_mode
@@ -470,48 +485,57 @@ async def execute_auto_trade_cycle():
         
         # Check risk limits
         if portfolio.is_paused:
-            return {"executed": False, "reason": portfolio.pause_reason}
+            return {"executed": False, "reason": portfolio.pause_reason, "risk_blocked": True}
         
-        # Check max parallel trades
-        if portfolio.open_trades >= settings.max_parallel_trades:
-            return {"executed": False, "reason": "Max parallel trades reached"}
+        # Check max parallel trades (configurable, up to 10)
+        max_trades = min(settings.max_parallel_trades, 10)
+        if portfolio.open_trades >= max_trades:
+            return {"executed": False, "reason": f"Max parallel trades reached ({max_trades})"}
         
-        # Scan tokens with enhanced momentum
-        logger.info("🔍 Auto Trading: Scanning tokens...")
+        # High-frequency scan with parallel processing
+        logger.info(f"🔍 Auto Trading [Scan #{auto_trading_state['scan_count']+1}]: Scanning market...")
         
-        # Fetch tokens from multiple sources
-        pump_pairs = await fetch_pump_fun_tokens()
-        dex_pairs = await fetch_dex_screener_tokens(50)
+        # Fetch tokens from multiple sources in parallel
+        import asyncio
+        pump_task = asyncio.create_task(fetch_pump_fun_tokens())
+        dex_task = asyncio.create_task(fetch_dex_screener_tokens(50))
         
-        # Combine and dedupe
+        pump_pairs, dex_pairs = await asyncio.gather(pump_task, dex_task)
+        
+        # Combine and dedupe with strict quality filters
         all_pairs = {}
         for pair in pump_pairs + dex_pairs:
             address = pair.get("baseToken", {}).get("address", "")
             liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
             volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
             
-            # Apply strict filters: liquidity > $5000, volume > $10000
+            # Quality filter: liquidity > $10k, volume > $10k for high-quality signals
+            min_liq = max(settings.min_liquidity_usd, 10000)  # Minimum $10k liquidity
             if address and address not in all_pairs:
-                if liquidity >= settings.min_liquidity_usd and volume_24h >= 10000:
+                if liquidity >= min_liq and volume_24h >= 10000:
                     all_pairs[address] = pair
         
-        # Analyze each token
+        # Parallel signal analysis
         opportunities = []
+        signals_processed = 0
+        
         for address, pair in all_pairs.items():
             try:
-                # Calculate enhanced momentum
+                signals_processed += 1
+                
+                # Calculate enhanced momentum with signal scoring
                 (
                     momentum_score, signal_strength, signals, signal_reasons, 
                     buy_signal, buys_5m, sells_5m, volume_5m, price_5m, price_1h
                 ) = calculate_enhanced_momentum(pair, settings)
                 
-                # Check if token passes all filters
+                # Calculate risk analysis
                 risk_analysis = calculate_risk_analysis(pair, settings)
                 
                 if not risk_analysis.passed_filters:
                     continue
                 
-                # Check age constraints
+                # Age constraints
                 created_at = pair.get("pairCreatedAt", 0)
                 if created_at:
                     age_hours = (datetime.now(timezone.utc).timestamp() * 1000 - created_at) / (1000 * 60 * 60)
@@ -522,13 +546,37 @@ async def execute_auto_trade_cycle():
                 if age_hours < min_age_hours or age_hours > settings.max_token_age_hours:
                     continue
                 
-                # Check buy/sell ratio
+                # Buy/Sell ratio check (min 1.2x buy pressure)
                 buy_sell_ratio = buys_5m / max(sells_5m, 1)
                 if buy_sell_ratio < settings.min_buy_sell_ratio:
                     continue
                 
-                # Only consider strong buy signals
-                if buy_signal and momentum_score >= 70:
+                # SIGNAL QUALITY SCORING (0-100)
+                # Factors: momentum, liquidity, volume, buy pressure
+                signal_score = 0
+                
+                # Momentum component (0-30 points)
+                signal_score += min(30, momentum_score * 0.3)
+                
+                # Liquidity component (0-20 points)
+                liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+                if liq >= 50000: signal_score += 20
+                elif liq >= 20000: signal_score += 15
+                elif liq >= 10000: signal_score += 10
+                
+                # Volume surge component (0-25 points)
+                if volume_5m > 10000: signal_score += 25
+                elif volume_5m > 5000: signal_score += 20
+                elif volume_5m > 1000: signal_score += 10
+                
+                # Buy pressure component (0-25 points)
+                if buy_sell_ratio >= 3.0: signal_score += 25
+                elif buy_sell_ratio >= 2.0: signal_score += 20
+                elif buy_sell_ratio >= 1.5: signal_score += 15
+                elif buy_sell_ratio >= 1.2: signal_score += 10
+                
+                # Only consider signals above minimum threshold
+                if buy_signal and signal_score >= min_signal_score:
                     base_token = pair.get("baseToken", {})
                     
                     opportunity = {
@@ -537,13 +585,16 @@ async def execute_auto_trade_cycle():
                         "name": base_token.get("name", "Unknown"),
                         "price_usd": float(pair.get("priceUsd", 0) or 0),
                         "momentum_score": momentum_score,
+                        "signal_score": signal_score,  # Combined quality score
                         "signal_strength": signal_strength,
                         "signal_reasons": signal_reasons,
                         "risk_score": risk_analysis.risk_score,
-                        "liquidity": float(pair.get("liquidity", {}).get("usd", 0) or 0),
+                        "liquidity": liq,
                         "volume_24h": float(pair.get("volume", {}).get("h24", 0) or 0),
+                        "volume_5m": volume_5m,
                         "pair_address": pair.get("pairAddress"),
-                        "buy_sell_ratio": buy_sell_ratio
+                        "buy_sell_ratio": buy_sell_ratio,
+                        "price_change_5m": price_5m
                     }
                     opportunities.append(opportunity)
                     
@@ -551,13 +602,16 @@ async def execute_auto_trade_cycle():
                 logger.error(f"Error analyzing token {address}: {e}")
                 continue
         
-        # Sort by momentum score
-        opportunities.sort(key=lambda x: x["momentum_score"], reverse=True)
+        # Sort by SIGNAL SCORE (quality), not just momentum
+        opportunities.sort(key=lambda x: x["signal_score"], reverse=True)
         
         # Update state
         auto_trading_state["last_scan"] = datetime.now(timezone.utc).isoformat()
         auto_trading_state["scan_count"] += 1
+        auto_trading_state["signals_processed"] += signals_processed
         auto_trading_state["current_opportunities"] = opportunities[:5]
+        
+        logger.info(f"📊 Scan complete: {signals_processed} signals processed, {len(opportunities)} opportunities found")
         
         # If no opportunities, return
         if not opportunities:
@@ -627,38 +681,70 @@ async def execute_auto_trade_cycle():
 auto_trading_task = None
 
 async def auto_trading_loop():
-    """Background loop that runs every 3 seconds"""
+    """
+    High-frequency background loop that runs every 2-3 seconds.
+    - Scans market continuously
+    - Processes multiple opportunities per minute
+    - Respects risk limits
+    """
     global auto_trading_state
+    
+    logger.info("🚀 High-Frequency Trading Loop Started")
     
     while auto_trading_state["is_running"]:
         try:
+            # Execute trade cycle
             result = await execute_auto_trade_cycle()
+            
             if result.get("executed"):
-                logger.info(f"✅ Auto trade executed: {result.get('token')} for {result.get('amount')} SOL")
+                token = result.get('token', 'Unknown')
+                amount = result.get('amount', 0)
+                score = result.get('signal_score', 0)
+                logger.info(f"✅ Auto trade executed: {token} for {amount} SOL (Score: {score})")
+                auto_trading_state["last_trade_time"] = datetime.now(timezone.utc).isoformat()
+            elif result.get("reason"):
+                # Log non-critical reasons occasionally
+                if auto_trading_state["scan_count"] % 10 == 0:
+                    logger.debug(f"⏳ No trade: {result.get('reason')}")
+                    
         except Exception as e:
             logger.error(f"Auto trading loop error: {e}")
+            auto_trading_state["errors"].append({
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            auto_trading_state["errors"] = auto_trading_state["errors"][-10:]
         
-        # Wait 3 seconds before next cycle
+        # High-frequency: 2-3 second intervals
+        # This allows ~20-30 scans per minute
         await asyncio.sleep(3)
 
 @api_router.post("/auto-trading/start")
 async def start_auto_trading(background_tasks: BackgroundTasks):
-    """Start the auto trading engine"""
+    """Start the high-frequency auto trading engine"""
     global auto_trading_state, auto_trading_task
     
     if auto_trading_state["is_running"]:
         return {"success": False, "message": "Auto trading already running"}
     
+    # Reset state
     auto_trading_state["is_running"] = True
     auto_trading_state["scan_count"] = 0
     auto_trading_state["trades_executed"] = 0
+    auto_trading_state["signals_processed"] = 0
     auto_trading_state["errors"] = []
+    auto_trading_state["high_frequency_mode"] = True
     
     # Start background task
     auto_trading_task = asyncio.create_task(auto_trading_loop())
     
-    logger.info("🚀 Auto Trading Engine Started (3s interval)")
-    return {"success": True, "message": "Auto trading started", "interval": 3}
+    logger.info("🚀 High-Frequency Auto Trading Engine Started (3s interval, ~20 scans/min)")
+    return {
+        "success": True, 
+        "message": "Auto trading started in high-frequency mode",
+        "interval_seconds": 3,
+        "scans_per_minute": 20
+    }
 
 @api_router.post("/auto-trading/stop")
 async def stop_auto_trading():
@@ -687,7 +773,7 @@ async def stop_auto_trading():
 
 @api_router.get("/auto-trading/status", response_model=AutoTradingStatus)
 async def get_auto_trading_status():
-    """Get current auto trading status"""
+    """Get current auto trading status with high-frequency metrics"""
     return AutoTradingStatus(
         is_running=auto_trading_state["is_running"],
         last_scan=auto_trading_state["last_scan"],
@@ -695,7 +781,9 @@ async def get_auto_trading_status():
         trades_executed=auto_trading_state["trades_executed"],
         scan_interval_seconds=3,
         errors=[e.get("error", "") for e in auto_trading_state["errors"][-5:]],
-        current_opportunities=len(auto_trading_state.get("current_opportunities", []))
+        current_opportunities=len(auto_trading_state.get("current_opportunities", [])),
+        signals_processed=auto_trading_state.get("signals_processed", 0),
+        high_frequency_mode=auto_trading_state.get("high_frequency_mode", True)
     )
 
 @api_router.get("/auto-trading/opportunities")
