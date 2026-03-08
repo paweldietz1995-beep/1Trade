@@ -196,10 +196,34 @@ const Dashboard = () => {
     };
   }, [fetchWalletBalance, fetchData, fetchSolPrice]);
 
-  // Handle trading mode toggle
-  const handleTradingModeToggle = (newMode) => {
+  // Handle trading mode toggle with safety check
+  const handleTradingModeToggle = async (newMode) => {
     if (newMode === TRADING_MODES.LIVE) {
-      setShowLiveModeWarning(true);
+      // Check if live trading can be safely enabled
+      try {
+        const response = await axios.get(`${API_URL}/trading/can-enable-live`);
+        const check = response.data;
+        
+        if (!check.can_enable) {
+          toast.error('Cannot enable live trading', {
+            description: check.blockers[0] || 'System check failed'
+          });
+          return;
+        }
+        
+        // Show warnings if any
+        if (check.warnings?.length > 0) {
+          check.warnings.forEach(w => {
+            toast.warning('Warning', { description: w });
+          });
+        }
+        
+        setShowLiveModeWarning(true);
+      } catch (error) {
+        toast.error('Safety check failed', {
+          description: 'Unable to verify system status'
+        });
+      }
     } else {
       updateTradingMode(TRADING_MODES.PAPER);
     }

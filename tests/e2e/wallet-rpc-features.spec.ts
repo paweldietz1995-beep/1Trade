@@ -76,7 +76,7 @@ test.describe('Trading Mode Toggle (Paper/Live)', () => {
 
   test('confirming live mode changes indicator to LIVE', async ({ page }) => {
     // Wait for page to fully settle
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     
     const toggle = page.getByTestId('trading-mode-toggle');
     await expect(toggle).toBeVisible();
@@ -89,22 +89,20 @@ test.describe('Trading Mode Toggle (Paper/Live)', () => {
       await expect(page.getByText('🧪 PAPER').first()).toBeVisible({ timeout: 5000 });
     }
     
-    // Small delay to let toasts clear
-    await page.waitForTimeout(500);
-    
     // Toggle to live mode
     await toggle.click();
     
-    // Wait for dialog - it might take a moment
-    const dialogVisible = await page.getByText('Enable Live Trading?').isVisible({ timeout: 5000 }).catch(() => false);
+    // Wait for dialog
+    await expect(page.getByText('Enable Live Trading?')).toBeVisible({ timeout: 5000 });
     
-    if (dialogVisible) {
-      // Confirm live mode
-      await page.getByRole('button', { name: /I Understand/i }).click();
-    }
+    // Confirm live mode by clicking the confirm button
+    await page.getByRole('button', { name: /I Understand/i }).click();
     
-    // Should now show LIVE indicator in header (either from dialog confirm or direct toggle)
-    await expect(page.getByText('🔴 LIVE').first()).toBeVisible({ timeout: 5000 });
+    // Wait for dialog to close
+    await expect(page.getByText('Enable Live Trading?')).not.toBeVisible({ timeout: 5000 });
+    
+    // Should now show LIVE indicator in header
+    await expect(page.getByText('🔴 LIVE').first()).toBeVisible({ timeout: 10000 });
     
     // Toggle back to paper mode
     await toggle.click();

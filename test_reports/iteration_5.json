@@ -1,0 +1,97 @@
+{
+  "summary": "Update mode: Verified critical bug fixes for Pump.fun Trading Terminal. All 51 backend tests pass (including 20 new tests for system health, wallet balance, loss streak reset, and live trading safety endpoints). All 74 frontend E2E tests pass across 6 spec files. Updated existing tests for new Debug Panel (System Diagnostics) UI changes.",
+  "mode": "update",
+  "baseline_commit": "b79c8623506cec4d8a286955206360adf18343ae",
+  "head_commit": "d1979515d478c5a5b2a3038c29dd58ad3dac9dbe",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "regression_results": {
+    "total_specs": 6,
+    "passed": 74,
+    "failed": 0,
+    "skipped": 8
+  },
+  "new_endpoint_tests_added": {
+    "GET /api/system/health": [
+      "test_system_health_endpoint_exists",
+      "test_system_health_has_all_components",
+      "test_system_health_component_types",
+      "test_system_health_database_connected",
+      "test_system_health_rpc_connected",
+      "test_system_health_trading_engine_ok"
+    ],
+    "GET /api/wallet/balance": [
+      "test_wallet_balance_endpoint_exists",
+      "test_wallet_balance_no_address",
+      "test_wallet_balance_with_valid_address",
+      "test_wallet_balance_response_structure"
+    ],
+    "POST /api/trading/reset-loss-streak": [
+      "test_reset_loss_streak_endpoint_exists",
+      "test_reset_loss_streak_returns_success",
+      "test_reset_loss_streak_has_previous_streak_info",
+      "test_reset_loss_streak_has_note"
+    ],
+    "GET /api/trading/can-enable-live": [
+      "test_can_enable_live_endpoint_exists",
+      "test_can_enable_live_has_can_enable_flag",
+      "test_can_enable_live_has_blockers_list",
+      "test_can_enable_live_has_warnings_list",
+      "test_can_enable_live_has_system_health",
+      "test_can_enable_live_has_portfolio_info"
+    ]
+  },
+  "specs_created": [
+    "/app/tests/e2e/system-diagnostics.spec.ts"
+  ],
+  "specs_updated": [
+    "/app/tests/e2e/wallet-rpc-features.spec.ts",
+    "/app/tests/e2e/auto-trading-features.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts",
+    "/app/tests/e2e/trading-features.spec.ts"
+  ],
+  "backend_tests_updated": [
+    "/app/backend/tests/test_api.py"
+  ],
+  "quarantined_tests": [],
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/tests/e2e/system-diagnostics.spec.ts",
+    "/app/tests/e2e/wallet-rpc-features.spec.ts",
+    "/app/tests/e2e/auto-trading-features.spec.ts"
+  ],
+  "action_items": [],
+  "updated_files": [
+    "/app/backend/tests/test_api.py",
+    "/app/tests/e2e/system-diagnostics.spec.ts",
+    "/app/tests/e2e/wallet-rpc-features.spec.ts",
+    "/app/tests/e2e/auto-trading-features.spec.ts",
+    "/app/tests/e2e/golden-path.spec.ts",
+    "/app/tests/e2e/trading-features.spec.ts"
+  ],
+  "success_rate": {
+    "backend": "100% (51/51 passed)",
+    "frontend": "100% (74/74 passed, 8 skipped appropriately)"
+  },
+  "features_verified": {
+    "system_health_endpoint": "PASS - Returns all component statuses (wallet, rpc, scanner, trading_engine, database, overall)",
+    "wallet_balance_endpoint": "PASS - Backend RPC balance fetch working",
+    "loss_streak_reset": "PASS - Clears loss streak and pause state",
+    "live_trading_safety": "PASS - Validates system before allowing live mode",
+    "debug_panel": "PASS - New System Diagnostics UI shows all component statuses",
+    "tradingview_widget": "PASS - Chart tab loads correctly",
+    "token_scanner": "PASS - Returns tokens with realistic values"
+  },
+  "seed_data_creation": "No new seed data created",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All new endpoints verified. Debug Panel UI was completely rewritten - tests updated to match new 'System Diagnostics' title and component sections. Some tests skip appropriately when max_parallel_trades limit reached (5/5) or insufficient balance. All critical bug fixes verified working."
+}

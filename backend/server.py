@@ -1588,13 +1588,8 @@ async def get_portfolio_summary():
     ]
     daily_pnl = sum(t.get("pnl", 0) for t in today_trades)
     
-    # Calculate loss streak
-    loss_streak = 0
-    for trade in reversed(closed_trades):
-        if trade.get("pnl", 0) < 0:
-            loss_streak += 1
-        else:
-            break
+    # Calculate loss streak (respecting reset marker)
+    loss_streak = await calculate_current_loss_streak()
     
     # Check if trading should be paused
     is_paused = False
@@ -1671,6 +1666,285 @@ async def root():
 @api_router.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+# ============== SYSTEM DIAGNOSTICS ==============
+
+class SystemHealthStatus(BaseModel):
+    wallet_ok: bool = False
+    rpc_ok: bool = False
+    scanner_ok: bool = False
+    trading_engine_ok: bool = False
+    database_ok: bool = False
+    overall_ok: bool = False
+    details: Dict[str, Any] = {}
+    timestamp: str
+
+# RPC Endpoints for health check
+RPC_ENDPOINTS = [
+    "https://rpc.ankr.com/solana",
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-mainnet.rpc.extrnode.com"
+]
+
+@api_router.get("/system/health", response_model=SystemHealthStatus)
+async def system_health_check():
+    """Comprehensive system diagnostics"""
+    status = {
+        "wallet_ok": False,
+        "rpc_ok": False,
+        "scanner_ok": False,
+        "trading_engine_ok": False,
+        "database_ok": False,
+        "overall_ok": False,
+        "details": {},
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # 1. Check Database
+    try:
+        await db.command("ping")
+        status["database_ok"] = True
+        status["details"]["database"] = "MongoDB connected"
+    except Exception as e:
+        status["details"]["database"] = f"Error: {str(e)}"
+    
+    # 2. Check RPC Endpoints
+    rpc_working = None
+    rpc_latency = None
+    for endpoint in RPC_ENDPOINTS:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client_http:
+                start_time = datetime.now()
+                response = await client_http.post(
+                    endpoint,
+                    json={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}
+                )
+                latency = (datetime.now() - start_time).total_seconds() * 1000
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if "result" in data:
+                        status["rpc_ok"] = True
+                        rpc_working = endpoint
+                        rpc_latency = round(latency, 1)
+                        status["details"]["rpc"] = {
+                            "endpoint": endpoint[:40] + "...",
+                            "latency_ms": rpc_latency,
+                            "slot": data.get("result")
+                        }
+                        break
+        except Exception as e:
+            continue
+    
+    if not status["rpc_ok"]:
+        status["details"]["rpc"] = "All RPC endpoints failed"
+    
+    # 3. Check Scanner (DEX Screener API)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            response = await client_http.get(
+                "https://api.dexscreener.com/latest/dex/search",
+                params={"q": "SOL"}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                pairs_count = len(data.get("pairs", []))
+                status["scanner_ok"] = pairs_count > 0
+                status["details"]["scanner"] = {
+                    "api": "DEX Screener",
+                    "pairs_found": pairs_count,
+                    "status": "OK" if pairs_count > 0 else "No pairs"
+                }
+            else:
+                status["details"]["scanner"] = f"API returned {response.status_code}"
+    except Exception as e:
+        status["details"]["scanner"] = f"Error: {str(e)}"
+    
+    # 4. Check Trading Engine
+    status["trading_engine_ok"] = True  # If we got here, FastAPI is running
+    status["details"]["trading_engine"] = {
+        "auto_trading_active": auto_trading_state["is_running"],
+        "scan_count": auto_trading_state["scan_count"],
+        "trades_executed": auto_trading_state["trades_executed"]
+    }
+    
+    # 5. Wallet status is determined client-side, mark as OK for API
+    status["wallet_ok"] = True  # Frontend will override based on actual wallet connection
+    status["details"]["wallet"] = "Check performed client-side"
+    
+    # Overall status
+    status["overall_ok"] = (
+        status["database_ok"] and 
+        status["rpc_ok"] and 
+        status["scanner_ok"] and 
+        status["trading_engine_ok"]
+    )
+    
+    return SystemHealthStatus(**status)
+
+@api_router.get("/wallet/balance")
+async def get_wallet_balance(address: str):
+    """
+    Fetch wallet balance via backend RPC
+    This avoids CORS and rate-limiting issues on frontend
+    """
+    if not address:
+        return {"balance": 0, "error": "No address provided"}
+    
+    for endpoint in RPC_ENDPOINTS:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client_http:
+                response = await client_http.post(
+                    endpoint,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getBalance",
+                        "params": [address]
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if "result" in data:
+                        lamports = data["result"].get("value", 0)
+                        sol_balance = lamports / 1e9
+                        
+                        return {
+                            "balance": round(sol_balance, 6),
+                            "lamports": lamports,
+                            "endpoint": endpoint[:30] + "...",
+                            "success": True
+                        }
+        except Exception as e:
+            logger.warning(f"RPC {endpoint[:30]} failed for balance: {e}")
+            continue
+    
+    return {
+        "balance": 0,
+        "error": "All RPC endpoints failed",
+        "success": False
+    }
+
+@api_router.post("/trading/reset-loss-streak")
+async def reset_loss_streak():
+    """
+    Reset loss streak counter and unpause trading
+    Called when user wants to resume trading after losses
+    """
+    # Get settings and add reset marker
+    settings = await get_bot_settings()
+    
+    # Store reset timestamp to ignore previous losses
+    await db.trading_state.update_one(
+        {"type": "loss_streak_reset"},
+        {"$set": {
+            "type": "loss_streak_reset",
+            "reset_at": datetime.now(timezone.utc).isoformat(),
+            "previous_streak": await calculate_current_loss_streak()
+        }},
+        upsert=True
+    )
+    
+    logger.info(f"🔄 Loss streak reset by user")
+    
+    return {
+        "success": True,
+        "previous_streak": await calculate_current_loss_streak(),
+        "message": "Loss streak reset. Trading can resume.",
+        "note": "Consider reviewing your strategy before continuing"
+    }
+
+async def calculate_current_loss_streak() -> int:
+    """Calculate current loss streak, respecting reset markers"""
+    # Check for reset marker
+    reset_marker = await db.trading_state.find_one({"type": "loss_streak_reset"})
+    reset_time = None
+    if reset_marker and reset_marker.get("reset_at"):
+        reset_time = datetime.fromisoformat(reset_marker["reset_at"])
+    
+    # Get closed trades
+    trades = await db.trades.find(
+        {"status": "CLOSED"},
+        {"_id": 0}
+    ).sort("closed_at", -1).to_list(100)
+    
+    loss_streak = 0
+    for trade in trades:
+        closed_at = trade.get("closed_at")
+        if closed_at:
+            trade_time = datetime.fromisoformat(closed_at) if isinstance(closed_at, str) else closed_at
+            # Skip trades before reset
+            if reset_time and trade_time < reset_time:
+                break
+        
+        if trade.get("pnl", 0) < 0:
+            loss_streak += 1
+        else:
+            break
+    
+    return loss_streak
+
+@api_router.get("/trading/can-enable-live")
+async def can_enable_live_trading():
+    """
+    Check if live trading can be safely enabled
+    Returns detailed diagnostics
+    """
+    health = await system_health_check()
+    portfolio = await get_portfolio_summary()
+    settings = await get_bot_settings()
+    
+    blockers = []
+    warnings = []
+    
+    # Check RPC
+    if not health.rpc_ok:
+        blockers.append("RPC connection failed - cannot execute trades")
+    
+    # Check Scanner
+    if not health.scanner_ok:
+        blockers.append("Token scanner not working - cannot find opportunities")
+    
+    # Check Database
+    if not health.database_ok:
+        blockers.append("Database connection failed")
+    
+    # Check Portfolio Status
+    if portfolio.is_paused:
+        blockers.append(f"Trading paused: {portfolio.pause_reason}")
+    
+    # Check Loss Streak
+    if portfolio.loss_streak >= settings.max_loss_streak:
+        warnings.append(f"High loss streak ({portfolio.loss_streak}). Consider resetting.")
+    
+    # Check Daily Loss
+    daily_loss_percent = abs(portfolio.daily_pnl / settings.total_budget_sol * 100) if portfolio.daily_pnl < 0 else 0
+    if daily_loss_percent >= settings.max_daily_loss_percent * 0.8:
+        warnings.append(f"Approaching daily loss limit ({daily_loss_percent:.1f}%)")
+    
+    # Check Available Budget
+    if portfolio.available_sol < settings.min_trade_sol:
+        blockers.append(f"Insufficient balance ({portfolio.available_sol:.4f} SOL)")
+    
+    can_enable = len(blockers) == 0
+    
+    return {
+        "can_enable": can_enable,
+        "blockers": blockers,
+        "warnings": warnings,
+        "system_health": {
+            "rpc": health.rpc_ok,
+            "scanner": health.scanner_ok,
+            "database": health.database_ok,
+            "trading_engine": health.trading_engine_ok
+        },
+        "portfolio": {
+            "available_sol": portfolio.available_sol,
+            "loss_streak": portfolio.loss_streak,
+            "is_paused": portfolio.is_paused
+        }
+    }
 
 # Include the router in the main app
 app.include_router(api_router)

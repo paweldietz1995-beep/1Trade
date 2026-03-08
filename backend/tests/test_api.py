@@ -405,3 +405,196 @@ class TestTokenFilters:
         assert resp.status_code == 200
         data = resp.json()
         assert data["scan_interval_seconds"] == 3
+
+
+class TestSystemHealth:
+    """Test system health diagnostics endpoint"""
+
+    def test_system_health_endpoint_exists(self, api_client):
+        """GET /system/health returns 200"""
+        resp = api_client.get(f"{BASE_URL}/api/system/health")
+        assert resp.status_code == 200
+
+    def test_system_health_has_all_components(self, api_client):
+        """System health returns all component statuses"""
+        resp = api_client.get(f"{BASE_URL}/api/system/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        # All required status fields
+        assert "wallet_ok" in data
+        assert "rpc_ok" in data
+        assert "scanner_ok" in data
+        assert "trading_engine_ok" in data
+        assert "database_ok" in data
+        assert "overall_ok" in data
+        assert "details" in data
+        assert "timestamp" in data
+
+    def test_system_health_component_types(self, api_client):
+        """System health components have correct types"""
+        resp = api_client.get(f"{BASE_URL}/api/system/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data["wallet_ok"], bool)
+        assert isinstance(data["rpc_ok"], bool)
+        assert isinstance(data["scanner_ok"], bool)
+        assert isinstance(data["trading_engine_ok"], bool)
+        assert isinstance(data["database_ok"], bool)
+        assert isinstance(data["overall_ok"], bool)
+        assert isinstance(data["details"], dict)
+
+    def test_system_health_database_connected(self, api_client):
+        """Database should be connected"""
+        resp = api_client.get(f"{BASE_URL}/api/system/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["database_ok"] is True
+        assert "database" in data["details"]
+
+    def test_system_health_rpc_connected(self, api_client):
+        """RPC should be connected (at least one endpoint)"""
+        resp = api_client.get(f"{BASE_URL}/api/system/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["rpc_ok"] is True
+        assert "rpc" in data["details"]
+        # RPC details should have latency info
+        if isinstance(data["details"]["rpc"], dict):
+            assert "latency_ms" in data["details"]["rpc"]
+
+    def test_system_health_trading_engine_ok(self, api_client):
+        """Trading engine should always be OK if API is running"""
+        resp = api_client.get(f"{BASE_URL}/api/system/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["trading_engine_ok"] is True
+        assert "trading_engine" in data["details"]
+
+
+class TestWalletBalance:
+    """Test wallet balance endpoint via backend RPC"""
+
+    def test_wallet_balance_endpoint_exists(self, api_client):
+        """GET /wallet/balance returns 200"""
+        resp = api_client.get(f"{BASE_URL}/api/wallet/balance", params={"address": ""})
+        assert resp.status_code == 200
+
+    def test_wallet_balance_no_address(self, api_client):
+        """Empty address returns error"""
+        resp = api_client.get(f"{BASE_URL}/api/wallet/balance", params={"address": ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["balance"] == 0
+        assert "error" in data or data.get("success") is False or "No address" in data.get("error", "")
+
+    def test_wallet_balance_with_valid_address(self, api_client):
+        """Valid Solana address returns balance structure"""
+        # Using a known address (Solana Foundation's address)
+        test_address = "GhBtSKy6t1CVLGYt9bQKfjhvKpVpP7H9pWJJFdQ6WhQf"
+        resp = api_client.get(f"{BASE_URL}/api/wallet/balance", params={"address": test_address})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "balance" in data
+        assert isinstance(data["balance"], (int, float))
+        # If successful, should have success flag or endpoint info
+        if data.get("success"):
+            assert "endpoint" in data
+            assert "lamports" in data
+
+    def test_wallet_balance_response_structure(self, api_client):
+        """Wallet balance returns expected structure"""
+        # Using SOL mint address as test (it will have 0 balance but valid response)
+        test_address = "So11111111111111111111111111111111111111112"
+        resp = api_client.get(f"{BASE_URL}/api/wallet/balance", params={"address": test_address})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should have balance field regardless of success/failure
+        assert "balance" in data
+
+
+class TestLossStreakReset:
+    """Test loss streak reset endpoint"""
+
+    def test_reset_loss_streak_endpoint_exists(self, api_client):
+        """POST /trading/reset-loss-streak returns 200"""
+        resp = api_client.post(f"{BASE_URL}/api/trading/reset-loss-streak")
+        assert resp.status_code == 200
+
+    def test_reset_loss_streak_returns_success(self, api_client):
+        """Reset returns success flag"""
+        resp = api_client.post(f"{BASE_URL}/api/trading/reset-loss-streak")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "message" in data
+
+    def test_reset_loss_streak_has_previous_streak_info(self, api_client):
+        """Reset returns previous streak info"""
+        resp = api_client.post(f"{BASE_URL}/api/trading/reset-loss-streak")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "previous_streak" in data
+        assert isinstance(data["previous_streak"], int)
+
+    def test_reset_loss_streak_has_note(self, api_client):
+        """Reset includes helpful note"""
+        resp = api_client.post(f"{BASE_URL}/api/trading/reset-loss-streak")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "note" in data
+
+
+class TestCanEnableLive:
+    """Test live trading safety check endpoint"""
+
+    def test_can_enable_live_endpoint_exists(self, api_client):
+        """GET /trading/can-enable-live returns 200"""
+        resp = api_client.get(f"{BASE_URL}/api/trading/can-enable-live")
+        assert resp.status_code == 200
+
+    def test_can_enable_live_has_can_enable_flag(self, api_client):
+        """Response includes can_enable boolean"""
+        resp = api_client.get(f"{BASE_URL}/api/trading/can-enable-live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "can_enable" in data
+        assert isinstance(data["can_enable"], bool)
+
+    def test_can_enable_live_has_blockers_list(self, api_client):
+        """Response includes blockers list"""
+        resp = api_client.get(f"{BASE_URL}/api/trading/can-enable-live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "blockers" in data
+        assert isinstance(data["blockers"], list)
+
+    def test_can_enable_live_has_warnings_list(self, api_client):
+        """Response includes warnings list"""
+        resp = api_client.get(f"{BASE_URL}/api/trading/can-enable-live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "warnings" in data
+        assert isinstance(data["warnings"], list)
+
+    def test_can_enable_live_has_system_health(self, api_client):
+        """Response includes system health summary"""
+        resp = api_client.get(f"{BASE_URL}/api/trading/can-enable-live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "system_health" in data
+        health = data["system_health"]
+        assert "rpc" in health
+        assert "scanner" in health
+        assert "database" in health
+        assert "trading_engine" in health
+
+    def test_can_enable_live_has_portfolio_info(self, api_client):
+        """Response includes portfolio info"""
+        resp = api_client.get(f"{BASE_URL}/api/trading/can-enable-live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "portfolio" in data
+        portfolio = data["portfolio"]
+        assert "available_sol" in portfolio
+        assert "loss_streak" in portfolio
+        assert "is_paused" in portfolio
