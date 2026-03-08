@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -24,7 +24,9 @@ import {
   DollarSign,
   Layers,
   Eye,
-  Radio
+  Radio,
+  Power,
+  StopCircle
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -33,12 +35,13 @@ import { Switch } from '../components/ui/switch';
 import { Progress } from '../components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import TokenScanner from '../components/TokenScanner';
-import ActiveTrades from '../components/ActiveTrades';
 import TradingOpportunities from '../components/TradingOpportunities';
 import BotSettingsPanel from '../components/BotSettingsPanel';
 import WalletPanel from '../components/WalletPanel';
 import TokenSearch from '../components/TokenSearch';
 import TradingViewWidget from '../components/TradingViewWidget';
+import LiveTradesPanel from '../components/LiveTradesPanel';
+import { toast } from 'sonner';
 
 const Dashboard = () => {
   const { logout, API_URL } = useApp();
@@ -55,8 +58,10 @@ const Dashboard = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [selectedToken, setSelectedToken] = useState(null);
   const [autoTrading, setAutoTrading] = useState(false);
+  const [autoTradingActive, setAutoTradingActive] = useState(false);
+  const autoTradingIntervalRef = useRef(null);
 
-  // Fetch wallet balance
+  // Fetch wallet balance - every 10 seconds
   const fetchWalletBalance = useCallback(async () => {
     if (connected && publicKey && connection) {
       try {
@@ -71,14 +76,12 @@ const Dashboard = () => {
   // Fetch portfolio and settings
   const fetchData = useCallback(async () => {
     try {
-      const [portfolioRes, settingsRes, priceRes] = await Promise.all([
+      const [portfolioRes, settingsRes] = await Promise.all([
         axios.get(`${API_URL}/portfolio`),
-        axios.get(`${API_URL}/bot/settings`),
-        axios.get(`${API_URL}/market/sol-price`)
+        axios.get(`${API_URL}/bot/settings`)
       ]);
       setPortfolio(portfolioRes.data);
       setBotSettings(settingsRes.data);
-      setSolPrice(priceRes.data.price);
       setAutoTrading(settingsRes.data.auto_trade_enabled);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -86,30 +89,154 @@ const Dashboard = () => {
     setLoading(false);
   }, [API_URL]);
 
+  // Fetch SOL price from backend (with caching)
+  const fetchSolPrice = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/market/sol-price`);
+      setSolPrice(response.data.price || 150);
+    } catch {
+      // Keep existing price
+    }
+  }, [API_URL]);
+
   useEffect(() => {
     fetchWalletBalance();
     fetchData();
+    fetchSolPrice();
     
-    const interval = setInterval(() => {
-      fetchWalletBalance();
-      fetchData();
-    }, 15000);
+    // Wallet balance every 10 seconds
+    const walletInterval = setInterval(fetchWalletBalance, 10000);
+    // Portfolio every 15 seconds
+    const portfolioInterval = setInterval(fetchData, 15000);
+    // SOL price every 60 seconds
+    const priceInterval = setInterval(fetchSolPrice, 60000);
     
-    return () => clearInterval(interval);
-  }, [fetchWalletBalance, fetchData]);
+    return () => {
+      clearInterval(walletInterval);
+      clearInterval(portfolioInterval);
+      clearInterval(priceInterval);
+    };
+  }, [fetchWalletBalance, fetchData, fetchSolPrice]);
 
-  const toggleAutoTrading = async () => {
-    if (!botSettings) return;
+  // Auto Trading Logic
+  const executeAutoTrade = useCallback(async () => {
+    if (!autoTradingActive || !botSettings) return;
     
     try {
-      const newSettings = { ...botSettings, auto_trade_enabled: !autoTrading };
-      await axios.put(`${API_URL}/bot/settings`, newSettings);
-      setAutoTrading(!autoTrading);
-      setBotSettings(newSettings);
+      // Get trading opportunities
+      const oppResponse = await axios.get(`${API_URL}/opportunities`);
+      const opportunities = oppResponse.data;
+      
+      if (opportunities.length === 0) return;
+      
+      // Check if we can open more trades
+      const portfolioRes = await axios.get(`${API_URL}/portfolio`);
+      if (portfolioRes.data.open_trades >= botSettings.max_parallel_trades) {
+        return;
+      }
+      
+      if (portfolioRes.data.is_paused) {
+        toast.warning('Auto trading paused due to risk limits');
+        stopAutoTrading();
+        return;
+      }
+      
+      // Take the best opportunity
+      const bestOpp = opportunities[0];
+      if (bestOpp.confidence < 70) return; // Only trade high confidence signals
+      
+      const tradeAmount = Math.min(
+        botSettings.total_budget_sol * (botSettings.max_trade_percent / 100),
+        portfolioRes.data.available_sol
+      );
+      
+      if (tradeAmount < botSettings.min_trade_sol) return;
+      
+      // Execute trade
+      const tradeData = {
+        token_address: bestOpp.token.address,
+        token_symbol: bestOpp.token.symbol,
+        token_name: bestOpp.token.name,
+        pair_address: bestOpp.token.pair_address,
+        trade_type: 'BUY',
+        amount_sol: tradeAmount,
+        price_entry: bestOpp.token.price_usd,
+        take_profit_percent: botSettings.take_profit_percent,
+        stop_loss_percent: botSettings.stop_loss_percent,
+        trailing_stop_percent: botSettings.trailing_stop_enabled ? botSettings.trailing_stop_percent : null,
+        paper_trade: botSettings.paper_mode,
+        auto_trade: true,
+        wallet_address: publicKey?.toString()
+      };
+      
+      await axios.post(`${API_URL}/trades`, tradeData);
+      
+      toast.success('🤖 Auto Trade Executed!', {
+        description: `Bought ${bestOpp.token.symbol} for ${tradeAmount.toFixed(4)} SOL`
+      });
+      
+      fetchData();
     } catch (error) {
-      console.error('Error toggling auto trading:', error);
+      console.error('Auto trade error:', error);
+    }
+  }, [autoTradingActive, botSettings, API_URL, publicKey, fetchData]);
+
+  const startAutoTrading = async () => {
+    if (!botSettings) return;
+    
+    // Enable auto trading in settings
+    const newSettings = { ...botSettings, auto_trade_enabled: true };
+    await axios.put(`${API_URL}/bot/settings`, newSettings);
+    setBotSettings(newSettings);
+    setAutoTrading(true);
+    setAutoTradingActive(true);
+    
+    // Start auto trading loop
+    autoTradingIntervalRef.current = setInterval(executeAutoTrade, botSettings.scan_interval_seconds * 1000);
+    
+    toast.success('🤖 Auto Trading Started', {
+      description: `Scanning every ${botSettings.scan_interval_seconds}s for opportunities`
+    });
+  };
+
+  const stopAutoTrading = async () => {
+    // Clear interval
+    if (autoTradingIntervalRef.current) {
+      clearInterval(autoTradingIntervalRef.current);
+      autoTradingIntervalRef.current = null;
+    }
+    
+    // Disable auto trading in settings
+    if (botSettings) {
+      const newSettings = { ...botSettings, auto_trade_enabled: false };
+      await axios.put(`${API_URL}/bot/settings`, newSettings);
+      setBotSettings(newSettings);
+    }
+    
+    setAutoTrading(false);
+    setAutoTradingActive(false);
+    
+    toast.info('🛑 Auto Trading Stopped', {
+      description: 'Open trades will continue to be monitored'
+    });
+  };
+
+  const toggleAutoTrading = () => {
+    if (autoTradingActive) {
+      stopAutoTrading();
+    } else {
+      startAutoTrading();
     }
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (autoTradingIntervalRef.current) {
+        clearInterval(autoTradingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const handleTokenSelect = (token) => {
     setSelectedToken(token);
@@ -140,21 +267,37 @@ const Dashboard = () => {
               <span className="text-xl font-heading font-bold tracking-tight">PUMP TERMINAL</span>
             </div>
             
-            {/* Auto Trading Toggle */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border ${
-              autoTrading 
-                ? 'bg-neon-green/10 border-neon-green/30' 
-                : 'bg-[#0A0A0A] border-[#1E293B]'
-            }`}>
-              <Bot className={`w-4 h-4 ${autoTrading ? 'text-neon-green animate-pulse' : 'text-muted-foreground'}`} />
-              <span className={`text-xs uppercase tracking-wider ${autoTrading ? 'text-neon-green' : 'text-muted-foreground'}`}>
-                {autoTrading ? 'Auto Trading ON' : 'Auto Trading OFF'}
-              </span>
-              <Switch 
-                checked={autoTrading} 
-                onCheckedChange={toggleAutoTrading}
-                data-testid="auto-trading-toggle"
-              />
+            {/* Auto Trading Control */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant={autoTradingActive ? 'default' : 'outline'}
+                size="sm"
+                onClick={toggleAutoTrading}
+                className={`${autoTradingActive 
+                  ? 'bg-neon-green text-black hover:bg-neon-green/90 animate-pulse' 
+                  : 'border-neon-green/30 text-neon-green hover:bg-neon-green/10'
+                }`}
+                data-testid="auto-trade-toggle"
+              >
+                {autoTradingActive ? (
+                  <>
+                    <StopCircle className="w-4 h-4 mr-2" />
+                    Stop Auto Trade
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 mr-2" />
+                    Start Auto Trade
+                  </>
+                )}
+              </Button>
+              
+              {autoTradingActive && (
+                <Badge className="bg-neon-green/20 text-neon-green border-none animate-pulse">
+                  <Bot className="w-3 h-3 mr-1" />
+                  ACTIVE
+                </Badge>
+              )}
             </div>
 
             {/* Paper Mode Indicator */}
@@ -190,7 +333,7 @@ const Dashboard = () => {
             {/* SOL Price */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0A0A0A] border border-[#1E293B] rounded-sm">
               <span className="text-xs text-muted-foreground">SOL</span>
-              <span className="font-mono text-sm text-neon-green">{formatUSD(solPrice)}</span>
+              <span className="font-mono text-sm text-neon-green" data-testid="sol-price-header">{formatUSD(solPrice)}</span>
             </div>
 
             {/* Wallet */}
@@ -230,7 +373,7 @@ const Dashboard = () => {
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">Wallet</span>
                 <Wallet className="w-4 h-4 text-neon-cyan" />
               </div>
-              <div className="font-mono text-xl font-bold text-neon-cyan">
+              <div className="font-mono text-xl font-bold text-neon-cyan" data-testid="wallet-balance-display">
                 {connected ? formatSOL(walletBalance) : '--'}
               </div>
               <div className="text-xs text-muted-foreground">
@@ -342,7 +485,7 @@ const Dashboard = () => {
             </TabsTrigger>
             <TabsTrigger value="trades" data-testid="tab-trades">
               <BarChart3 className="w-4 h-4 mr-2" />
-              Trades
+              Live P&L
             </TabsTrigger>
             <TabsTrigger value="chart" data-testid="tab-chart">
               <Eye className="w-4 h-4 mr-2" />
@@ -357,10 +500,10 @@ const Dashboard = () => {
                 <TradingOpportunities onSelectToken={handleTokenSelect} />
               </div>
               
-              {/* Wallet Panel */}
+              {/* Wallet & Trades Panel */}
               <div className="space-y-4">
-                <WalletPanel />
-                <ActiveTrades compact />
+                <WalletPanel solPrice={solPrice} />
+                <LiveTradesPanel solPrice={solPrice} compact />
               </div>
             </div>
           </TabsContent>
@@ -370,7 +513,7 @@ const Dashboard = () => {
           </TabsContent>
 
           <TabsContent value="trades">
-            <ActiveTrades />
+            <LiveTradesPanel solPrice={solPrice} />
           </TabsContent>
 
           <TabsContent value="chart">
@@ -404,7 +547,7 @@ const Dashboard = () => {
 
               {/* Trade Panel - 1 column */}
               <div>
-                <ActiveTrades compact />
+                <LiveTradesPanel solPrice={solPrice} compact />
               </div>
             </div>
           </TabsContent>

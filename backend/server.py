@@ -41,6 +41,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ============== PRICE CACHE ==============
+# Cache SOL price to avoid rate limiting
+sol_price_cache = {
+    "price": 150.0,
+    "updated_at": None
+}
+PRICE_CACHE_DURATION = 60  # Cache for 60 seconds
+
 # ============== MODELS ==============
 
 class AuthRequest(BaseModel):
@@ -232,18 +240,53 @@ def generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 async def get_sol_price() -> float:
-    """Get current SOL price from CoinGecko"""
+    """Get current SOL price with caching to avoid rate limiting"""
+    global sol_price_cache
+    
+    now = datetime.now(timezone.utc)
+    
+    # Return cached price if still valid
+    if sol_price_cache["updated_at"]:
+        cache_age = (now - sol_price_cache["updated_at"]).total_seconds()
+        if cache_age < PRICE_CACHE_DURATION:
+            return sol_price_cache["price"]
+    
+    # Try to fetch new price
     try:
         async with httpx.AsyncClient(timeout=5.0) as client_http:
+            # Try DEX Screener first (more reliable, no rate limiting)
+            response = await client_http.get(
+                "https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112"
+            )
+            if response.status_code == 200:
+                data = response.json()
+                pairs = data.get("pairs", [])
+                if pairs:
+                    # Get price from USDC pair
+                    for pair in pairs:
+                        if pair.get("quoteToken", {}).get("symbol") in ["USDC", "USDT"]:
+                            price = float(pair.get("priceUsd", 0) or 0)
+                            if price > 0:
+                                sol_price_cache["price"] = price
+                                sol_price_cache["updated_at"] = now
+                                return price
+            
+            # Fallback to CoinGecko
             response = await client_http.get(
                 "https://api.coingecko.com/api/v3/simple/price",
                 params={"ids": "solana", "vs_currencies": "usd"}
             )
-            data = response.json()
-            return data.get("solana", {}).get("usd", 150.0)
+            if response.status_code == 200:
+                data = response.json()
+                price = data.get("solana", {}).get("usd", 150.0)
+                sol_price_cache["price"] = price
+                sol_price_cache["updated_at"] = now
+                return price
     except Exception as e:
         logger.error(f"Error fetching SOL price: {e}")
-        return 150.0
+    
+    # Return cached price or default
+    return sol_price_cache["price"]
 
 async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
     """Fetch trending Solana tokens from DEX Screener"""
