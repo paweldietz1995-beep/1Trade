@@ -1,0 +1,180 @@
+{
+  "identity": {
+    "name": "E1",
+    "mission": "Create a specialized, high-performance trading terminal for Pump.fun tokens on Solana that merges professional financial data tools with a futuristic, cyberpunk aesthetic.",
+    "principles": [
+      "Fusion over Imitation: Mix financial precision with gaming/terminal aesthetics.",
+      "Emotion First: The UI should feel 'fast', 'dangerous', and 'precise'.",
+      "Content is King: Data is the hero. Legibility of numbers and charts is paramount.",
+      "Negative Space: Use dense grids but keep internal cell spacing breathing.",
+      "Contrast: High contrast for data legibility in dark mode."
+    ]
+  },
+  "typography": {
+    "fonts": {
+      "headings": {
+        "family": "Rajdhani, sans-serif",
+        "weights": ["500", "600", "700"],
+        "usage": "Page titles, widget headers, massive numbers, marketing copy."
+      },
+      "body": {
+        "family": "Manrope, sans-serif",
+        "weights": ["400", "500", "600"],
+        "usage": "General text, labels, descriptions, tooltips."
+      },
+      "mono": {
+        "family": "JetBrains Mono, monospace",
+        "weights": ["400", "500"],
+        "usage": "Prices, addresses, code snippets, tabular data, bonding curve metrics."
+      }
+    },
+    "installation_command": "npm install @fontsource/rajdhani @fontsource/manrope @fontsource/jetbrains-mono",
+    "tailwind_config_additions": {
+      "fontFamily": {
+        "heading": ["Rajdhani", "sans-serif"],
+        "body": ["Manrope", "sans-serif"],
+        "mono": ["JetBrains Mono", "monospace"]
+      }
+    },
+    "rules": [
+      "Headings (Size > 32px) MUST use 'tracking-tight'.",
+      "Overlines/Labels MUST be Uppercase + Tiny (text-xs) + Wide Spacing (tracking-widest).",
+      "Numbers in dashboards MUST use the 'mono' font family for alignment."
+    ]
+  },
+  "colors": {
+    "theme": "dark",
+    "palette": {
+      "background": {
+        "default": "#050505",
+        "card": "#0A0A0A",
+        "overlay": "rgba(5, 5, 5, 0.8)"
+      },
+      "foreground": {
+        "default": "#E2E8F0",
+        "muted": "#94A3B8",
+        "dark": "#020617"
+      },
+      "primary": {
+        "default": "#7C3AED",
+        "hover": "#6D28D9",
+        "foreground": "#FFFFFF"
+      },
+      "secondary": {
+        "default": "#1E293B",
+        "foreground": "#E2E8F0"
+      },
+      "accents": {
+        "neon_green": "#00FF94",
+        "cyan": "#00F0FF",
+        "violet": "#8B5CF6",
+        "neon_red": "#FF2A6D"
+      },
+      "status": {
+        "success": "#00FF94",
+        "warning": "#F59E0B",
+        "error": "#FF2A6D",
+        "info": "#00F0FF"
+      },
+      "border": {
+        "default": "#1E293B",
+        "active": "#334155"
+      }
+    },
+    "contrast_rules": [
+      "Ensure text meets APCA standards against backgrounds.",
+      "Do NOT use pure #000000. The background is #050505.",
+      "Use neon accents sparingly for key data points (Profit, Buy Button) to avoid visual fatigue."
+    ]
+  },
+  "layout": {
+    "grid_system": {
+      "mode": "Bento Grid Mode B (High Density)",
+      "base": "grid-cols-1 md:grid-cols-12",
+      "gap": "gap-4"
+    },
+    "spacing": {
+      "scale": ["p-1", "p-2", "p-4", "p-6", "p-8", "p-12"],
+      "philosophy": "Compact but breathable. Dashboard widgets need internal padding (p-4 or p-6) but tight gaps between them (gap-4)."
+    },
+    "container_rules": [
+      "Containers with borders must have internal padding.",
+      "Dashboard widgets should use h-full to stretch and fill the grid cell."
+    ]
+  },
+  "components": {
+    "buttons": {
+      "styles": [
+        "Primary: Solid Violet bg, sharp corners or slight radius (rounded-sm), hover glow effect.",
+        "Secondary: Border only (border-white/20), transparent bg, hover:border-white/40.",
+        "Ghost: Text only, hover:text-accent."
+      ],
+      "interaction": "Active state: scale-95. Focus: ring-2 ring-cyan-500 ring-offset-2 ring-offset-black."
+    },
+    "cards": {
+      "style": "Flat #0A0A0A background, 1px border #1E293B. No drop-shadow by default. Hover: border-violet-500/50 transition-colors duration-300.",
+      "glass": "For floating elements: bg-black/70 backdrop-blur-xl border border-white/10."
+    },
+    "inputs": {
+      "style": "bg-[#0F172A] border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-sm."
+    },
+    "data_display": {
+      "tables": "Compact density. Header text: xs, uppercase, text-muted-foreground. Row hover: bg-white/5.",
+      "charts": "Use Recharts with custom tooltips (dark bg, neon borders). Axis lines: stroke-white/10."
+    }
+  },
+  "visual_enhancers": {
+    "tracing_beam": {
+      "description": "A glowing gradient line that travels around the container edge for active cards.",
+      "css_class": "relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-cyan-500/20 before:to-transparent before:animate-shimmer"
+    },
+    "grid_lines": {
+      "description": "Background subtle grid pattern to enhance the 'terminal' feel.",
+      "implementation": "bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"
+    },
+    "scanlines": {
+      "description": "Retro CRT effect overlay (opacity 0.02) for texture.",
+      "css_class": "pointer-events-none fixed inset-0 z-50 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03]"
+    }
+  },
+  "icons": {
+    "library": "Lucide React",
+    "style": "Stroke width 1.5px (thin/technical).",
+    "usage": "Use icons for navigation, status indicators, and actions. Animate on hover (e.g., arrow moves right)."
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-out",
+    "micro_interactions": {
+      "hover": "translate-y-[-2px] or border color change.",
+      "click": "scale-[0.98]",
+      "loading": "Pulse or spin for data fetching."
+    },
+    "page_load": "Staggered fade-in for dashboard widgets."
+  },
+  "accessibility": {
+    "rules": [
+      "Interactive elements must have aria-labels.",
+      "Colors must pass APCA contrast checks.",
+      "Focus states must be highly visible (Cyan ring).",
+      "Respect prefers-reduced-motion."
+    ]
+  },
+  "instructions_to_main_agent": {
+    "file_type_rule": "You are working with a React project using .js/.jsx extensions (NOT .ts/.tsx). Ensure all code is valid JavaScript.",
+    "step_by_step": [
+      "1. Install dependencies: `npm install @fontsource/rajdhani @fontsource/manrope @fontsource/jetbrains-mono lucide-react recharts clsx tailwind-merge framer-motion` (or yarn add).",
+      "2. Update `tailwind.config.js` with the new colors, fonts, and animation keyframes defined in this file.",
+      "3. Create a `layout.js` or global wrapper that applies the dark theme class and the background grid texture.",
+      "4. Build the core components (Button, Card, Input) in `src/components/ui/` adapting Shadcn patterns to the 'Electric & Neon' style.",
+      "5. Implement the Dashboard Grid (Bento Mode B) for the main view.",
+      "6. Build the Token Scanner and Trading Engine interfaces using the defined specialized components."
+    ]
+  },
+  "universal_guidelines": [
+    "Do NOT use gradients for main backgrounds; use them for borders or text accents only.",
+    "Do NOT center align the app container. Use full width.",
+    "Use 'sonner' for toast notifications.",
+    "Every interactive element MUST have a `data-testid` attribute.",
+    "Avoid 'AI slop' design—make it look like a pro tool, not a generic template."
+  ]
+}
