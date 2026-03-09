@@ -72,13 +72,13 @@ class AuthResponse(BaseModel):
 class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    # MICRO-TRADE CAPITAL MANAGEMENT (100+ trades)
+    # AGGRESSIVE MICRO-TRADE CAPITAL MANAGEMENT (100+ trades)
     total_budget_sol: float = 3.0
     max_trade_percent: float = 0.5      # Max 0.5% of budget per trade (micro)
-    min_trade_sol: float = 0.003        # Min 0.003 SOL per trade
+    min_trade_sol: float = 0.002        # Min 0.002 SOL per trade (lowered)
     max_parallel_trades: int = 120      # 100-150 simultaneous trades
     max_trade_amount_sol: float = 0.015 # Max 0.015 SOL per trade
-    max_capital_in_trades_percent: float = 60.0  # Max 60% of wallet in trades
+    max_capital_in_trades_percent: float = 70.0  # Max 70% of wallet (increased)
     # QUICK EXIT RISK MANAGEMENT
     take_profit_percent: float = 8.0    # 6-10% take profit (faster exits)
     stop_loss_percent: float = 6.0      # 5-7% stop loss (tighter)
@@ -91,18 +91,18 @@ class BotSettings(BaseModel):
     require_confirmation: bool = True
     first_live_trade_done: bool = False
     slippage_bps: int = 150             # 1.5% slippage for speed
-    # MOMENTUM TOKEN FILTERS
-    min_liquidity_usd: float = 500.0    # $500 minimum
-    min_volume_usd: float = 500.0       # $500 minimum
-    max_dev_wallet_percent: float = 25.0
-    max_top10_wallet_percent: float = 70.0
-    min_token_age_seconds: int = 30     # Min 30 seconds old
-    max_token_age_hours: int = 4        # Max 4 hours old
-    min_buy_sell_ratio: float = 1.05    # Buy pressure required
-    # MOMENTUM THRESHOLDS
-    min_momentum_score: int = 25        # Score threshold
-    min_volume_surge_percent: float = 5.0
-    min_buyers_1m: int = 3              # 3 buyers in 1 minute
+    # AGGRESSIVE MOMENTUM TOKEN FILTERS (lowered thresholds)
+    min_liquidity_usd: float = 300.0    # $300 minimum (lowered)
+    min_volume_usd: float = 300.0       # $300 minimum (lowered)
+    max_dev_wallet_percent: float = 30.0 # 30% (increased)
+    max_top10_wallet_percent: float = 80.0 # 80% (increased)
+    min_token_age_seconds: int = 15     # Min 15 seconds old (lowered)
+    max_token_age_hours: int = 6        # Max 6 hours old (increased)
+    min_buy_sell_ratio: float = 1.0     # Any buy pressure (lowered)
+    # AGGRESSIVE MOMENTUM THRESHOLDS
+    min_momentum_score: int = 20        # Score threshold (lowered)
+    min_volume_surge_percent: float = 3.0 # 3% (lowered)
+    min_buyers_1m: int = 2              # 2 buyers in 1 minute (lowered)
     # Automation
     auto_trade_enabled: bool = False
     paper_mode: bool = True
@@ -282,16 +282,16 @@ auto_trading_state = {
 }
 
 # Engine Configuration - High Capacity
-# ============== HIGH-FREQUENCY MOMENTUM SCALPING CONFIGURATION ==============
+# ============== AGGRESSIVE HIGH-FREQUENCY TRADING CONFIGURATION ==============
 ENGINE_CONFIG = {
     # ULTRA-HIGH-FREQUENCY SCANNING (0.5-1.0s interval)
     "scan_interval_seconds": 0.8,       # 0.8 second scans for speed
     "max_tokens_per_scan": 3000,        # Process up to 3000 tokens
     "max_signals_per_scan": 1000,       # Analyze top 1000 signals
     "max_open_trades": 120,             # 100-150 simultaneous micro-trades
-    "max_trades_per_token": 1,          # Only 1 trade per token
-    "signal_cooldown_seconds": 45,      # 45 second cooldown per token (faster re-entry)
-    "min_signal_score": 25,             # Minimum score for opportunities
+    "max_trades_per_token": 2,          # Allow 2 trades per token (increased from 1)
+    "signal_cooldown_seconds": 20,      # 20 second cooldown (reduced from 45)
+    "min_signal_score": 20,             # Lowered from 25 for more opportunities
     
     # QUICK EXIT PROFIT TARGETS (fast momentum captures)
     "take_profit_percent": 8,           # 6-10% take profit (faster exits)
@@ -302,42 +302,42 @@ ENGINE_CONFIG = {
     "daily_loss_limit_percent": 25,     # 25% max daily loss (more room for micro-trades)
     "loss_streak_limit": 15,            # 15 consecutive losses max
     
-    # MOMENTUM FILTERS (aggressive but safe)
-    "min_liquidity_usd": 500,           # $500 minimum liquidity
-    "min_volume_usd": 500,              # $500 minimum volume
-    "min_volume_5m": 500,               # $500 5-minute volume
-    "min_volume_surge_percent": 5,      # 5% volume surge
-    "min_buy_sell_ratio": 1.05,         # Buy pressure required
-    "min_buyers_1m": 3,                 # 3 buyers in 1 minute
-    "min_momentum_score": 25,           # Momentum threshold
-    "min_price_change_1m": 2,           # 2% price change in 1m (momentum signal)
-    "max_token_age_hours": 4,           # Tokens < 4 hours old
-    "min_token_age_seconds": 30,        # At least 30 seconds old
+    # AGGRESSIVE MOMENTUM FILTERS (lowered thresholds)
+    "min_liquidity_usd": 300,           # $300 minimum liquidity (lowered from 500)
+    "min_volume_usd": 300,              # $300 minimum volume (lowered from 500)
+    "min_volume_5m": 200,               # $200 5-minute volume (lowered from 500)
+    "min_volume_surge_percent": 3,      # 3% volume surge (lowered from 5)
+    "min_buy_sell_ratio": 1.0,          # Any buy pressure (lowered from 1.05)
+    "min_buyers_1m": 2,                 # 2 buyers in 1 minute (lowered from 3)
+    "min_momentum_score": 20,           # Lowered from 25
+    "min_price_change_1m": 1.2,         # 1.2% price change (lowered from 2%)
+    "max_token_age_hours": 6,           # Tokens < 6 hours old (expanded from 4)
+    "min_token_age_seconds": 15,        # At least 15 seconds old (lowered from 30)
     "price_update_interval": 1,         # Update prices every 1 second
     
-    # MOMENTUM ENTRY SIGNAL (1-minute based)
-    "momentum_volume_multiplier": 1.4,  # 1.4x baseline volume required (was 1.5x)
-    "momentum_price_change_min": 2,     # 2% price change for momentum
+    # AGGRESSIVE MOMENTUM ENTRY SIGNAL
+    "momentum_volume_multiplier": 1.2,  # 1.2x baseline volume (lowered from 1.4)
+    "momentum_price_change_min": 1.2,   # 1.2% price change (lowered from 2%)
     
     # NEW TOKEN PRIORITY BONUS
-    "new_token_age_seconds": 120,       # Tokens < 2 minutes old get bonus
+    "new_token_age_seconds": 180,       # Tokens < 3 minutes old get bonus (expanded)
     "new_token_priority_bonus": 30,     # +30 priority score for new tokens
-    "ultra_new_token_seconds": 60,      # Tokens < 1 minute old
+    "ultra_new_token_seconds": 90,      # Tokens < 1.5 minutes old (expanded)
     "ultra_new_token_bonus": 50,        # +50 priority for ultra-new
     
     # EARLY PUMP DETECTION
-    "early_pump_volume_surge": 100,     # 100% volume surge for early pump
-    "early_pump_price_change_1m": 2,    # 2% price change in 1 minute
-    "early_pump_min_liquidity": 1000,   # $1k min liquidity for early pumps
+    "early_pump_volume_surge": 80,      # 80% volume surge (lowered from 100)
+    "early_pump_price_change_1m": 1.5,  # 1.5% price change (lowered from 2)
+    "early_pump_min_liquidity": 500,    # $500 min liquidity (lowered from 1000)
     
     # MICRO-TRADE POSITION SIZING (0.2-0.5% of wallet)
     "micro_trade_percent": 0.35,        # 0.35% of wallet per trade (very small)
     "max_micro_trade_sol": 0.015,       # Max 0.015 SOL per micro-trade
     "min_micro_trade_sol": 0.003,       # Min 0.003 SOL per micro-trade
     
-    # CAPITAL CONTROL (max 60% of wallet in active trades)
-    "max_capital_in_trades_percent": 60, # Max 60% of wallet in trades
-    "capital_reserve_percent": 40,       # Keep 40% as reserve
+    # CAPITAL CONTROL (max 70% of wallet in active trades - increased)
+    "max_capital_in_trades_percent": 70, # Max 70% of wallet in trades (increased from 60)
+    "capital_reserve_percent": 30,       # Keep 30% as reserve
     
     # Smart Wallet Tracking
     "smart_wallet_min_profit": 25,      # 25% min profit to track wallet
@@ -2165,50 +2165,57 @@ async def auto_trading_loop():
             if snipes_executed > 0:
                 logger.info(f"🎯 SNIPES EXECUTED: {snipes_executed}")
             
-            # ===== PHASE 2: EXECUTE NORMAL OPPORTUNITIES =====
+            # ===== PHASE 2: AGGRESSIVE SLOT FILLING =====
+            # Track token trade counts for multi-trade support
+            token_trade_counts = {}
+            for addr in active_trade_tokens:
+                token_trade_counts[addr] = token_trade_counts.get(addr, 0) + 1
+            
+            # Calculate remaining slots after snipes
+            remaining_slots = available_slots - trades_executed_this_cycle
+            skipped_cooldown = 0
+            skipped_max_trades = 0
+            skipped_low_amount = 0
+            
+            logger.info("=" * 60)
+            logger.info("🚀 AGGRESSIVE SLOT FILLING")
+            logger.info(f"   opportunities: {len(opportunities)}")
+            logger.info(f"   remaining_slots: {remaining_slots}")
+            logger.info(f"   max_trades_per_token: {max_trades_per_token}")
+            logger.info("=" * 60)
+            
             for opp in opportunities:
                 # Check if we've filled all available slots
                 if trades_executed_this_cycle >= available_slots:
-                    logger.info(f"🛑 Max trades reached for this cycle ({trades_executed_this_cycle}/{available_slots})")
+                    logger.info(f"✅ All slots filled ({trades_executed_this_cycle}/{available_slots})")
                     break
                 
                 try:
                     token_address = opp["address"]
                     
-                    # DUPLICATE PROTECTION: Skip if we already have a trade for this token
-                    if token_address in active_trade_tokens:
-                        logger.debug(f"⏭️ Skipping {opp['symbol']}: already trading this token")
+                    # MULTI-TRADE SUPPORT: Allow up to max_trades_per_token trades per token
+                    current_token_trades = token_trade_counts.get(token_address, 0)
+                    if current_token_trades >= max_trades_per_token:
+                        skipped_max_trades += 1
                         continue
                     
-                    # Double-check database for existing trades (safety check)
-                    existing_count = await db.trades.count_documents({
-                        "token_address": token_address,
-                        "status": "OPEN"
-                    })
-                    if existing_count >= max_trades_per_token:
-                        logger.debug(f"⏭️ Skipping {opp['symbol']}: max trades per token reached")
-                        continue
-                    
-                    # COOLDOWN CHECK: Skip if token is in cooldown
+                    # REDUCED COOLDOWN CHECK (20 seconds)
                     if check_signal_cooldown(token_address):
-                        logger.debug(f"⏭️ Skipping {opp['symbol']}: in cooldown")
+                        skipped_cooldown += 1
                         continue
                     
                     # Calculate trade size dynamically
                     trade_amount = calculate_dynamic_trade_size(portfolio, settings)
                     
-                    # Debug: Log the calculated trade amount
+                    # Ensure trade_amount doesn't exceed max
                     max_trade_limit = min(
                         settings.total_budget_sol * (settings.max_trade_percent / 100),
                         settings.max_trade_amount_sol
                     )
-                    logger.debug(f"📊 Trade sizing: calculated={trade_amount:.4f}, max_allowed={max_trade_limit:.4f}, available={portfolio.available_sol:.4f}")
-                    
-                    # Ensure trade_amount doesn't exceed max
                     trade_amount = min(trade_amount, max_trade_limit)
                     
                     if trade_amount < settings.min_trade_sol:
-                        logger.debug(f"⏭️ Skipping {opp['symbol']}: trade amount {trade_amount} < min {settings.min_trade_sol}")
+                        skipped_low_amount += 1
                         continue
                     
                     # Execute trade
@@ -2232,13 +2239,11 @@ async def auto_trading_loop():
                     auto_trading_state["trades_executed"] += 1
                     auto_trading_state["trades_today"] += 1
                     
-                    # Add to active tokens to prevent duplicates in this cycle
+                    # Update token trade count
+                    token_trade_counts[token_address] = current_token_trades + 1
                     active_trade_tokens.add(token_address)
                     
-                    # Decrement available slots
-                    available_slots -= 1
-                    
-                    # Set cooldown for this token
+                    # Set cooldown for this token (20 seconds)
                     set_signal_cooldown(token_address)
                     
                     # Log to enhanced activity feed
@@ -2251,14 +2256,27 @@ async def auto_trading_loop():
                     )
                     
                     # TRADE EXECUTED LOG
-                    current_open = open_trades + trades_executed_this_cycle
-                    logger.info(f"✅ TRADE EXECUTED | token: {opp['symbol']} | size: {trade_amount:.4f} SOL | score={opp['signal_score']:.0f} | target_profit: {ENGINE_CONFIG['take_profit_percent']}%")
+                    logger.info(f"✅ TRADE #{trades_executed_this_cycle} | {opp['symbol']} | {trade_amount:.4f} SOL | score={opp['signal_score']:.0f}")
                     
                 except Exception as e:
                     logger.error(f"Trade execution error for {opp.get('symbol', '???')}: {e}")
             
-            # Queue remaining opportunities
-            remaining_opps = opportunities[available_slots:available_slots + 20]  # Queue up to 20
+            # ===== TRADE ENGINE DEBUG SUMMARY =====
+            final_open_trades = open_trades + trades_executed_this_cycle
+            logger.info("=" * 60)
+            logger.info("📊 TRADE ENGINE DEBUG")
+            logger.info(f"   opportunities: {len(opportunities)}")
+            logger.info(f"   open_trades: {final_open_trades}")
+            logger.info(f"   executed_this_cycle: {trades_executed_this_cycle}")
+            logger.info(f"   snipes_executed: {snipes_executed}")
+            logger.info(f"   skipped_cooldown: {skipped_cooldown}")
+            logger.info(f"   skipped_max_trades: {skipped_max_trades}")
+            logger.info(f"   skipped_low_amount: {skipped_low_amount}")
+            logger.info(f"   available_slots_remaining: {available_slots - trades_executed_this_cycle}")
+            logger.info("=" * 60)
+            
+            # Queue remaining opportunities (for next cycle)
+            remaining_opps = opportunities[trades_executed_this_cycle:trades_executed_this_cycle + 50]  # Queue up to 50
             for opp in remaining_opps:
                 if len(auto_trading_state["signal_queue"]) < ENGINE_CONFIG.get("queue_max_size", 100):
                     # Don't queue duplicates or tokens in cooldown
@@ -2268,7 +2286,7 @@ async def auto_trading_loop():
             
             # Log cycle summary
             cycle_time = (datetime.now(timezone.utc) - cycle_start).total_seconds()
-            logger.info(f"⏱️ Cycle complete: {trades_executed_this_cycle} trades, {cycle_time:.2f}s")
+            logger.info(f"⏱️ Cycle #{auto_trading_state['scan_count']} complete: {trades_executed_this_cycle} trades in {cycle_time:.2f}s | Total open: {final_open_trades}")
             
         except Exception as e:
             logger.error(f"Trading loop error: {e}")
