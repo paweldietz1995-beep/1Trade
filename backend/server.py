@@ -98,7 +98,7 @@ class BotSettings(BaseModel):
     
     # ===== DYNAMIC POSITION SIZING =====
     dynamic_sizing_enabled: bool = True
-    min_trade_sol: float = 0.02
+    min_trade_sol: float = 0.005            # REDUZIERT für Mikro-Trades
     max_trade_amount_sol: float = 0.06
     target_trade_sol: float = 0.035
     max_trade_percent: float = 1.25
@@ -419,7 +419,7 @@ ENGINE_CONFIG = {
     
     # ===== DYNAMIC POSITION SIZING =====
     "dynamic_sizing_enabled": True,
-    "min_trade_sol": 0.02,
+    "min_trade_sol": 0.005,  # REDUZIERT für Mikro-Trades
     "max_trade_sol": 0.06,
     "target_trade_sol": 0.035,
     "trade_percent": 1.25,
@@ -1564,8 +1564,8 @@ async def execute_auto_trade_cycle():
         if portfolio.is_paused:
             return {"executed": False, "reason": portfolio.pause_reason, "risk_blocked": True}
         
-        # Check max parallel trades (configurable, up to 10)
-        max_trades = min(settings.max_parallel_trades, 10)
+        # Check max parallel trades - FIXED: Don't limit to 10, use ENGINE_CONFIG
+        max_trades = ENGINE_CONFIG.get("max_open_trades", settings.max_parallel_trades)
         if portfolio.open_trades >= max_trades:
             return {"executed": False, "reason": f"Max parallel trades reached ({max_trades})"}
         
@@ -1711,6 +1711,10 @@ async def execute_auto_trade_cycle():
         
         # Execute multiple trades
         trades_executed = []
+        skip_reasons = {"already_trading": 0, "low_momentum": 0, "low_amount": 0, "errors": 0}
+        min_momentum = ENGINE_CONFIG.get("min_momentum_score", 35)
+        
+        logger.info(f"🔍 Processing {len(opportunities)} opportunities (min_momentum: {min_momentum})")
         
         for opp in opportunities:
             # Check if we've filled all available slots
@@ -1720,10 +1724,12 @@ async def execute_auto_trade_cycle():
             
             # Skip if already trading this token
             if opp["address"] in active_trade_tokens:
+                skip_reasons["already_trading"] += 1
                 continue
             
-            # Check minimum confidence
-            if opp["momentum_score"] < 70:
+            # Check minimum confidence - Use config value instead of hardcoded 70
+            if opp["momentum_score"] < min_momentum:
+                skip_reasons["low_momentum"] += 1
                 continue
             
             # Calculate trade amount
@@ -1733,7 +1739,8 @@ async def execute_auto_trade_cycle():
                 portfolio.available_sol / max(1, available_slots - len(trades_executed))  # Divide remaining budget
             )
             
-            if trade_amount < settings.min_trade_sol:
+            if trade_amount < ENGINE_CONFIG.get("min_micro_trade_sol", 0.002):
+                skip_reasons["low_amount"] += 1
                 continue
             
             # Execute trade
@@ -1771,7 +1778,11 @@ async def execute_auto_trade_cycle():
                 logger.info(f"✅ AUTO TRADE EXECUTED | token: {opp['symbol']} | {trade_amount:.4f} SOL | active_trades: {current_open}/{max_trades}")
                 
             except Exception as e:
+                skip_reasons["errors"] += 1
                 logger.error(f"Trade execution error for {opp['symbol']}: {e}")
+        
+        # Log skip reasons for debugging
+        logger.info(f"📊 Trade filter summary: already_trading={skip_reasons['already_trading']}, low_momentum={skip_reasons['low_momentum']}, low_amount={skip_reasons['low_amount']}, errors={skip_reasons['errors']}")
         
         if not trades_executed:
             return {"executed": False, "reason": "No trades executed (all filtered)", "scan_count": auto_trading_state["scan_count"]}
@@ -1835,7 +1846,7 @@ async def process_signal_queue():
             # Calculate dynamic trade size
             trade_amount = calculate_trade_size_for_portfolio(portfolio, settings)
             
-            if trade_amount < settings.min_trade_sol:
+            if trade_amount < ENGINE_CONFIG.get("min_micro_trade_sol", 0.002):
                 continue
             
             # Execute trade
@@ -2324,8 +2335,8 @@ async def auto_trading_loop():
                 logger.info(f"🔥 TOP MOMENTUM | " + " | ".join(top_5_list))
             
             # Execute trades for available slots
-            # Use user's max_parallel_trades setting (respecting system max)
-            max_parallel = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
+            # FIXED: Use ENGINE_CONFIG directly instead of min() with settings
+            max_parallel = ENGINE_CONFIG["max_open_trades"]
             available_slots = max_parallel - open_trades
             
             # Also check capital availability
@@ -2520,7 +2531,9 @@ async def auto_trading_loop():
                     )
                     trade_amount = min(trade_amount, max_trade_limit)
                     
-                    if trade_amount < settings.min_trade_sol:
+                    # Use ENGINE_CONFIG min instead of settings
+                    min_trade_amount = ENGINE_CONFIG.get("min_micro_trade_sol", 0.002)
+                    if trade_amount < min_trade_amount:
                         skipped_low_amount += 1
                         continue
                     
@@ -4423,10 +4436,11 @@ async def create_trade(trade_data: TradeCreate, wallet_id: int = None):
                 detail=f"Token {trade_data.token_symbol} wird bereits von einem Wallet gehandelt"
             )
     
-    # Check trade limits
+    # Check trade limits - FIXED: Use ENGINE_CONFIG for max trades
     open_trades = await db.trades.count_documents({"status": "OPEN"})
-    if open_trades >= settings.max_parallel_trades:
-        raise HTTPException(status_code=400, detail="Maximum parallel trades reached")
+    max_parallel = ENGINE_CONFIG.get("max_open_trades", 120)
+    if open_trades >= max_parallel:
+        raise HTTPException(status_code=400, detail=f"Maximum parallel trades reached ({open_trades}/{max_parallel})")
     
     # Check budget
     portfolio = await get_portfolio_summary()

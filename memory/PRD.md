@@ -1,16 +1,44 @@
-# Pump.fun Trading Bot - PRD v37
+# Pump.fun Trading Bot - PRD v38
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **MULTI-WALLET HIGH-CAPACITY ENGINE: Bis zu 1200 parallele Trades (10 Wallets x 120 Trades)**
 
-## System Status: MULTI-WALLET ENGINE V1.2 - TAKE ALL PROFIT ✅
+## System Status: BOT AKTIVIERT & HANDELT! ✅
 
-Letztes Update: 2026-03-09 20:55
+Letztes Update: 2026-03-09 21:10
 
 ---
 
-## NEU: Take All Profit Button (v1.2)
+## KRITISCHE FIXES (v1.3) - Bot handelt wieder!
+
+### Probleme gelöst:
+1. **"Maximum parallel trades reached" Fehler** - `create_trade` Funktion hatte `settings.max_parallel_trades` (aus DB) statt `ENGINE_CONFIG["max_open_trades"]`
+2. **Trade-Größe zu klein** - `min_trade_sol: 0.02` blockierte Trades mit 0.008 SOL
+3. **Hardcodierte Werte** - Momentum-Score Filter war auf 70 statt Config-Wert
+
+### Code-Änderungen:
+```python
+# FIX 1: create_trade Limit-Prüfung
+max_parallel = ENGINE_CONFIG.get("max_open_trades", 120)
+if open_trades >= max_parallel:
+    raise HTTPException(...)
+
+# FIX 2: Min-Trade auf Mikro-Level
+"min_micro_trade_sol": 0.002  # Statt 0.02
+
+# FIX 3: available_slots Berechnung
+max_parallel = ENGINE_CONFIG["max_open_trades"]  # Statt min(settings, ENGINE_CONFIG)
+```
+
+### Ergebnis:
+- **59 neue Trades in wenigen Minuten!**
+- `open_trades: 75` (von vorher 23)
+- Bot läuft stabil und scannt kontinuierlich
+
+---
+
+## Take All Profit Button (v1.2)
 
 ### Features
 - **Take All Profit**: Schließt alle Trades mit Gewinn auf Knopfdruck
