@@ -112,45 +112,72 @@ const Dashboard = () => {
     });
   }, []);
 
-  // Fetch wallet balance with failover
+  // Fetch wallet balance from backend status endpoint
   const fetchWalletBalance = useCallback(async () => {
     if (!connected || !publicKey) {
       setWalletBalance(0);
       return;
     }
     
-    // Try each endpoint
-    for (let i = 0; i < RPC_ENDPOINTS.length; i++) {
-      const endpointIndex = (currentRpcIndexRef.current + i) % RPC_ENDPOINTS.length;
+    try {
+      // Use backend wallet status endpoint
+      const response = await axios.get(`${API_URL}/wallet/status`, { timeout: 5000 });
+      const data = response.data;
       
-      try {
-        console.log(`💰 Fetching wallet balance from endpoint ${endpointIndex + 1}...`);
-        const conn = createConnection(endpointIndex);
+      if (data.wallet_synced && data.balance_sol !== undefined) {
+        console.log(`✅ Wallet Balance from backend: ${data.balance_sol} SOL`);
+        setWalletBalance(data.balance_sol);
+        setRpcStatus({ healthy: true, endpoint: 'Backend' });
+      } else {
+        // Wallet not yet synced with backend, try to sync
+        console.log('⚠️ Wallet not synced with backend, triggering sync...');
+        const syncResponse = await axios.post(`${API_URL}/wallet/sync`, null, {
+          params: { address: publicKey.toBase58() },
+          timeout: 15000
+        });
         
-        const balancePromise = conn.getBalance(publicKey);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout')), 10000)
-        );
+        if (syncResponse.data.success) {
+          setWalletBalance(syncResponse.data.balance || 0);
+          setRpcStatus({ healthy: true, endpoint: 'Backend' });
+          console.log(`✅ Wallet synced: ${syncResponse.data.balance} SOL`);
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not fetch wallet balance from backend:', error.message);
+      
+      // Fallback to direct RPC only if backend fails
+      for (let i = 0; i < RPC_ENDPOINTS.length; i++) {
+        const endpointIndex = (currentRpcIndexRef.current + i) % RPC_ENDPOINTS.length;
         
-        const balance = await Promise.race([balancePromise, timeoutPromise]);
-        const solBalance = balance / LAMPORTS_PER_SOL;
-        
-        console.log(`✅ Wallet Balance: ${solBalance} SOL`);
-        setWalletBalance(solBalance);
-        setRpcStatus({ healthy: true, endpoint: RPC_ENDPOINTS[endpointIndex] });
-        currentRpcIndexRef.current = endpointIndex;
-        return;
-        
-      } catch (error) {
-        console.warn(`❌ RPC ${endpointIndex + 1} failed:`, error.message);
-        
-        if (i === RPC_ENDPOINTS.length - 1) {
-          console.error('❌ All RPC endpoints failed for balance fetch');
-          setRpcStatus({ healthy: false, endpoint: null });
+        try {
+          console.log(`💰 Fallback: Fetching from RPC ${endpointIndex + 1}...`);
+          const conn = createConnection(endpointIndex);
+          
+          const balancePromise = conn.getBalance(publicKey);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 10000)
+          );
+          
+          const balance = await Promise.race([balancePromise, timeoutPromise]);
+          const solBalance = balance / LAMPORTS_PER_SOL;
+          
+          console.log(`✅ Wallet Balance (fallback): ${solBalance} SOL`);
+          setWalletBalance(solBalance);
+          setRpcStatus({ healthy: true, endpoint: RPC_ENDPOINTS[endpointIndex] });
+          currentRpcIndexRef.current = endpointIndex;
+          return;
+          
+        } catch (rpcError) {
+          console.warn(`❌ RPC ${endpointIndex + 1} failed:`, rpcError.message);
+          
+          if (i === RPC_ENDPOINTS.length - 1) {
+            console.error('❌ All RPC endpoints failed');
+            setRpcStatus({ healthy: false, endpoint: null });
+          }
         }
       }
     }
-  }, [connected, publicKey, createConnection]);
+  }, [connected, publicKey, API_URL, createConnection]);
 
   // Fetch portfolio and settings
   const fetchData = useCallback(async () => {

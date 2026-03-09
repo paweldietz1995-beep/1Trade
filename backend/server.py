@@ -5257,6 +5257,27 @@ async def check_can_start_trading():
     }
 
 
+@api_router.get("/wallet/status")
+async def get_wallet_status():
+    """
+    Simple wallet status endpoint for frontend polling.
+    Returns the current wallet sync state in a simple format.
+    
+    This is the primary endpoint for frontend to check wallet connection status.
+    """
+    is_synced = wallet_state.get("sync_status") == "synced"
+    
+    return {
+        "wallet_synced": is_synced,
+        "wallet_address": wallet_state.get("address"),
+        "balance_sol": wallet_state.get("balance_sol", 0.0) if is_synced else 0.0,
+        "sync_status": wallet_state.get("sync_status", "disconnected"),
+        "last_update": wallet_state.get("last_update"),
+        "trading_engine_ready": wallet_sync_manager.trading_engine_ready,
+        "can_trade": is_synced and wallet_sync_manager.trading_engine_ready
+    }
+
+
 # ============== NATIVE SOLANA CLIENT ENDPOINTS ==============
 
 @api_router.post("/solana/init")

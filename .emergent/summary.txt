@@ -12,46 +12,38 @@ The user, a Senior Blockchain Architect, requires a complete, production-ready, 
 **User's preferred language**: German. The next agent **MUST** respond in German.
 
 **what currently exists?**
-A full-stack application with a React frontend and a monolithic but highly capable FastAPI backend.
-*   **Frontend:** A complete, dark-themed trading dashboard fully localized in German using . It features panels for Wallet Status, Portfolio Statistics (live and historical), a Token Scanner, a Live P&L monitor for Active Trades, a detailed Closed Trades history, and a new Bot Activity feed.
-*   **Backend:** A sophisticated FastAPI server () running multiple asynchronous loops for scanning, signal analysis, and trade management. It incorporates crucial stability features:
-    *   **Advanced Trading Logic:** Implemented modules for Early Pump Detection and Smart Wallet tracking.
-    *   **Stability & Recovery:** Includes API rate-limiting, caching, a basic API failover concept, and a crash recovery system that saves/loads the bot's state to .
-    *   **Bug Fixes:** All major previously reported bugs have been resolved, including the Auto trading already running error (fixed with a force-restart mechanism), the inability to close trades, and the lack of real-time price updates for test trades.
+A full-stack application with a React frontend and a monolithic FastAPI backend ().
+- **Frontend:** A complete, dark-themed trading dashboard fully localized in German (). It displays wallet status, portfolio stats, a token scanner, live P&L, active/closed trades, and a bot activity feed.
+- **Backend:** The backend now uses the native  library for all Solana-related interactions. A robust  class has been implemented and integrated, which runs automatically on server startup. This manager ensures a stable RPC connection through a failover system, validates the server wallet, fetches the balance correctly, and prevents the trading engine from starting until the wallet is fully synchronized. All previously reported wallet-sync and network availability errors have been resolved.
 
 **Last working item**:
--   **Last item agent was working:** Implementing a comprehensive set of advanced backend modules as per the user's final, detailed prompt. This included adding logic for **Early Pump Detection**, **Smart Wallet Tracking**, **API Failover**, and a **Crash Recovery** mechanism (saving state to a file). The agent also enhanced the Bot Activity feed to log more detailed events from these new modules.
--   **Status:** IN PROGRESS
--   **Agent Testing Done:** N (Only a simple manual test of the activity feed was done after implementation).
--   **Which testing method agent to use?** both. The backend needs verification to ensure the new modules (Early Pump, Smart Wallet) are correctly identifying signals and triggering trades. This can be checked via logs and new API endpoints. The frontend needs to be monitored to see if these new trade types and activity logs appear correctly in the UI.
--   **User Testing Done:** N
+-   **Last item agent was working:** Adding detailed, step-by-step debug logging to the newly implemented 's initialization sequence. This was the final step in a long debugging process to resolve a persistent Unable to sync wallet error. The logs now clearly show the success of each of the 9 initialization steps, from environment validation to the final sync with the trading engine.
+-   **Status:** USER VERIFICATION PENDING
+-   **Agent Testing Done:** Y
+-   **Which testing method agent to use?** both. A full regression test is required. The  integration and the new  are major changes. The backend needs to be tested to ensure all trading functions still work. The frontend needs to be checked to ensure all data is still displayed correctly.
+-   **User Testing Done:** Y (User reviewed the final, successful logs.)
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Verify and Test Advanced Trading Modules (P0)**
-    -   **Description:** The backend code for several advanced features (Early Pump Detection, Smart Wallet Tracking, Crash Recovery, API Failover) has been written but their functionality has not been tested or verified in a running environment. It's unclear if these modules are correctly influencing the trading logic.
-    -   **Attempted fixes:** The agent wrote the Python code in  and added corresponding API endpoints.
+-   **Issue 1: Full Regression Test After Major Backend Refactor (P0)**
+    -   **Description:** The backend was significantly changed by integrating the  library and replacing the manual  RPC calls with a native . A robust  was also added. While the wallet sync itself is now fixed, it's crucial to verify that these changes have not introduced regressions in other areas like trade execution, token scanning, or data reporting to the frontend.
+    -   **Attempted fixes:** N/A. This is a new verification task.
     -   **Next debug checklist:**
-        1.  Check backend logs () to see if the  or  loops are running and identifying candidates.
-        2.  Verify if trades are being triggered with the correct  (e.g., , ).
-        3.  Test the crash recovery: start the bot, create a trade, stop/restart the backend service (backend: stopped
-backend: started), and check if the active trade is reloaded correctly from .
-        4.  Confirm that new events from these modules are appearing in the Bot Activity feed on the frontend.
-    -   **Why fix this issue and what will be achieved with the fix?** This is the final core requirement to make the bot a truly automated and intelligent trading system. Verifying this will complete the main logic of the application.
-    -   **Status:** IN PROGRESS
+        1.  Invoke the testing agent with  to create a comprehensive test suite covering the new  based logic.
+        2.  Manually start the autotrader and create a test trade.
+        3.  Monitor backend logs for any new errors during scanning, trade execution, or monitoring.
+        4.  Observe the frontend dashboard to ensure the Active Trades, P&L, and Portfolio stats update correctly.
+    -   **Why fix this issue and what will be achieved with the fix?** To ensure the application remains stable and functional after the critical backend overhaul, preventing future bugs.
+    -   **Status:** NOT STARTED
     -   **Is recurring issue?** N
     -   **Should Test frontend/backend/both after fix?** both
     -   **Blocked on other issue:** None.
 
 **In progress Task List**:
--   **Task 1: Complete and Test Advanced Trading Modules (P0)**
-    -   **Where to resume:** The backend code in  and frontend component  are in place. The next step is to run the autotrader and actively monitor the backend logs and frontend UI to confirm that the new detection modules are working and that their actions are reflected in the activity feed and trade list.
-    -   **What will be achieved with this?** The bot will be able to autonomously trade based on early pump signals and smart wallet activity, completing its core feature set.
-    -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** both
-    -   **Blocked on something:** None.
+None.
 
 **Upcoming and Future Tasks**
 **Upcoming Tasks (Phase 2):**
+-   **P1: Refactor Monolithic :** Break down the massive  file (now over 5000 lines) into a modular structure (e.g., , , , ) to improve maintainability.
 -   **P1: Enhanced Performance Dashboard:** Expand the existing analytics to include metrics like Top profitable tokens, Worst trades, Profit per hour, and Profit per day.
 -   **P1: UI for Smart Wallet Tracking:** Create a new UI panel to add/manage tracked wallets and view their recent activity.
 
@@ -61,93 +53,95 @@ backend: started), and check if the active trade is reloaded correctly from .
 -   **P2: Notification System:** Add a module to send trade alerts via a Telegram bot.
 
 **Completed work in this session**
--   **Real-Time P&L for Active Trades:** Fixed the bug where P&L and ROI for active trades (including Test trades) were static. The dashboard now updates prices and calculations live every few seconds.
--   **Auto-Trading State Management Fixed:** Resolved the Auto trading already running bug by implementing a robust backend state manager and adding a Force Restart button to the UI.
--   **Trade Closing System Repaired:** Fixed the trade failed error, enabling users to reliably close trades from the UI.
--   **Token Scanner Stabilized:** Overcame API rate-limiting issues by implementing caching and improved the scanner logic to return a more diverse and consistent list of tokens.
--   **Bot Activity Feed Implemented:** Created a new backend endpoint () and frontend component () to display a live log of all bot actions (buy, sell, errors, signals).
--   **Advanced Backend Modules Implemented:** Added the foundational code for Early Pump Detection, Smart Wallet Tracking, API Failover, and Crash Recovery (state persistence to ).
--   **Closed Trades History Feature Completed:** Fully implemented and tested the closed trades tab, including summary statistics and a detailed modal view for each trade.
+-   **Resolved Wallet Sync Errors:** Diagnosed and permanently fixed the recurring Unable to sync wallet with trading engine and Network unavailable errors.
+-   **Integrated Native Solana Library:** Replaced manual  RPC calls with the  and  libraries for robust, native Solana interaction.
+-   **Created :** Implemented a comprehensive class to manage the entire wallet initialization lifecycle, including RPC failover, multi-step validation, balance fetching, and ensuring the trading engine only starts after a successful sync. This manager now runs automatically on server startup.
+-   **Corrected Balance Fetch Logic:** Fixed a critical bug where the balance fetch logic was incorrectly parsing the Solana RPC response, which was the root cause of the sync failures.
+-   **Added Detailed Debug Logging:** Implemented extensive logging for the entire 9-step wallet initialization process, enabling easy diagnosis of future issues.
+-   **Fixed Duplicate API Endpoints:** Removed a duplicate endpoint for  and consolidated the logic.
+-   **Verified Advanced Trading Modules:** Manually tested and confirmed the functionality of the Early Pump Detection, Smart Wallet Tracking, and Crash Recovery features implemented in the previous session.
 
 **Earlier issues found/mentioned but not fixed**
-None. The agent successfully addressed all issues that arose during the session.
+None.
 
 **Known issue recurrence from previous fork**
 -   **Issue recurrence in previous fork:** RPC Connection Instability.
--   **Recurrence count:** 0 in this session.
--   **Status:** RESOLVED. This issue has not re-emerged.
+-   **Recurrence count:** This issue recurred multiple times in different forms (Unable to sync wallet, Network unavailable) during this session.
+-   **Status:** RESOLVED. The implementation of the  native client and a robust  with RPC failover has fixed the root cause.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 -   **Frontend:** React, Tailwind CSS, Shadcn/UI, Solana Wallet Adapter, 
--   **Backend:** FastAPI (Python),  for multiple independent background loops.
--   **Stability:** API rate-limiting, Caching, State Persistence (for crash recovery).
+-   **Backend:** FastAPI (Python), , , ,  for native Solana RPC communication.
+-   **Stability:** API rate-limiting, Caching, State Persistence, Robust Wallet Sync, RPC Failover.
 -   **Database:** MongoDB
 -   **Blockchain:** Solana
--   **Integrations:** DexScreener API, Helius RPC, Jupiter API (conceptual).
 
 **key DB schema**
--   : Stores active/historical trades. Now includes a  field (e.g., 'scanner', 'early_pump', 'smart_wallet').
--   : NEW collection to store chronological bot events for the activity feed. .
+-   : 
+-   : 
 
 **changes in tech stack**
-None.
+-   **Backend:** Switched from manual  POST requests for RPC communication to using the native  library () for all Solana interactions. Added , , and  to dependencies.
 
 **All files of reference**
--   : The central backend file containing all new modules and logic. It is now very large.
--   : The new UI component for the bot log.
--   : Integrates the  component.
--   : Contains the real-time price update logic.
--   : Contains the Force Restart button logic.
--   : The file used for persisting state across restarts.
+-   : The central backend file. Heavily modified to include the  integration and the  class.
+-   : Updated to include , , and .
+-   : The main UI file.
 
 **Areas that need refactoring**:
--   The  file has grown to over 2000 lines and contains all application logic (API endpoints, multiple trading loops, data models, utility functions). It urgently needs to be broken down into a modular structure (e.g., , , ) to improve maintainability.
+-   The  file is critically oversized (5000+ lines) and contains logic for APIs, trading loops, data models, wallet management, and utility functions. It urgently needs to be broken down into a modular structure to improve maintainability and prevent future bugs. This should be the highest priority refactoring task.
 
 **key api endpoints**
--   , , , 
--   
--   , , 
--   
--    **(NEW)**
--   ,  **(NEW)**
--   ,  **(NEW, for debugging)**
+-   : **(NEW)** Runs a full diagnostic on the wallet sync and network status.
+-   : **(NEW)** Manually triggers the full 9-step wallet initialization sequence.
+-   : **(NEW)** Tests connectivity to all configured RPC endpoints.
+-   : Now includes a guard to prevent starting if the wallet is not synced.
 
 **Critical Info for New Agent**
 -   **You MUST respond in German.**
--   Your immediate task is to test and verify the newly implemented advanced trading modules (Early Pump, Smart Wallet, Crash Recovery). The code is present in , but its real-world functionality is unconfirmed.
--   The backend  is now extremely large and complex. Be very cautious when making edits. Consider proposing a refactor to break it into smaller modules after the current task is verified.
--   The system relies on multiple asynchronous background loops started within FastAPI. Understanding how these loops interact is key to debugging.
+-   The primary achievement of this session was resolving a complex, persistent wallet synchronization bug. The backend now uses the  library. You should use the  and  instances in  for any new Solana-related functionality.
+-   Your first task should be to run a full regression test to ensure the major backend changes didn't break existing functionality.
+-   Strongly consider proposing the refactoring of  as the next major task. The current monolithic structure is unsustainable.
 
 **documents and test reports created in this job**
--    (Continuously updated)
--   A test report was generated by the testing agent earlier in the session, but many features have been added since.
+-    (Updated)
+-    (Generated by testing agent, issue found was resolved)
 
 **Last 10 User Messages and any pending HUMAN messages**
-The last 10+ user messages were all detailed  prompts defining increasingly sophisticated requirements for the trading bot, culminating in the final prompt (Chat Message 382) which requested a complete, modular, and production-ready system with features like Smart Wallet Tracking, API Failover, and Crash Recovery. The agent has been working to implement these final requirements.
+1.  **User:** Provided a prompt to add detailed debugging logs to every step of the wallet sync process.
+2.  **Agent:** Implemented the detailed logging in .
+3.  **User:** Provided a prompt to fix the  function to correctly handle Solana JSON-RPC responses.
+4.  **Agent:** Re-implemented the  function with proper  logic and failover.
+5.  **User:** Provided a prompt to fix the balance fetch logic, which incorrectly checked for a success field in the RPC response.
+6.  **Agent:** Fixed the  function by using the native  which handles response parsing correctly.
+7.  **User:** Asked to see various parts of the code related to wallet sync using  and .
+8.  **Agent:** Provided the requested code snippets.
+9.  **User:** Provided a code snippet to integrate the native  library.
+10. **Agent:** Successfully integrated , installed dependencies, and refactored the wallet management logic to use it.
 
 **Project Health Check:**
 -   **Broken:** None.
--   **Mocked:** The functionality of the advanced trading modules (Early Pump Detection, Smart Wallet Tracker) is implemented in code but is unverified in practice.
+-   **Mocked:** The functionality of advanced trading modules (Early Pump, Smart Wallet) was only manually verified. No automated tests exist for their specific logic.
 
 **3rd Party Integrations**
--   **DexScreener API:** Used for token scanning and price data.
--   **Birdeye API:** Mentioned as a data source, potentially for failover.
--   **Jupiter API:** Mentioned for price quotes, potentially for failover.
--   **Solana Web3.js & @solana/wallet-adapter:** Core Solana interaction.
--   **Helius RPC:** Primary RPC provider.
+-   **DexScreener API:** Token scanning and price data.
+-   ** library:** Native Solana RPC communication (replaces manual  calls).
+-   **Solana Web3.js & @solana/wallet-adapter:** Core Solana interaction on the frontend.
+-   **Helius RPC / Ankr RPC:** Used as RPC providers.
 -   **react-i18next:** Frontend localization.
 
 **Testing status**
--   **Testing agent used after significant changes:** YES, but this was done *before* the latest set of major features (real-time P&L, activity feed, advanced backend modules) were added. A full regression test is highly recommended.
+-   **Testing agent used after significant changes:** YES, but early in the session before the major  integration. A new test run is critical.
 -   **Troubleshoot agent used after agent stuck in loop:** NO
--   **Test files created:** None in this session, but previous test reports exist.
--   **Known regressions:** None.
+-   **Test files created:** 
+-   **Known regressions:** None known, but high risk due to major backend changes.
 
 **Credentials to test flow:**
--   A user-set PIN is used for the application. No external keys are needed from the user.
+-   An environment variable  is required in  format for the backend server wallet.
+-   A user-set PIN () is used for the frontend application.
 
 **What agent forgot to execute**
--   The agent implemented a large number of advanced backend features in the final step but did not perform any verification or testing to confirm they work as intended. The core task of ensuring these modules function correctly remains incomplete.</analysis>
+-   The agent did not run the testing agent after the massive backend refactor to integrate . This is a critical next step to ensure no regressions were introduced.</analysis>

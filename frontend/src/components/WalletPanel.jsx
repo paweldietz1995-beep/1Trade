@@ -44,11 +44,35 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
     });
   }, [connected, connecting, publicKey, wallet]);
 
-  // Fetch balance via Backend API (not direct RPC)
-  // Also syncs wallet state with trading engine
-  const fetchBalanceViaBackend = useCallback(async () => {
+  // Check wallet status from backend (simple GET request)
+  const checkWalletStatus = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/wallet/status`, { timeout: 5000 });
+      const data = response.data;
+      
+      if (data.wallet_synced && data.wallet_address) {
+        console.log(`✅ Wallet status: synced - ${data.balance_sol} SOL`);
+        setBalance(data.balance_sol);
+        setLastUpdate(new Date(data.last_update || Date.now()));
+        setRpcStatus({ healthy: true, endpoint: 'Backend RPC' });
+        setError(null);
+        
+        if (onBalanceUpdate) {
+          onBalanceUpdate(data.balance_sol);
+        }
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn('⚠️ Could not check wallet status:', err.message);
+      return false;
+    }
+  }, [API_URL, onBalanceUpdate]);
+
+  // Sync wallet with backend (POST request to sync and fetch balance)
+  const syncWalletWithBackend = useCallback(async () => {
     if (!connected || !publicKey) {
-      console.log('⚠️ Wallet not connected, skipping balance fetch');
+      console.log('⚠️ Wallet not connected, skipping sync');
       setBalance(0);
       // Notify backend that wallet is disconnected
       try {
@@ -66,7 +90,7 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
       const address = publicKey.toBase58();
       console.log(`📊 Syncing wallet with backend for ${address.substring(0, 8)}...`);
       
-      // Use /wallet/sync to both fetch balance AND sync with trading engine
+      // Use /wallet/sync to sync with trading engine
       const response = await axios.post(`${API_URL}/wallet/sync`, null, {
         params: { address },
         timeout: 15000
@@ -78,12 +102,8 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         
         setBalance(solBalance);
         setLastUpdate(new Date());
-        setRpcStatus({ 
-          healthy: true, 
-          endpoint: 'Backend RPC' 
-        });
+        setRpcStatus({ healthy: true, endpoint: 'Backend RPC' });
         
-        // Notify parent component
         if (onBalanceUpdate) {
           onBalanceUpdate(solBalance);
         }
@@ -103,13 +123,35 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
         description: 'Unable to sync wallet with trading engine.',
         action: {
           label: 'Retry',
-          onClick: () => fetchBalanceViaBackend()
+          onClick: () => syncWalletWithBackend()
         }
       });
     } finally {
       setLoading(false);
     }
   }, [connected, publicKey, API_URL, onBalanceUpdate]);
+
+  // Combined function: first check status, then sync if needed
+  const fetchBalanceViaBackend = useCallback(async () => {
+    if (!connected || !publicKey) {
+      console.log('⚠️ Wallet not connected');
+      setBalance(0);
+      try {
+        await axios.post(`${API_URL}/wallet/disconnect`);
+      } catch (e) {
+        // Ignore
+      }
+      return;
+    }
+    
+    // First, check if wallet is already synced via simple status endpoint
+    const alreadySynced = await checkWalletStatus();
+    
+    if (!alreadySynced) {
+      // Need to sync wallet
+      await syncWalletWithBackend();
+    }
+  }, [connected, publicKey, API_URL, checkWalletStatus, syncWalletWithBackend]);
 
   // Fetch tokens via Backend API
   const fetchTokensViaBackend = async (address) => {

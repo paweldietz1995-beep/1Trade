@@ -1,4 +1,4 @@
-# Pump.fun Trading Bot - PRD v16
+# Pump.fun Trading Bot - PRD v17
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
@@ -6,6 +6,18 @@ Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mi
 ## System Status: ✅ VOLLSTÄNDIG FUNKTIONSFÄHIG
 
 Letztes Update: 2026-03-09
+
+---
+
+## Changelog (2026-03-09)
+
+### Wallet Synchronization Fix
+- **Problem gelöst:** "Unable to sync wallet with trading engine" Fehler erschien obwohl Backend-Sync erfolgreich war
+- **Ursache:** Frontend/Backend State-Synchronisierung fehlte
+- **Lösung:**
+  1. Neuer `/api/wallet/status` Endpoint für einfaches Frontend-Polling
+  2. Frontend nutzt jetzt Backend-Status statt direkter RPC-Calls
+  3. Dashboard zeigt korrekten Wallet-Status vom Backend
 
 ---
 
@@ -80,6 +92,10 @@ Letztes Update: 2026-03-09
 ### System
 | Endpoint | Beschreibung |
 |----------|-------------|
+| `GET /api/wallet/status` | **NEU** - Wallet-Sync-Status (Frontend-Poll) |
+| `GET /api/wallet/can-trade` | Prüft ob Trading möglich ist |
+| `GET /api/wallet/diagnostics` | Detaillierte Wallet-Diagnose |
+| `POST /api/wallet/sync` | Wallet mit Engine synchronisieren |
 | `GET /api/system/modules` | Module Status |
 | `GET /api/api-status` | API Failover Status |
 | `POST /api/bot/save-state` | State speichern |
