@@ -278,7 +278,7 @@ ENGINE_CONFIG = {
     "max_open_trades": 20,             # Allow up to 20 simultaneous trades
     "max_trades_per_token": 1,         # Only 1 trade per token
     "signal_cooldown_seconds": 60,     # 60 second cooldown per token
-    "min_signal_score": 45,            # Minimum score to trigger trade
+    "min_signal_score": 35,            # Lowered from 45 to find more opportunities
     "take_profit_percent": 10,         # 8-12% take profit (scalping)
     "stop_loss_percent": 6,            # 5-7% stop loss
     "trailing_stop_enabled": True,
@@ -286,12 +286,36 @@ ENGINE_CONFIG = {
     "trailing_stop_activation": 6,     # Activate after 6% profit
     "daily_loss_limit_percent": 15,    # 15% max daily loss
     "loss_streak_limit": 5,            # 5 consecutive losses
-    "min_liquidity_usd": 3000,         # $3k minimum liquidity (relaxed)
-    "min_volume_usd": 5000,            # $5k minimum volume
-    "min_volume_surge_percent": 30,    # 30% volume surge (relaxed)
-    "min_buy_sell_ratio": 1.1,         # 1.1x buy pressure (relaxed)
+    "min_liquidity_usd": 2000,         # $2k minimum liquidity (relaxed)
+    "min_volume_usd": 3000,            # $3k minimum volume (relaxed)
+    "min_volume_surge_percent": 20,    # 20% volume surge (relaxed)
+    "min_buy_sell_ratio": 1.1,         # 1.1x buy pressure
     "price_update_interval": 3         # Update prices every 3 seconds
 }
+
+# Activity Feed - stores recent trading events
+class ActivityFeed:
+    def __init__(self, max_events: int = 100):
+        self.events = []
+        self.max_events = max_events
+    
+    def add_event(self, event_type: str, token: str, data: dict = None):
+        event = {
+            "id": str(uuid.uuid4()),
+            "type": event_type,  # BUY, SELL, SIGNAL, ERROR
+            "token": token,
+            "data": data or {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        self.events.insert(0, event)
+        if len(self.events) > self.max_events:
+            self.events = self.events[:self.max_events]
+        return event
+    
+    def get_events(self, limit: int = 50) -> list:
+        return self.events[:limit]
+
+activity_feed = ActivityFeed(max_events=100)
 
 # Token Cache to reduce API calls
 class TokenCache:
@@ -981,8 +1005,8 @@ async def auto_trading_loop():
                 liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
                 volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
                 
-                # Pre-filter: liquidity > $10k
-                if liquidity >= ENGINE_CONFIG["min_liquidity_usd"] and volume_24h >= 5000:
+                # Pre-filter: liquidity >= $2k OR volume >= $3k
+                if liquidity >= ENGINE_CONFIG["min_liquidity_usd"] or volume_24h >= ENGINE_CONFIG["min_volume_usd"]:
                     all_pairs[address] = pair
             
             # Parallel signal analysis
@@ -1125,6 +1149,15 @@ async def auto_trading_loop():
                     
                     # Set cooldown for this token
                     set_signal_cooldown(token_address)
+                    
+                    # Add to activity feed
+                    activity_feed.add_event("BUY", opp['symbol'], {
+                        "price": opp["price_usd"],
+                        "amount_sol": trade_amount,
+                        "signal_score": opp['signal_score'],
+                        "buy_sell_ratio": opp['buy_sell_ratio'],
+                        "trade_id": trade["id"] if isinstance(trade, dict) else str(trade)
+                    })
                     
                     logger.info(f"✅ TRADE: {opp['symbol']} | {trade_amount} SOL | Score: {opp['signal_score']:.0f} | B/S: {opp['buy_sell_ratio']:.1f}x")
                     
@@ -2210,6 +2243,17 @@ async def close_trade_auto(trade_id: str, reason: str = "MANUAL"):
     mode_str = "Paper" if is_paper else "Live"
     logger.info(f"✅ [{mode_str}] Trade closed: {trade.get('token_symbol', trade_id)} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
     
+    # Add to activity feed
+    activity_feed.add_event("SELL", trade.get('token_symbol', 'Unknown'), {
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "pnl_sol": round(pnl_sol, 6),
+        "pnl_percent": round(pnl_percent, 2),
+        "reason": reason,
+        "mode": mode_str.lower(),
+        "trade_id": trade_id
+    })
+    
     return {
         "success": True, 
         "pnl": round(pnl_sol, 6), 
@@ -2542,6 +2586,22 @@ async def root():
 @api_router.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+# ============== ACTIVITY FEED ==============
+
+@api_router.get("/activity")
+async def get_activity_feed(limit: int = 50):
+    """Get recent trading activity events"""
+    return activity_feed.get_events(limit)
+
+
+@api_router.post("/activity/clear")
+async def clear_activity_feed():
+    """Clear activity feed"""
+    activity_feed.events = []
+    return {"success": True}
+
 
 # ============== RPC CONNECTION MANAGER ==============
 

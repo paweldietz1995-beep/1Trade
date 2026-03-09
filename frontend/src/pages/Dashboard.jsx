@@ -55,6 +55,7 @@ import TokenSearch from '../components/TokenSearch';
 import TradingViewWidget from '../components/TradingViewWidget';
 import LiveTradesPanel from '../components/LiveTradesPanel';
 import DebugPanel from '../components/DebugPanel';
+import ActivityFeed from '../components/ActivityFeed';
 import { toast } from 'sonner';
 
 const TRADING_MODES = {
@@ -649,6 +650,7 @@ const Dashboard = () => {
               <div className="space-y-4">
                 <WalletPanel solPrice={solPrice} onBalanceUpdate={handleWalletBalanceUpdate} />
                 <LiveTradesPanel solPrice={solPrice} compact />
+                <ActivityFeed />
               </div>
             </div>
           </TabsContent>

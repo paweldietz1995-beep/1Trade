@@ -338,5 +338,15 @@
     "days": "Tage",
     "ago": "vor",
     "left": "verbleibend"
+  },
+  "activity": {
+    "title": "Trading Aktivität",
+    "noActivity": "Keine Aktivität",
+    "buy": "KAUF",
+    "sell": "VERKAUF",
+    "signal": "SIGNAL",
+    "price": "Preis",
+    "profit": "Gewinn",
+    "loss": "Verlust"
   }
 }
