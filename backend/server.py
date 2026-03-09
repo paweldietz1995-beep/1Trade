@@ -89,18 +89,18 @@ class BotSettings(BaseModel):
     require_confirmation: bool = True  # Require confirmation for first live trade
     first_live_trade_done: bool = False
     slippage_bps: int = 100  # Default 1% slippage
-    # Token Filters (Stricter defaults)
-    min_liquidity_usd: float = 5000.0
-    min_volume_usd: float = 10000.0  # Increased from 1000 to 10000
-    max_dev_wallet_percent: float = 15.0
-    max_top10_wallet_percent: float = 50.0
-    min_token_age_minutes: int = 5
-    max_token_age_hours: int = 24
-    min_buy_sell_ratio: float = 1.2
-    # Momentum Thresholds
-    min_momentum_score: int = 70
-    min_volume_surge_percent: float = 150.0
-    min_buyers_5m: int = 30
+    # Token Filters - RELAXED FOR MEMECOIN TRADING
+    min_liquidity_usd: float = 1000.0   # $1k minimum
+    min_volume_usd: float = 1000.0      # $1k minimum
+    max_dev_wallet_percent: float = 20.0
+    max_top10_wallet_percent: float = 60.0
+    min_token_age_minutes: int = 1      # Allow newer tokens
+    max_token_age_hours: int = 48       # Allow older tokens
+    min_buy_sell_ratio: float = 0.5     # Allow dip buying
+    # Momentum Thresholds - RELAXED
+    min_momentum_score: int = 30        # Lower threshold
+    min_volume_surge_percent: float = 10.0  # 10% surge ok
+    min_buyers_5m: int = 3              # Only 3 buyers needed
     # Automation
     auto_trade_enabled: bool = False
     paper_mode: bool = True
@@ -279,7 +279,7 @@ auto_trading_state = {
 }
 
 # Engine Configuration - High Capacity
-# Engine Configuration - Optimized for Scalping Strategy
+# Engine Configuration - Optimized for Memecoin Trading
 ENGINE_CONFIG = {
     "scan_interval_seconds": 2,        # 2 second scans
     "max_tokens_per_scan": 200,        # Process up to 200 tokens
@@ -287,7 +287,7 @@ ENGINE_CONFIG = {
     "max_open_trades": 20,             # Allow up to 20 simultaneous trades
     "max_trades_per_token": 1,         # Only 1 trade per token
     "signal_cooldown_seconds": 60,     # 60 second cooldown per token
-    "min_signal_score": 35,            # Lowered from 45 to find more opportunities
+    "min_signal_score": 30,            # Lowered for more opportunities
     "take_profit_percent": 10,         # 8-12% take profit (scalping)
     "stop_loss_percent": 6,            # 5-7% stop loss
     "trailing_stop_enabled": True,
@@ -295,15 +295,18 @@ ENGINE_CONFIG = {
     "trailing_stop_activation": 6,     # Activate after 6% profit
     "daily_loss_limit_percent": 15,    # 15% max daily loss
     "loss_streak_limit": 5,            # 5 consecutive losses
-    "min_liquidity_usd": 2000,         # $2k minimum liquidity (relaxed)
-    "min_volume_usd": 3000,            # $3k minimum volume (relaxed)
-    "min_volume_surge_percent": 20,    # 20% volume surge (relaxed)
-    "min_buy_sell_ratio": 1.1,         # 1.1x buy pressure
+    # RELAXED FILTERS FOR MEMECOIN TRADING
+    "min_liquidity_usd": 1000,         # $1k minimum liquidity
+    "min_volume_usd": 1000,            # $1k minimum volume
+    "min_volume_surge_percent": 10,    # 10% volume surge
+    "min_buy_sell_ratio": 0.3,         # Allow heavy selling (dip buying)
+    "min_buyers_5m": 2,                # Only 2 buyers in 5 minutes
+    "min_momentum_score": 25,          # Lower momentum threshold
     "price_update_interval": 3,        # Update prices every 3 seconds
     # Early Pump Detection
-    "early_pump_volume_surge": 300,    # 300% volume surge for early pump
-    "early_pump_price_change_1m": 3,   # 3% price change in 1 minute
-    "early_pump_min_liquidity": 10000, # $10k min liquidity for early pumps
+    "early_pump_volume_surge": 200,    # 200% volume surge for early pump
+    "early_pump_price_change_1m": 2,   # 2% price change in 1 minute
+    "early_pump_min_liquidity": 5000,  # $5k min liquidity for early pumps
     # Smart Wallet Tracking
     "smart_wallet_min_profit": 50,     # 50% min profit to track wallet
     "smart_wallet_min_trades": 5,      # 5 min trades to qualify
@@ -807,12 +810,13 @@ def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
         ))
     
     # ===== SIGNAL 2: BUY PRESSURE DETECTION =====
-    # Check buyers > 30 in last 5 minutes and buy/sell ratio > 1.5
+    # RELAXED: Check buyers >= 5 in last 5 minutes and buy/sell ratio >= 1.0
     buy_sell_ratio_5m = buys_5m / max(sells_5m, 1)
-    buy_pressure_triggered = buys_5m >= 30 and buy_sell_ratio_5m >= 1.5
+    buy_pressure_triggered = buys_5m >= 5 and buy_sell_ratio_5m >= 1.0
     
-    strength = "STRONG" if buys_5m >= 50 and buy_sell_ratio_5m >= 2.5 else \
-               "MEDIUM" if buys_5m >= 30 and buy_sell_ratio_5m >= 1.5 else "WEAK"
+    strength = "STRONG" if buys_5m >= 30 and buy_sell_ratio_5m >= 2.0 else \
+               "MEDIUM" if buys_5m >= 15 and buy_sell_ratio_5m >= 1.5 else \
+               "WEAK" if buys_5m >= 5 and buy_sell_ratio_5m >= 1.0 else "NONE"
     
     signals.append(MomentumSignal(
         token_address=pair.get("baseToken", {}).get("address", ""),
@@ -864,15 +868,21 @@ def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
     ))
     
     # ===== CALCULATE COMBINED SCORE =====
-    base_score = 40
+    base_score = 50  # Higher base score for more opportunities
     
     # Volume surge bonus
     if volume_surge_triggered:
-        base_score += 20 if signals[0].strength == "STRONG" else 15 if signals[0].strength == "MEDIUM" else 5
+        base_score += 20 if signals[0].strength == "STRONG" else 15 if signals[0].strength == "MEDIUM" else 8
+    elif volume_5m > 500:  # Partial bonus for any decent volume
+        base_score += 5
     
-    # Buy pressure bonus
+    # Buy pressure bonus - RELAXED THRESHOLDS
     if buy_pressure_triggered:
-        base_score += 25 if signals[1].strength == "STRONG" else 18 if signals[1].strength == "MEDIUM" else 8
+        base_score += 25 if signals[1].strength == "STRONG" else 18 if signals[1].strength == "MEDIUM" else 10
+    elif buys_5m >= 10 and buy_sell_ratio_5m >= 1.0:  # Partial bonus
+        base_score += 8
+    elif buys_5m >= 5:  # Any buying activity
+        base_score += 4
     
     # Wallet growth bonus
     if wallet_growth_triggered:
@@ -881,21 +891,25 @@ def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
     # Price acceleration bonus
     if price_acceleration_triggered:
         base_score += 15 if signals[3].strength == "STRONG" else 10 if signals[3].strength == "MEDIUM" else 5
-    
-    # Liquidity bonus/penalty
-    if liquidity >= 50000:
+    elif price_change_5m > 2:  # Any positive momentum
         base_score += 5
-    elif liquidity < 5000:
-        base_score -= 10
+    
+    # Liquidity bonus/penalty - RELAXED
+    if liquidity >= 20000:
+        base_score += 8
+    elif liquidity >= 5000:
+        base_score += 4
+    elif liquidity < 1000:
+        base_score -= 5  # Reduced penalty
     
     combined_score = min(100, max(0, base_score))
     
-    # Determine signal strength
-    if combined_score >= 80:
+    # Determine signal strength - LOWERED THRESHOLDS
+    if combined_score >= 70:
         signal_strength = "STRONG"
-    elif combined_score >= 65:
+    elif combined_score >= 55:
         signal_strength = "MEDIUM"
-    elif combined_score >= 50:
+    elif combined_score >= 40:
         signal_strength = "WEAK"
     else:
         signal_strength = "NONE"
@@ -906,9 +920,17 @@ def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
         if sig.triggered:
             signal_reasons.append(sig.description)
     
-    # Determine if this is a BUY signal
+    # Determine if this is a BUY signal - MUCH MORE PERMISSIVE
+    # Any triggered signal OR decent score is enough
+    any_signal_triggered = any(s.triggered for s in signals)
     strong_signals = sum(1 for s in signals if s.triggered and s.strength in ["STRONG", "MEDIUM"])
-    buy_signal = strong_signals >= 2 and combined_score >= 65
+    
+    # Buy signal if: 1+ strong/medium signal, OR score >= 50, OR any signal with score >= 40
+    buy_signal = (
+        strong_signals >= 1 or 
+        combined_score >= 50 or 
+        (any_signal_triggered and combined_score >= 40)
+    )
     
     return (
         combined_score,
@@ -1357,21 +1379,23 @@ def calculate_dynamic_trade_size(portfolio, settings):
     Dynamic capital allocation based on available balance and max trades.
     trade_size = available_balance / remaining_trade_slots
     """
-    max_trades = ENGINE_CONFIG["max_open_trades"]
+    # Use user's max_parallel_trades setting (not engine config)
+    max_trades = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
     open_trades = portfolio.open_trades
     remaining_slots = max(1, max_trades - open_trades)
     
-    # Get wallet balance or available budget
-    available = portfolio.available_sol if portfolio.wallet_balance_sol == 0 else portfolio.wallet_balance_sol
+    # Get available capital (use available_sol, not wallet_balance)
+    available = portfolio.available_sol
     
     # Dynamic allocation: divide available capital by remaining slots
     dynamic_size = available / remaining_slots
     
-    # Apply configured limits
-    max_trade = settings.total_budget_sol * (settings.max_trade_percent / 100)
+    # Apply configured limits - use the STRICTER of both limits
+    max_trade_by_percent = settings.total_budget_sol * (settings.max_trade_percent / 100)
+    max_trade = min(max_trade_by_percent, settings.max_trade_amount_sol)
     min_trade = settings.min_trade_sol
     
-    # Final trade size
+    # Final trade size (respect all limits)
     trade_size = min(max_trade, max(min_trade, dynamic_size))
     
     return round(trade_size, 4)
@@ -1508,9 +1532,14 @@ async def auto_trading_loop():
                 if liquidity >= ENGINE_CONFIG["min_liquidity_usd"] or volume_24h >= ENGINE_CONFIG["min_volume_usd"]:
                     all_pairs[address] = pair
             
-            # Parallel signal analysis
+            # Parallel signal analysis with DEBUG TRACKING
             opportunities = []
             signals_processed = 0
+            
+            # Debug counters for scanner logging
+            rejected_risk = 0
+            rejected_signal_score = 0
+            rejected_no_buy_signal = 0
             
             for address, pair in all_pairs.items():
                 try:
@@ -1525,12 +1554,14 @@ async def auto_trading_loop():
                     # Risk analysis
                     risk_analysis = calculate_risk_analysis(pair, settings)
                     if not risk_analysis.passed_filters:
+                        rejected_risk += 1
                         continue
                     
-                    # Buy/sell ratio
+                    # Buy/sell ratio - Used for scoring, NOT for filtering
                     buy_sell_ratio = buys_5m / max(sells_5m, 1)
-                    if buy_sell_ratio < ENGINE_CONFIG["min_buy_sell_ratio"]:
-                        continue
+                    
+                    # REMOVED: Hard filter on buy_sell_ratio
+                    # Low ratios will just get lower scores instead of being rejected
                     
                     # Calculate SIGNAL SCORE (0-100)
                     signal_score = 0
@@ -1539,46 +1570,58 @@ async def auto_trading_loop():
                     # Momentum (0-30)
                     signal_score += min(30, momentum_score * 0.3)
                     
-                    # Liquidity (0-25)
-                    if liq >= 100000: signal_score += 25
-                    elif liq >= 50000: signal_score += 20
-                    elif liq >= 20000: signal_score += 15
-                    elif liq >= 10000: signal_score += 10
+                    # Liquidity (0-25) - RELAXED THRESHOLDS
+                    if liq >= 50000: signal_score += 25
+                    elif liq >= 20000: signal_score += 20
+                    elif liq >= 10000: signal_score += 15
+                    elif liq >= 5000: signal_score += 12
+                    elif liq >= 1000: signal_score += 8
                     
-                    # Volume surge (0-25)
-                    if volume_5m > 20000: signal_score += 25
-                    elif volume_5m > 10000: signal_score += 20
-                    elif volume_5m > 5000: signal_score += 15
-                    elif volume_5m > 1000: signal_score += 10
+                    # Volume surge (0-25) - RELAXED THRESHOLDS
+                    if volume_5m > 10000: signal_score += 25
+                    elif volume_5m > 5000: signal_score += 20
+                    elif volume_5m > 2000: signal_score += 15
+                    elif volume_5m > 500: signal_score += 10
+                    elif volume_5m > 100: signal_score += 5
                     
-                    # Buy pressure (0-20)
-                    if buy_sell_ratio >= 3.0: signal_score += 20
-                    elif buy_sell_ratio >= 2.0: signal_score += 15
+                    # Buy pressure (0-20) - RELAXED THRESHOLDS
+                    if buy_sell_ratio >= 2.5: signal_score += 20
+                    elif buy_sell_ratio >= 2.0: signal_score += 16
                     elif buy_sell_ratio >= 1.5: signal_score += 12
                     elif buy_sell_ratio >= 1.2: signal_score += 8
+                    elif buy_sell_ratio >= 1.0: signal_score += 4
                     
-                    # Only strong signals
-                    if buy_signal and signal_score >= ENGINE_CONFIG["min_signal_score"]:
-                        base_token = pair.get("baseToken", {})
-                        
-                        opportunity = {
-                            "address": address,
-                            "symbol": base_token.get("symbol", "???"),
-                            "name": base_token.get("name", "Unknown"),
-                            "price_usd": float(pair.get("priceUsd", 0) or 0),
-                            "momentum_score": momentum_score,
-                            "signal_score": signal_score,
-                            "signal_strength": signal_strength,
-                            "signal_reasons": signal_reasons,
-                            "risk_score": risk_analysis.risk_score,
-                            "liquidity": liq,
-                            "volume_5m": volume_5m,
-                            "pair_address": pair.get("pairAddress"),
-                            "buy_sell_ratio": buy_sell_ratio,
-                            "price_change_5m": price_5m,
-                            "queued_at": datetime.now(timezone.utc).isoformat()
-                        }
-                        opportunities.append(opportunity)
+                    # Check buy signal
+                    if not buy_signal:
+                        rejected_no_buy_signal += 1
+                        continue
+                    
+                    # Check signal score threshold
+                    if signal_score < ENGINE_CONFIG["min_signal_score"]:
+                        rejected_signal_score += 1
+                        continue
+                    
+                    # Token passed all filters - add to opportunities
+                    base_token = pair.get("baseToken", {})
+                    
+                    opportunity = {
+                        "address": address,
+                        "symbol": base_token.get("symbol", "???"),
+                        "name": base_token.get("name", "Unknown"),
+                        "price_usd": float(pair.get("priceUsd", 0) or 0),
+                        "momentum_score": momentum_score,
+                        "signal_score": signal_score,
+                        "signal_strength": signal_strength,
+                        "signal_reasons": signal_reasons,
+                        "risk_score": risk_analysis.risk_score,
+                        "liquidity": liq,
+                        "volume_5m": volume_5m,
+                        "pair_address": pair.get("pairAddress"),
+                        "buy_sell_ratio": buy_sell_ratio,
+                        "price_change_5m": price_5m,
+                        "queued_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    opportunities.append(opportunity)
                         
                 except Exception as e:
                     continue
@@ -1597,7 +1640,8 @@ async def auto_trading_loop():
             if elapsed_minutes > 0:
                 auto_trading_state["signals_per_minute"] = auto_trading_state["signals_processed"] / elapsed_minutes
             
-            logger.info(f"📊 {len(all_pairs)} tokens scanned, {len(opportunities)} opportunities (Score >= {ENGINE_CONFIG['min_signal_score']})")
+            # DEBUG SCANNER LOGGING
+            logger.info(f"📊 SCANNER RESULT | tokens_scanned: {len(all_pairs)} | tokens_filtered: {len(opportunities)} | rejected_risk: {rejected_risk} | rejected_signal_score: {rejected_signal_score} | rejected_no_buy_signal: {rejected_no_buy_signal}")
             
             # Execute trades for available slots
             # Use user's max_parallel_trades setting (respecting system max)
@@ -1656,6 +1700,16 @@ async def auto_trading_loop():
                     
                     # Calculate trade size dynamically
                     trade_amount = calculate_dynamic_trade_size(portfolio, settings)
+                    
+                    # Debug: Log the calculated trade amount
+                    max_trade_limit = min(
+                        settings.total_budget_sol * (settings.max_trade_percent / 100),
+                        settings.max_trade_amount_sol
+                    )
+                    logger.debug(f"📊 Trade sizing: calculated={trade_amount:.4f}, max_allowed={max_trade_limit:.4f}, available={portfolio.available_sol:.4f}")
+                    
+                    # Ensure trade_amount doesn't exceed max
+                    trade_amount = min(trade_amount, max_trade_limit)
                     
                     if trade_amount < settings.min_trade_sol:
                         logger.debug(f"⏭️ Skipping {opp['symbol']}: trade amount {trade_amount} < min {settings.min_trade_sol}")
@@ -2189,7 +2243,7 @@ async def fetch_pump_fun_tokens() -> List[Dict]:
     return []
 
 def calculate_risk_analysis(pair: Dict, settings: BotSettings) -> TokenRiskAnalysis:
-    """Calculate comprehensive risk analysis for a token"""
+    """Calculate comprehensive risk analysis for a token - RELAXED FOR MEMECOINS"""
     liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
     volume = float(pair.get("volume", {}).get("h24", 0) or 0)
     price_change = float(pair.get("priceChange", {}).get("h24", 0) or 0)
@@ -2197,45 +2251,41 @@ def calculate_risk_analysis(pair: Dict, settings: BotSettings) -> TokenRiskAnaly
     filter_reasons = []
     passed = True
     
-    # Risk calculations
-    honeypot_risk = "LOW" if liquidity > 10000 else "MEDIUM" if liquidity > 2000 else "HIGH"
-    rugpull_risk = "LOW" if liquidity > 50000 else "MEDIUM" if liquidity > 5000 else "HIGH"
-    liquidity_locked = liquidity > 20000
+    # Risk calculations - RELAXED THRESHOLDS for memecoins
+    honeypot_risk = "LOW" if liquidity > 5000 else "MEDIUM" if liquidity > 500 else "HIGH"
+    rugpull_risk = "LOW" if liquidity > 20000 else "MEDIUM" if liquidity > 2000 else "HIGH"
+    liquidity_locked = liquidity > 10000
     
-    # Simulated holder analysis (in production, query on-chain data)
-    dev_wallet_percent = 5.0 if liquidity > 20000 else 10.0 if liquidity > 5000 else 20.0
-    top_holder_percent = 25.0 if volume > 50000 else 40.0 if volume > 5000 else 60.0
+    # Simulated holder analysis - MORE PERMISSIVE
+    dev_wallet_percent = 5.0 if liquidity > 10000 else 10.0 if liquidity > 2000 else 15.0
+    top_holder_percent = 30.0 if volume > 20000 else 45.0 if volume > 2000 else 55.0
     
-    # Apply filters
+    # Apply filters - ONLY STRICT FILTER: min_liquidity
     if liquidity < settings.min_liquidity_usd:
         passed = False
         filter_reasons.append(f"Liquidity ${liquidity:.0f} < ${settings.min_liquidity_usd:.0f}")
     
-    if dev_wallet_percent > settings.max_dev_wallet_percent:
-        passed = False
-        filter_reasons.append(f"Dev wallet {dev_wallet_percent:.1f}% > {settings.max_dev_wallet_percent:.1f}%")
+    # REMOVED: Dev wallet and top holder filters - too restrictive for memecoins
+    # These are now warnings only, not blockers
     
-    if top_holder_percent > settings.max_top10_wallet_percent:
+    # Only block on VERY HIGH honeypot risk (liquidity < $500)
+    if honeypot_risk == "HIGH" and liquidity < 500:
         passed = False
-        filter_reasons.append(f"Top holders {top_holder_percent:.1f}% > {settings.max_top10_wallet_percent:.1f}%")
-    
-    if honeypot_risk == "HIGH":
-        passed = False
-        filter_reasons.append("High honeypot risk")
+        filter_reasons.append("Extreme honeypot risk (liquidity < $500)")
     
     # Calculate overall risk score (0-100, higher = riskier)
-    risk_score = 30
-    if liquidity < 5000:
-        risk_score += 25
-    elif liquidity < 10000:
-        risk_score += 15
-    if volume < 1000:
+    risk_score = 20  # Lower base score
+    if liquidity < 1000:
+        risk_score += 30
+    elif liquidity < 2000:
         risk_score += 20
-    elif volume < 5000:
+    elif liquidity < 5000:
         risk_score += 10
-    if abs(price_change) > 80:
+    if volume < 500:
         risk_score += 15
-    if dev_wallet_percent > 10:
+    elif volume < 1000:
+        risk_score += 10
+    if abs(price_change) > 100:
         risk_score += 10
     risk_score = min(100, max(0, risk_score))
     

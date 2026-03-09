@@ -1,4 +1,4 @@
-# Pump.fun Trading Bot - PRD v17
+# Pump.fun Trading Bot - PRD v18
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
@@ -11,22 +11,29 @@ Letztes Update: 2026-03-09
 
 ## Changelog (2026-03-09)
 
-### Multi-Trade Fix (Latest)
+### Scanner Filter Fix (Latest)
+- **Problem gelöst:** Scanner produzierte 0 Opportunities (zu restriktive Filter)
+- **Änderungen:**
+  1. Relaxierte Filter für Memecoin Trading:
+     - `min_liquidity_usd`: $1,000 (vorher $5,000)
+     - `min_volume_usd`: $1,000 (vorher $10,000)
+     - `min_buy_sell_ratio`: Entfernt (nur noch als Score-Faktor)
+     - `min_signal_score`: 25 (vorher 35)
+  2. Buy-Signal Logik relaxiert: 1+ Signal ODER Score >= 50
+  3. Risk-Analyse vereinfacht: Nur noch Liquidität < $500 blockiert
+  4. Debug-Logging hinzugefügt:
+     ```
+     SCANNER RESULT | tokens_scanned: 24 | tokens_filtered: 16 | rejected_risk: 2 | rejected_signal_score: 6
+     ```
+- **Ergebnis:** Scanner findet jetzt 16+ Opportunities pro Scan
+
+### Multi-Trade Fix
 - **Problem gelöst:** Bot öffnete nur einen Trade pro Scan-Zyklus
-- **Ursache:** Loop iterierte nur über `opportunities[0]` statt mehrere
-- **Lösung:**
-  1. `auto_trading_loop` nutzt jetzt `max_parallel_trades` aus User-Settings
-  2. Iteriert über alle Opportunities bis `available_slots` erreicht
-  3. Tracking von aktiven Token-Adressen verhindert Duplikate
-  4. Logging: `AUTO TRADE EXECUTED | token: ABC | active_trades: 2/5`
+- **Lösung:** Loop iteriert über alle Opportunities bis `max_parallel_trades` erreicht
 
 ### Wallet Synchronization Fix
-- **Problem gelöst:** "Unable to sync wallet with trading engine" Fehler erschien obwohl Backend-Sync erfolgreich war
-- **Ursache:** Frontend/Backend State-Synchronisierung fehlte
-- **Lösung:**
-  1. Neuer `/api/wallet/status` Endpoint für einfaches Frontend-Polling
-  2. Frontend nutzt jetzt Backend-Status statt direkter RPC-Calls
-  3. Dashboard zeigt korrekten Wallet-Status vom Backend
+- **Problem gelöst:** "Unable to sync wallet with trading engine" Fehler
+- **Lösung:** Neuer `/api/wallet/status` Endpoint für Frontend-Polling
 
 ---
 
