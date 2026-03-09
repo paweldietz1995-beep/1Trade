@@ -306,16 +306,20 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
 
   // Real-time price update for open trades
   const updatePrices = useCallback(async () => {
-    if (openTrades.length === 0) return;
-    
     try {
       const response = await axios.post(`${API_URL}/trades/update-all-prices`);
       const data = response.data;
       
-      if (data.updated > 0) {
-        // Update local state with new prices
-        const updatedTrades = openTrades.map(trade => {
-          const update = data.trades?.find(u => u.id === trade.id);
+      console.log('Price update response:', data);
+      
+      if (data.updated > 0 && data.trades?.length > 0) {
+        // Get fresh trades list
+        const freshTradesRes = await axios.get(`${API_URL}/trades`, { params: { status: 'OPEN' } });
+        const freshTrades = freshTradesRes.data;
+        
+        // Update with latest prices from the response
+        const updatedTrades = freshTrades.map(trade => {
+          const update = data.trades.find(u => u.id === trade.id);
           if (update) {
             return {
               ...trade,
@@ -327,19 +331,21 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
           return trade;
         });
         
-        // Filter out closed trades
+        // Filter out any that were auto-closed
         const stillOpen = updatedTrades.filter(t => {
-          const update = data.trades?.find(u => u.id === t.id);
+          const update = data.trades.find(u => u.id === t.id);
           return !update?.should_close;
         });
         
         setOpenTrades(stillOpen);
         
         // Recalculate stats
-        const invested = stillOpen.reduce((sum, t) => sum + t.amount_sol, 0);
+        const invested = stillOpen.reduce((sum, t) => sum + (t.amount_sol || 0), 0);
         const currentValue = stillOpen.reduce((sum, t) => {
-          const pnlPercent = ((t.price_current / t.price_entry) - 1) * 100;
-          return sum + t.amount_sol * (1 + pnlPercent / 100);
+          const entry = t.price_entry || 1;
+          const current = t.price_current || entry;
+          const pnlPercent = ((current / entry) - 1) * 100;
+          return sum + (t.amount_sol || 0) * (1 + pnlPercent / 100);
         }, 0);
         
         setStats({
@@ -358,7 +364,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
     } catch (error) {
       console.error('Price update error:', error);
     }
-  }, [API_URL, openTrades]);
+  }, [API_URL]);  // Remove openTrades dependency to avoid stale closures
 
   useEffect(() => {
     fetchTrades();
@@ -367,10 +373,18 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
     return () => clearInterval(fetchInterval);
   }, [fetchTrades]);
 
-  // Real-time price updates every 3 seconds
+  // Real-time price updates every 2.5 seconds for smoother updates
   useEffect(() => {
-    const priceInterval = setInterval(updatePrices, 3000);
-    return () => clearInterval(priceInterval);
+    // Initial update
+    const timer = setTimeout(updatePrices, 1000);
+    
+    // Regular interval
+    const priceInterval = setInterval(updatePrices, 2500);
+    
+    return () => {
+      clearTimeout(timer);
+      clearInterval(priceInterval);
+    };
   }, [updatePrices]);
 
   const closeTrade = async (tradeId) => {

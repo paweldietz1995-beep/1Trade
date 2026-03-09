@@ -1,101 +1,62 @@
-# Pump.fun Trading Bot - PRD v12
+# Pump.fun Trading Bot - PRD v13
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
+## Zuletzt Behoben ✅
+
+### Echtzeit-Preisaktualisierung für TEST-Trades (März 2026)
+**Problem:** P&L, ROI und aktueller Preis wurden nicht in Echtzeit aktualisiert für Test-Trades.
+
+**Lösung:**
+1. Backend verwendet jetzt `token_address` (Base-Token) statt `pair_address` für DEX Screener API-Abfragen
+2. Frontend aktualisiert Preise alle 2,5 Sekunden ohne stale state issues
+3. Beide Live und Test Trades werden gleich behandelt (nur ohne Blockchain-Transaktion)
+
+**Verifiziert:**
+- UNTAXED Trade: Entry $0.00037550 → Current $0.00040440
+- P&L: +0.007696 SOL (+7.70% ROI)
+- Farbcodierung: GRÜN für Gewinn, ROT für Verlust
+
 ## Vollständig Implementiert ✅
 
-### 1. High-Capacity Trading Engine ✅
-**Optimiert für Scalping-Strategie**
-- **Scan-Intervall:** 2 Sekunden
-- **Max Tokens pro Scan:** 200
-- **Max offene Trades:** 20
-- **Max Trades pro Token:** 1
-- **Signal Cooldown:** 60 Sekunden
-- **Min Signal Score:** 35 (gelockert)
+### 1. Echtzeit-Preisverfolgung ✅
+- **Update-Intervall:** 2,5 Sekunden
+- **API:** DEX Screener `/latest/dex/tokens/{tokenAddress}`
+- **Unterstützt:** Alle Trade-Typen (Live und Test)
 
-**Filter (gelockert):**
-- Min Liquidität: $2,000 ODER Min Volume: $3,000
-- Min Buy/Sell Ratio: 1.1x
+### 2. P&L Berechnung ✅
+```
+pnl_sol = ((currentPrice - entryPrice) / entryPrice) * positionSizeSOL
+roi_percent = ((currentPrice - entryPrice) / entryPrice) * 100
+```
 
-### 2. Activity Feed ✅ (März 2026 - NEU)
-**Endpoint:** `GET /api/activity`
-- Zeigt alle Trading-Events in Echtzeit
-- BUY/SELL Events mit Details
-- Automatisch aktualisiert alle 3 Sekunden
-- Max 100 Events im Feed
+### 3. Farbcodierung ✅
+- **GRÜN:** P&L > 0 (Gewinn)
+- **ROT:** P&L < 0 (Verlust)
 
-### 3. Token Scanner ✅
-**25+ Tokens kontinuierlich gescannt**
-- Signal-Stärken: STRONG, MEDIUM, WEAK, NONE
-- Risk Scores: 30-65
-- K/V (Kauf/Verkauf) Ratios
-- Liquidität und Volume-Daten
+### 4. Auto-Close ✅
+- Take Profit Check: `currentPrice >= takeProfit`
+- Stop Loss Check: `currentPrice <= stopLoss`
+- Trailing Stop Check: `currentPrice <= trailingStop`
 
-### 4. Echtzeit-Preisverfolgung ✅
-**Endpoint:** `POST /api/trades/update-all-prices`
-- Bulk-Preisaktualisierung alle 3 Sekunden
-- Automatische TP/SL-Prüfung
-- Auto-Close bei Limit-Erreichung
-
-### 5. Geschlossene Trades Historie ✅
-**100+ geschlossene Trades mit vollständigen Statistiken:**
-- Gesamtgewinn/Verlust
-- Trefferquote
-- Durchschnittlicher Gewinn/Verlust pro Trade
-- Detaillierte Trade-Informationen
-
-### 6. System Health Check ✅
-**Endpoint:** `GET /api/system/health`
-- Database: ✅ MongoDB verbunden
-- RPC: ✅ Solana RPC aktiv
-- Scanner: ✅ Token-Scanner läuft
-- Overall: ✅ System funktioniert
-
-### 7. Deutsche Benutzeroberfläche ✅
-Alle UI-Elemente auf Deutsch:
-- Token Scanner, Live P&L, Übersicht, Chart
-- Geschlossene Trades, Aktive Trades
-- Trefferquote, Gesamtgewinn, Gesamtverlust
-- Trading Aktivität
+### 5. Test-Modus ✅
+- Kein Blockchain-Swap
+- Keine echte Transaktion
+- Aber: Preisverfolgung, P&L, ROI funktionieren normal
 
 ## API Endpoints
 
-| Endpoint | Methode | Beschreibung |
-|----------|---------|-------------|
-| `/api/activity` | GET | Activity Feed abrufen |
-| `/api/tokens/scan` | GET | Token-Scanner |
-| `/api/trades?status=OPEN` | GET | Offene Trades |
-| `/api/trades?status=CLOSED` | GET | Geschlossene Trades |
-| `/api/trades/{id}/close` | POST | Trade schließen |
-| `/api/trades/update-all-prices` | POST | Bulk-Preisaktualisierung |
-| `/api/portfolio` | GET | Portfolio-Statistiken |
-| `/api/system/health` | GET | System-Diagnostik |
-| `/api/auto-trading/start` | POST | Engine starten |
-| `/api/auto-trading/stop` | POST | Engine stoppen |
+| Endpoint | Beschreibung |
+|----------|-------------|
+| `POST /api/trades/update-all-prices` | Bulk-Preisaktualisierung |
+| `GET /api/trades?status=OPEN` | Offene Trades |
+| `POST /api/trades/{id}/close` | Trade schließen |
+| `GET /api/activity` | Activity Feed |
 
-## Aktuelle Statistiken
-
-- **Geschlossene Trades:** 100+
-- **Gesamtgewinn:** +0.8356 SOL
-- **Trefferquote:** ~29%
-- **Ø Gewinn pro Trade:** +0.028815 SOL
-- **System-Uptime:** Stabil
-
-## Nächste Schritte (Phase 2)
-
-1. **Jupiter Swap Integration** (P1)
-   - Live Mode Swap-Ausführung
-
-2. **Performance Dashboard** (P1)
-   - Top profitable Tokens
-   - Profit per Hour/Day
-
-## Backlog (Phase 3)
-
-- Ultra-Fast Sniper Modul
-- MEV-Schutz
-- Telegram Benachrichtigungen
+## Nächste Schritte
+- Jupiter Swap Integration (Live Mode)
+- Performance Dashboard
 
 ## Credentials
-- **PIN:** 1234 (anpassbar)
+- **PIN:** 1234

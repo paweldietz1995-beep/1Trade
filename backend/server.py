@@ -2319,38 +2319,54 @@ async def update_all_trade_prices():
     if not open_trades:
         return {"updated": 0, "closed": 0, "trades": []}
     
-    # Collect unique token addresses
-    token_addresses = list(set([
-        t.get("pair_address") or t.get("token_address") 
-        for t in open_trades 
-        if t.get("pair_address") or t.get("token_address")
-    ]))
+    # Collect unique token addresses - prefer base token address over pair address
+    token_addresses = []
+    for t in open_trades:
+        # Try token_address first (base token), then pair_address
+        addr = t.get("token_address") or t.get("pair_address")
+        if addr and addr not in token_addresses:
+            token_addresses.append(addr)
     
     # Fetch all prices in batch
     price_map = {}
     if token_addresses:
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client_http:
-                # Batch request to DEX Screener (max 30 addresses per request)
-                for i in range(0, len(token_addresses), 30):
-                    batch = token_addresses[i:i+30]
-                    addresses_str = ",".join(batch)
-                    response = await client_http.get(
-                        f"https://api.dexscreener.com/latest/dex/tokens/{addresses_str}"
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        for pair in data.get("pairs", []):
-                            pair_addr = pair.get("pairAddress", "")
-                            base_addr = pair.get("baseToken", {}).get("address", "")
-                            price = float(pair.get("priceUsd", 0) or 0)
-                            if price > 0:
-                                if pair_addr:
-                                    price_map[pair_addr] = price
-                                if base_addr:
-                                    price_map[base_addr] = price
-        except Exception as e:
-            logger.error(f"Error fetching bulk prices: {e}")
+        # Filter out None values
+        valid_addresses = [addr for addr in token_addresses if addr]
+        
+        if valid_addresses:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client_http:
+                    # Batch request to DEX Screener (max 30 addresses per request)
+                    for i in range(0, len(valid_addresses), 30):
+                        batch = valid_addresses[i:i+30]
+                        addresses_str = ",".join(batch)
+                        
+                        logger.info(f"📊 Fetching prices for {len(batch)} tokens: {batch}")
+                        
+                        response = await client_http.get(
+                            f"https://api.dexscreener.com/latest/dex/tokens/{addresses_str}"
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            pairs = data.get("pairs") or []
+                            
+                            for pair in pairs:
+                                pair_addr = pair.get("pairAddress", "")
+                                base_addr = pair.get("baseToken", {}).get("address", "")
+                                price = float(pair.get("priceUsd", 0) or 0)
+                                
+                                if price > 0:
+                                    # Map both pair address and base token address
+                                    if pair_addr:
+                                        price_map[pair_addr] = price
+                                    if base_addr:
+                                        price_map[base_addr] = price
+                            
+                            logger.info(f"📊 Got {len(pairs)} pairs, mapped {len(price_map)} prices")
+                        else:
+                            logger.warning(f"DEX Screener returned {response.status_code}")
+            except Exception as e:
+                logger.error(f"Error fetching bulk prices: {e}")
     
     # Update each trade
     updated_count = 0
