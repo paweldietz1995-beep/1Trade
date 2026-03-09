@@ -3544,8 +3544,8 @@ async def get_trading_opportunities():
         if not token.risk_analysis or not token.risk_analysis.passed_filters:
             continue
         
-        # Check age constraints
-        min_age_hours = settings.min_token_age_minutes / 60
+        # Check age constraints (convert seconds to hours)
+        min_age_hours = settings.min_token_age_seconds / 3600
         if token.age_hours < min_age_hours or token.age_hours > settings.max_token_age_hours:
             continue
         

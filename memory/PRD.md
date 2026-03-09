@@ -1,163 +1,133 @@
-# Pump.fun Trading Bot - PRD v22
+# Pump.fun Trading Bot - PRD v23
 
 ## Problem Statement
-Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
+Automatisiertes High-Frequency Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
-## System Status: 🚀 HIGH-FREQUENCY MOMENTUM SCALPER AKTIV
+## System Status: HIGH-FREQUENCY MOMENTUM SCALPER V3 AKTIV
 
 Letztes Update: 2026-03-09
 
 ---
 
-## Changelog (2026-03-09)
+## Changelog
 
-### High-Frequency Momentum Scalping (Latest)
-- **Scan-Intervall:** 1.0 Sekunde
-- **Max Parallel Trades:** 30 (optimiert für realistisches Trading)
-- **Trade Size:** 0.5-1% Wallet (~0.02 SOL pro Trade)
-- **Ergebnis:** 30 aktive Trades parallel
+### 2026-03-09 - High-Performance Scanner V3
+- **NEU:** Scanner V3 implementiert mit:
+  - Parallele Datenabfrage (asyncio.gather für 7 Quellen)
+  - 2-Sekunden Cache für API-Antworten
+  - Batch Processing (200er Chunks)
+  - Token-Deduplizierung nach Adresse
+  - Performance Logging
 
-### Momentum Score Formula:
+### Scanner V3 Performance Metriken:
+```
+sources_scanned: 7
+raw_tokens: ~300
+tokens_after_dedup: ~200-250
+scan_time: 1.0-1.6 seconds
+cache_hit_rate: ~30-50% (bei wiederholten Scans)
+```
+
+### API Endpunkte (NEU):
+- `GET /api/scanner/stats` - Scanner V3 Statistiken
+- `POST /api/scanner/clear-cache` - Cache leeren
+
+---
+
+## Implementierte Features
+
+### 1. Scanner V3 (HIGH-PERFORMANCE)
+- **7 Datenquellen:** DexScreener, Birdeye-style, Jupiter, Raydium, Orca, Meteora, Pump.fun
+- **Parallele Ausführung:** asyncio.gather für alle Quellen
+- **Caching:** 2-Sekunden TTL für Rate-Limit-Schutz
+- **Batch Processing:** 200 Tokens pro Batch
+- **Ziel:** 1000-5000 Tokens pro Zyklus in < 1.2s
+
+### 2. Momentum Scoring V2
 ```
 score = (volume_growth * 0.35) + (buyers_1m * 0.25) + (price_1m * 0.20) + (accel * 0.20)
 ```
 
-### Entry Conditions (1-minute based):
-- `price_change_1m >= 2%`
-- `volume_1m >= 1.5x baseline`
-- `buyers_1m >= sellers_1m`
+### 3. New Token Priority:
+- Token < 60s: +50 Bonus
+- Token < 120s: +30 Bonus
+- Token < 5min: +15 Bonus
 
-### New Token Priority:
-- Token < 60s: +50 bonus
-- Token < 120s: +30 bonus
-- Token < 5min: +15 bonus
-
-### Exit Strategy:
-- Take Profit: 10% (8-12%)
-- Stop Loss: 7% (6-8%)
-- Trailing Stop: 4%
-- Cooldown: 60 Sekunden
-
-### Token Filters:
-- min_liquidity: $500
-- min_volume: $500
-- min_buy_sell_ratio: 1.05
-
-### Logging:
-```
-📊 SCANNER SUMMARY | tokens_scanned: 146 | opportunities: 23 | open_trades: 30
-🔥 TOP MOMENTUM | 1. memeless score=96 | 2. XPD score=73 | 3. FMC score=67
-✅ TRADE EXECUTED | token: ABC | size: 0.02 SOL | target_profit: 10%
-```
+### 4. Trading Konfiguration:
+- **Take Profit:** 10%
+- **Stop Loss:** 7%
+- **Trailing Stop:** 4%
+- **Max Parallel Trades:** 30
+- **Scan Intervall:** 1.0s
 
 ---
 
-## Implementierte Module (8/8 aktiv)
+## Module Status
 
-### 1. Market Scanner ✅
-- **Intervall:** 2 Sekunden
-- **Kapazität:** 200 Tokens pro Scan
-- **Datenquellen:** DexScreener, Pump.fun Memes
-
-### 2. Early Pump Detector ✅
-- Erkennt frühe Pump-Signale
-- **Bedingungen:**
-  - Liquidität > $10k
-  - Volume Surge > 300%
-  - Buys > Sells
-  - Price Change 1m > 3%
-
-### 3. Momentum Analyzer ✅
-- Signal Score Berechnung (0-100)
-- **Signal-Typen:** VOLUME_SURGE, BUY_PRESSURE, WALLET_GROWTH, PRICE_ACCELERATION
-- **Stärken:** STRONG, MEDIUM, WEAK, NONE
-
-### 4. Smart Wallet Tracker ✅
-- Wallet-Verfolgung für Copy-Trading
-- Add/Remove/List Wallets
-- Copy-Trade Signale
-
-### 5. Trade Monitor ✅
-- **Intervall:** 3 Sekunden
-- Live P&L Berechnung
-- Auto-Close bei TP/SL
-
-### 6. Risk Manager ✅
-- **Max Open Trades:** 20
-- **Take Profit:** 10%
-- **Stop Loss:** 6%
-- **Daily Loss Limit:** 15%
-- **Loss Streak Limit:** 5
-
-### 7. API Failover ✅
-- **Primär:** DexScreener
-- **Fallback:** Birdeye, Jupiter
-- Auto-Switch bei Ausfall
-
-### 8. Crash Recovery ✅
-- State Persistence in MongoDB
-- Auto-Recovery nach Neustart
-- Trade Recovery
+| Modul | Status | Beschreibung |
+|-------|--------|--------------|
+| Scanner V3 | AKTIV | High-Performance Multi-Source Scanner |
+| Momentum Analyzer | AKTIV | Echtzeit-Momentum-Bewertung |
+| Trade Monitor | AKTIV | Live P&L Tracking |
+| Risk Manager | AKTIV | TP/SL/Trailing Stop |
+| API Failover | AKTIV | Auto-Switch bei Ausfall |
+| Crash Recovery | AKTIV | State Persistence |
+| Smart Wallet Tracker | AKTIV | Copy-Trading |
 
 ---
 
 ## API Endpoints
 
+### Scanner
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/scanner/stats` | Scanner V3 Statistiken |
+| `POST /api/scanner/clear-cache` | Cache leeren |
+| `GET /api/tokens/scan` | Token-Liste abrufen |
+
 ### Auto-Trading
 | Endpoint | Beschreibung |
-|----------|-------------|
+|----------|--------------|
 | `POST /api/auto-trading/start` | Bot starten |
 | `POST /api/auto-trading/stop` | Bot stoppen |
-| `POST /api/auto-trading/force-restart` | Force Neustart |
-| `POST /api/auto-trading/reset` | State Reset |
 | `GET /api/auto-trading/status` | Status & Metriken |
-
-### Smart Wallets
-| Endpoint | Beschreibung |
-|----------|-------------|
-| `POST /api/smart-wallets` | Wallet hinzufügen |
-| `GET /api/smart-wallets` | Wallets auflisten |
-| `DELETE /api/smart-wallets/{address}` | Wallet entfernen |
-| `GET /api/smart-wallets/copy-signals` | Copy-Trade Signale |
 
 ### System
 | Endpoint | Beschreibung |
-|----------|-------------|
-| `GET /api/wallet/status` | **NEU** - Wallet-Sync-Status (Frontend-Poll) |
-| `GET /api/wallet/can-trade` | Prüft ob Trading möglich ist |
-| `GET /api/wallet/diagnostics` | Detaillierte Wallet-Diagnose |
-| `POST /api/wallet/sync` | Wallet mit Engine synchronisieren |
-| `GET /api/system/modules` | Module Status |
-| `GET /api/api-status` | API Failover Status |
-| `POST /api/bot/save-state` | State speichern |
-| `GET /api/bot/recover-state` | State laden |
-| `GET /api/activity` | Activity Feed |
-
----
-
-## UI Features (Deutsch)
-
-### Dashboard
-- **TESTMODUS** Toggle
-- **Auto-Trading starten/stoppen** Button
-- **Aktive Trades** Panel mit Live P&L
-- **BOT AKTIVITÄT** Live Feed
-- **Token Scanner** mit 23+ Tokens
-- **Geschlossene Trades** Historie
-
-### Statistiken
-- VERFÜGBAR: SOL Budget
-- IN TRADES: Investiert
-- GESAMT P&L: Gesamtgewinn
-- TREFFERQUOTE: Win Rate
+|----------|--------------|
+| `GET /api/health` | Gesundheitscheck |
+| `GET /api/wallet/status` | Wallet-Status |
+| `GET /api/opportunities` | Trading-Möglichkeiten |
 
 ---
 
 ## Test-Ergebnisse
 
-- **Backend Tests:** 99/99 bestanden (100%)
-- **Frontend E2E Tests:** 41+ bestanden (100%)
-- **Alle Module:** Verifiziert und funktional
+- **Backend Tests:** 74/77 bestanden (96%)
+- **Frontend E2E Tests:** 37 bestanden (100%)
+- **Scanner V3 Tests:** Alle bestanden
+
+---
+
+## Bekannte Einschränkungen
+
+1. **API Rate Limits:** DexScreener gibt 429 bei zu vielen Anfragen
+2. **Birdeye API:** Benötigt API-Key (wird durch DexScreener-Alternative ersetzt)
+3. **Jupiter Token List:** Sehr groß, wird auf 300 Tokens begrenzt
+
+---
+
+## Nächste Schritte (P1)
+
+1. **Realtime Launch Sniper** - Pump.fun / Raydium Pool Detection
+2. **Performance Dashboard** - Top profitable Tokens, Profit/Tag
+3. **UI für Smart Wallet Tracking** - Panel zum Verwalten
+
+## Zukünftige Features (P2)
+
+1. **MEV Protection** - Sandwich-Attack Schutz
+2. **Telegram Notifications** - Alert System
+3. **Jupiter Swap Integration** - Live Trading
 
 ---
 
@@ -167,15 +137,25 @@ score = (volume_growth * 0.35) + (buyers_1m * 0.25) + (price_1m * 0.20) + (accel
 
 ---
 
-## Nächste Schritte (P1)
+## Architektur
 
-1. **Performance Dashboard** - Top profitable Tokens, Profit/Tag
-2. **UI für Smart Wallet Tracking** - Panel zum Verwalten
-3. **Enhanced Token Discovery** - Mehr Datenquellen
-
-## Zukünftige Features (P2)
-
-1. **Ultra-Fast Sniper** - Block-Level Events
-2. **MEV Protection** - Sandwich-Attack Schutz
-3. **Telegram Notifications** - Alert System
-4. **Jupiter Swap Integration** - Live Trading
+```
+/app/
+├── backend/
+│   ├── server.py       # Monolithische FastAPI-App (~6700 Zeilen)
+│   │   ├── ScannerCache      # 2s TTL Cache
+│   │   ├── MultiSourceScanner # V3 High-Performance Scanner
+│   │   ├── auto_trading_loop  # HFT Trading Loop
+│   │   └── calculate_momentum_score_v2
+│   └── tests/
+│       ├── test_scanner_v3.py
+│       └── test_api.py
+├── frontend/
+│   └── src/
+│       ├── pages/Dashboard.jsx
+│       └── components/scanner/TokenScanner.jsx
+└── tests/
+    └── e2e/
+        ├── scanner-v3.spec.ts
+        └── core-flows.spec.ts
+```
