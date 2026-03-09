@@ -312,11 +312,27 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
 
   const closeTrade = async (tradeId) => {
     try {
-      await axios.post(`${API_URL}/trades/${tradeId}/close`);
-      toast.success(t('trades.closeTrade'));
+      const response = await axios.post(`${API_URL}/trades/${tradeId}/close`);
+      const data = response.data;
+      
+      if (data.success) {
+        const pnlText = data.pnl >= 0 ? `+${data.pnl.toFixed(6)}` : data.pnl.toFixed(6);
+        const roiText = data.pnl_percent >= 0 ? `+${data.pnl_percent.toFixed(2)}` : data.pnl_percent.toFixed(2);
+        
+        toast.success(t('trades.closeTrade'), {
+          description: `P&L: ${pnlText} SOL (${roiText}%)`
+        });
+      } else {
+        toast.success(t('trades.closeTrade'));
+      }
+      
       fetchTrades();
     } catch (error) {
-      toast.error(t('errors.tradeFailed'));
+      console.error('Close trade error:', error);
+      const errorMessage = error.response?.data?.detail || t('errors.tradeFailed');
+      toast.error(t('errors.tradeFailed'), {
+        description: errorMessage
+      });
     }
   };
 

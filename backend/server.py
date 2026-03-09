@@ -2044,7 +2044,7 @@ async def get_trades(status: Optional[str] = None, limit: int = 100):
 
 @api_router.put("/trades/{trade_id}/close")
 async def close_trade(trade_id: str, exit_price: float, reason: str = "MANUAL"):
-    """Close a trade"""
+    """Close a trade with specified exit price"""
     trade = await db.trades.find_one({"id": trade_id}, {"_id": 0})
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
@@ -2070,6 +2070,116 @@ async def close_trade(trade_id: str, exit_price: float, reason: str = "MANUAL"):
     
     logger.info(f"Trade closed: {trade_id} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
     return {"success": True, "pnl": pnl_sol, "pnl_percent": pnl_percent}
+
+
+@api_router.post("/trades/{trade_id}/close")
+async def close_trade_auto(trade_id: str, reason: str = "MANUAL"):
+    """
+    Close a trade - automatically fetches current price.
+    Works for both Paper Mode and Live Mode.
+    
+    Paper Mode: Simulates trade closing with current price
+    Live Mode: Would execute Jupiter swap (not implemented yet)
+    """
+    trade = await db.trades.find_one({"id": trade_id}, {"_id": 0})
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    
+    if trade["status"] != "OPEN":
+        raise HTTPException(status_code=400, detail="Trade is not open")
+    
+    # Get current price - use stored price_current or fetch from DEX Screener
+    exit_price = trade.get("price_current", trade.get("price_entry", 0))
+    
+    # Try to fetch live price if we have token address
+    token_address = trade.get("token_address")
+    pair_address = trade.get("pair_address")
+    
+    if token_address or pair_address:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client_http:
+                # Try to get current price from DEX Screener
+                search_addr = pair_address or token_address
+                response = await client_http.get(
+                    f"https://api.dexscreener.com/latest/dex/tokens/{search_addr}"
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    pairs = data.get("pairs", [])
+                    if pairs:
+                        live_price = float(pairs[0].get("priceUsd", 0) or 0)
+                        if live_price > 0:
+                            exit_price = live_price
+                            logger.info(f"📊 Fetched live price for {trade.get('token_symbol')}: ${exit_price}")
+        except Exception as e:
+            logger.warning(f"Could not fetch live price, using stored price: {e}")
+    
+    # Ensure we have a valid exit price
+    if exit_price <= 0:
+        exit_price = trade.get("price_entry", 0.000001)
+        logger.warning(f"Using entry price as exit price for {trade_id}")
+    
+    # Check if this is paper mode
+    is_paper = trade.get("paper_trade", True)
+    
+    if is_paper:
+        # Paper Mode: Simulate trade closing
+        logger.info(f"📝 Paper Mode: Closing trade {trade_id} at price ${exit_price}")
+    else:
+        # Live Mode: Would execute Jupiter swap here
+        # For now, we just close locally (swap execution can be added later)
+        logger.info(f"💰 Live Mode: Closing trade {trade_id} at price ${exit_price}")
+        
+        # Validate Jupiter route exists (optional check)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client_http:
+                # Check if swap route exists (token -> SOL)
+                response = await client_http.get(
+                    "https://quote-api.jup.ag/v6/quote",
+                    params={
+                        "inputMint": token_address,
+                        "outputMint": "So11111111111111111111111111111111111111112",
+                        "amount": str(int(trade.get("amount_tokens", 1000000))),
+                        "slippageBps": 100
+                    }
+                )
+                if response.status_code != 200:
+                    logger.warning(f"Jupiter route check failed: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Jupiter route validation skipped: {e}")
+    
+    # Calculate PnL
+    entry_price = trade.get("price_entry", exit_price)
+    if entry_price > 0:
+        pnl_percent = ((exit_price / entry_price) - 1) * 100
+    else:
+        pnl_percent = 0
+    
+    pnl_sol = trade.get("amount_sol", 0) * (pnl_percent / 100)
+    
+    # Update trade in database
+    update_data = {
+        "status": "CLOSED",
+        "price_exit": exit_price,
+        "price_current": exit_price,
+        "pnl": round(pnl_sol, 6),
+        "pnl_percent": round(pnl_percent, 2),
+        "close_reason": reason,
+        "closed_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.trades.update_one({"id": trade_id}, {"$set": update_data})
+    
+    mode_str = "Paper" if is_paper else "Live"
+    logger.info(f"✅ [{mode_str}] Trade closed: {trade.get('token_symbol', trade_id)} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
+    
+    return {
+        "success": True, 
+        "pnl": round(pnl_sol, 6), 
+        "pnl_percent": round(pnl_percent, 2),
+        "exit_price": exit_price,
+        "mode": mode_str.lower()
+    }
 
 @api_router.put("/trades/{trade_id}/update-price")
 async def update_trade_price(trade_id: str, current_price: float):

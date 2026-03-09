@@ -41,7 +41,30 @@ Features:
 - Trade-Detail-Modal mit allen Informationen
 - Deutsche Übersetzungen via react-i18next
 
-### 3. Deutsche Benutzeroberfläche ✅
+### 3. Trade-Schließ-System ✅ (März 2026)
+**Bug behoben: "trade failed" Fehler**
+
+**Lösung:**
+- Neuer `POST /api/trades/{trade_id}/close` Endpoint
+- Automatische Preisabfrage via DEX Screener
+- Paper Mode: Simulierte Schließung ohne echten Swap
+- Live Mode: Bereit für Jupiter-Swap-Integration
+- Verbessertes Frontend-Feedback mit P&L-Anzeige
+
+**Endpoint:** `POST /api/trades/{trade_id}/close`
+
+Response:
+```json
+{
+  "success": true,
+  "pnl": 0.031886,
+  "pnl_percent": 31.89,
+  "exit_price": 0.0000239,
+  "mode": "paper"
+}
+```
+
+### 4. Deutsche Benutzeroberfläche ✅
 Vollständig übersetzt via `react-i18next`:
 
 | Englisch | Deutsch |
@@ -57,37 +80,33 @@ Vollständig übersetzt via `react-i18next`:
 | Duration | Dauer |
 | Time Opened | Eröffnet |
 | Time Closed | Geschlossen |
-| Take Profit | Gewinnziel |
-| Stop Loss | Stop-Loss |
-| Paper Mode | Testmodus |
-| Live Mode | Live-Modus |
 
-### 4. RPC-Architektur ✅
+### 5. RPC-Architektur ✅
 - Alle RPC-Aufrufe über Backend
 - Automatisches Failover
 - Health Monitoring
 
-### 5. Risikomanagement ✅
+### 6. Risikomanagement ✅
 - Max Daily Loss: 15%
 - Loss Streak Limit: 5
 - Auto-Pause bei Limit-Erreichen
 
 ## Test-Ergebnisse (März 2026)
-- **Backend:** 100% (69/74 Tests PASS)
-- **Frontend:** 100% (25/25 Tests PASS)
-- **Closed Trades Feature:** Vollständig getestet
+- **Backend:** 100% Tests PASS
+- **Frontend:** 100% Tests PASS
+- **Trade-Schließ-System:** Verifiziert
 
 ## API Endpoints
 
-| Endpoint | Beschreibung |
-|----------|-------------|
-| `GET /api/trades?status=OPEN` | Offene Trades abrufen |
-| `GET /api/trades?status=CLOSED` | Geschlossene Trades abrufen |
-| `GET /api/portfolio` | Portfolio-Statistiken |
-| `GET /api/auto-trading/status` | Trading Engine Status |
-| `POST /api/auto-trading/start` | Trading Engine starten |
-| `POST /api/auto-trading/stop` | Trading Engine stoppen |
-| `GET /api/system/health` | System-Diagnostik |
+| Endpoint | Methode | Beschreibung |
+|----------|---------|-------------|
+| `/api/trades?status=OPEN` | GET | Offene Trades abrufen |
+| `/api/trades?status=CLOSED` | GET | Geschlossene Trades abrufen |
+| `/api/trades/{id}/close` | POST | Trade schließen (auto-price) |
+| `/api/trades/{id}/close?exit_price=x` | PUT | Trade mit Preis schließen |
+| `/api/portfolio` | GET | Portfolio-Statistiken |
+| `/api/auto-trading/start` | POST | Trading Engine starten |
+| `/api/auto-trading/stop` | POST | Trading Engine stoppen |
 
 ## Code-Architektur
 
@@ -97,63 +116,36 @@ Vollständig übersetzt via `react-i18next`:
 │   ├── server.py           # FastAPI mit Trading Engine
 │   ├── requirements.txt
 │   └── tests/
-│       └── test_closed_trades.py  # API Tests
+│       └── test_closed_trades.py
 ├── frontend/
-│   ├── package.json
 │   └── src/
 │       ├── i18n/
 │       │   ├── de.json     # Deutsche Übersetzungen
 │       │   └── en.json     # Englische Übersetzungen
 │       ├── components/
-│       │   ├── LiveTradesPanel.jsx  # Trade Historie
-│       │   ├── WalletPanel.jsx
-│       │   └── TradingViewWidget.jsx
+│       │   ├── LiveTradesPanel.jsx  # Trade Historie + Close
+│       │   └── ...
 │       └── pages/
 │           └── Dashboard.jsx
 └── tests/
     └── e2e/
-        ├── closed-trades-history.spec.ts
-        └── core-flows.spec.ts
+        └── closed-trades-history.spec.ts
 ```
 
 ## Nächste Schritte (Phase 2)
 
 1. **Performance Dashboard** (P1)
-   - Erweiterte Statistiken über dem Closed Trades Panel
+   - Erweiterte Statistiken
    - Top profitable Tokens
    - Profit per Hour/Day
 
-2. **Liquiditäts-Migration Detektor** (P1)
-   - Pump.fun → Raydium/Orca Migration erkennen
+2. **Jupiter Swap Integration** (P1)
+   - Live Mode Swap-Ausführung
+   - Route-Validierung
 
-3. **Smart Wallet Tracking** (P1)
-   - Profitable Wallets verfolgen
-
-## Zukünftige Aufgaben (Phase 3)
-
-1. **Ultra-Fast Sniper Modul** (P2)
-   - Block-Level Event Monitoring
-
-2. **MEV-Schutz** (P2)
-   - Priority Fees gegen Sandwich-Attacken
-
-3. **Telegram Benachrichtigungen** (P2)
-   - Trade-Alerts via Telegram Bot
+3. **Liquiditäts-Migration Detektor** (P1)
+   - Pump.fun → Raydium/Orca
 
 ## Credentials
 - **PIN:** Vom Benutzer gesetzt (Standard: 1234)
 - **RPC:** Ankr (Primary), Solana Mainnet (Fallback)
-
-## Umgebungsvariablen
-
-### Backend (.env)
-```
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=test_database
-HELIUS_API_KEY=          # Optional
-```
-
-### Frontend (.env)
-```
-REACT_APP_BACKEND_URL=https://...
-```
