@@ -1,126 +1,113 @@
-# Pump.fun Trading Bot - PRD v27
+# Pump.fun Trading Bot - PRD v28
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
-**Optimiert für große Gewinne pro Trade statt viele kleine Micro-Trades.**
+**Big Wins V2: Große Gewinne, kleine Verluste.**
 
-## System Status: BIG WINS STRATEGY AKTIV ✅
+## System Status: BIG WINS V2 AKTIV ✅
 
 Letztes Update: 2026-03-09
 
 ---
 
-## Changelog
+## Big Wins V2 Strategy
 
-### 2026-03-09 - Big Wins Strategy Implementation
+### Ziel
+- **Winrate:** 30-45%
+- **Avg Win:** +30% bis +80%
+- **Avg Loss:** -10% bis -12%
 
-**Komplette Strategieumstellung von "Micro-Trades" auf "Big Wins":**
+### Stop-Loss (HARD LIMIT)
+| Typ | Wert |
+|-----|------|
+| Hard Stop | **-12%** |
+| Max Loss | **-15%** (Emergency) |
 
-#### Take-Profit Levels (Mehrstufig)
+Der Bot verkauft **automatisch** bei -12% Verlust.
+Verluste über -15% sind **unmöglich**.
+
+### Take-Profit Levels
 | Level | Trigger | Aktion |
 |-------|---------|--------|
-| TP1 | +25% | 30% Position verkaufen |
-| TP2 | +60% | weitere 30% verkaufen |
-| TP3 | +120% | weitere 20% verkaufen |
+| TP1 | +25% | 30% verkaufen |
+| TP2 | +60% | 30% verkaufen |
+| TP3 | +120% | 20% verkaufen |
 | Runner | - | 20% laufen lassen |
 
-#### Trailing Profit System
-- **Start:** +35% Gewinn aktiviert Trailing
-- **Stop:** 15% unter Peak wird verkauft
-- Beispiel: Peak +80% → fällt auf +68% → SELL
+### Trailing Profit
+- **Start:** +35%
+- **Stop:** 15% unter Peak
 
-#### Minimum Profit Rule
-- Kein Verkauf unter **+15%** Gewinn
-- Verhindert Micro-Exits bei kleinen Bewegungen
-
-#### Winner Protection
-- Bei **+100%** Gewinn: Stop-Loss auf **+40%** setzen
-- Schützt große Gewinne automatisch
-
-#### Stop Loss
-- Standard: **-15%** (statt -6%)
-- Akzeptiert kleine Verluste für große Gewinner
-
-#### Entry Quality Filter (STRIKT)
+### Entry Quality Filter (VERSCHÄRFT)
 | Filter | Wert |
 |--------|------|
-| Liquidität | ≥ $40,000 |
-| Market Cap | $80k - $3M |
+| Liquidität | ≥ $30,000 |
+| Volume 5m | ≥ $8,000 |
+| Holders | ≥ 80 |
+| Token Age | 2min - 12h |
+| Market Cap | $50k - $3M |
+
+### Momentum Entry
+| Kriterium | Wert |
+|-----------|------|
+| Price Change 1m | ≥ 5% |
 | Volume Spike | ≥ 2x |
-| Token Age | ≤ 12 Stunden |
-| Holders | ≥ 50 |
+| Buyers 1m | > Sellers |
 
-#### Pump Detection
-```
-volume_1m > volume_5m_average × 1.8
-```
+### Position Sizing
+| Parameter | Wert |
+|-----------|------|
+| Trade Size | 2.5% Wallet |
+| Max Trade | 0.1 SOL |
+| Max Trades | 25 parallel |
+| Per Token | 1 Trade max |
+| Capital in Trades | 50% max |
 
-#### Slippage Kontrolle
-- Max: **8%** (Trade abbrechen)
-- Warnung: **5%**
-
-#### Zielwerte
-| Metrik | Ziel |
-|--------|------|
-| Avg Win | +35% bis +80% |
-| Avg Loss | -10% bis -15% |
-| Win Rate | 30-45% |
-
----
-
-### 2026-03-09 - Multi-Source Scanner V4
-
-**Hochverfügbare Scanner-Architektur:**
-- 7 Datenquellen (DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun)
-- Exponential Backoff bei Rate-Limiting
-- 1800+ Tokens pro Scan
-- Automatisches Failover
+### Risk Management
+| Parameter | Wert |
+|-----------|------|
+| Daily Loss Limit | 15% |
+| Max Loss Streak | 5 |
+| Pause nach Streak | 5 Minuten |
 
 ---
 
 ## API Endpoints
 
-### Strategy Endpoints
+### Strategy
 | Endpoint | Beschreibung |
 |----------|--------------|
-| `GET /api/strategy/config` | Big Wins Konfiguration |
+| `GET /api/strategy/config` | Big Wins V2 Konfiguration |
 | `GET /api/strategy/stats` | Performance-Statistiken |
 
-### Scanner Endpoints
+### Scanner
 | Endpoint | Beschreibung |
 |----------|--------------|
-| `GET /api/scanner/stats` | Scanner V4 Statistiken |
-| `GET /api/scanner/health` | Health-Status aller Quellen |
+| `GET /api/scanner/health` | Scanner Health Status |
 | `POST /api/scanner/reset-health` | Health zurücksetzen |
-
-### Trading Endpoints
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `POST /api/trades/update-all-prices` | Big Wins Preis-Update mit TP Levels |
-| `GET /api/auto-trading/status` | Bot-Status |
-| `POST /api/auto-trading/start/stop` | Bot starten/stoppen |
 
 ---
 
-## Code Architecture
+## Changelog
 
-```
-/app/backend/
-├── server.py           # Haupt-API (Big Wins integriert)
-├── scanner/            # Multi-Source Scanner V4
-│   ├── multi_source_scanner.py
-│   ├── rate_limiter.py
-│   └── health_monitor.py
-├── trading/            # NEU: Trading Strategie Module
-│   ├── __init__.py
-│   └── big_wins_strategy.py
-└── tests/
+### 2026-03-09 - Big Wins V2
 
-/app/frontend/
-└── src/
-    └── pages/
-        └── Dashboard.jsx
-```
+**Verlust-Begrenzung:**
+- Hard Stop Loss: -12% (statt -15%)
+- Emergency Stop: -15% (absolutes Maximum)
+- Keine Trades über -15% Verlust möglich
+
+**Entry-Filter verschärft:**
+- Liquidity: $30k (statt $40k variabel)
+- Volume 5m: $8k (neu)
+- Holders: 80 (statt 50)
+- Token Age: min 2 Minuten (statt 30s)
+- Price Change: 5% (statt 3%)
+
+**Risk Management:**
+- Max Loss Streak: 5 (statt 8)
+- Daily Loss: 15% (statt 20%)
+- Max Trades per Token: 1 (statt 2)
 
 ---
 
@@ -128,12 +115,3 @@ volume_1m > volume_5m_average × 1.8
 
 - **PIN:** 1234
 - **Birdeye API Key:** Optional (BIRDEYE_API_KEY)
-
----
-
-## Nächste Schritte
-
-🟠 **P1:** Dashboard UI für Big Wins (TP Levels, Partial Sells anzeigen)
-🟠 **P1:** Refactoring server.py in Module
-🟡 **P2:** Telegram Benachrichtigungen
-🟡 **P2:** MEV Protection

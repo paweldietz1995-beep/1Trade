@@ -79,13 +79,13 @@ class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     
-    # ===== BIG WINS CAPITAL MANAGEMENT =====
+    # ===== BIG WINS V2 CAPITAL MANAGEMENT =====
     total_budget_sol: float = 3.0
-    max_trade_percent: float = 2.0        # 2% of budget per trade (larger positions)
-    min_trade_sol: float = 0.01           # Min 0.01 SOL per trade
-    max_parallel_trades: int = 30         # 30 focused trades (not 120 micro)
+    max_trade_percent: float = 2.5        # 2.5% of budget per trade
+    min_trade_sol: float = 0.015          # Min 0.015 SOL per trade
+    max_parallel_trades: int = 25         # 25 focused trades
     max_trade_amount_sol: float = 0.1     # Max 0.1 SOL per trade
-    max_capital_in_trades_percent: float = 60.0  # Max 60% of wallet
+    max_capital_in_trades_percent: float = 50.0  # Max 50% of wallet (safer)
     
     # ===== BIG WINS PROFIT TARGETS =====
     # Mehrstufige Take-Profit Levels
@@ -105,8 +105,10 @@ class BotSettings(BaseModel):
     # ===== MINIMUM PROFIT RULE =====
     minimum_profit_before_sell: float = 15.0  # Kein Verkauf unter +15%
     
-    # ===== STOP LOSS =====
-    stop_loss_percent: float = 15.0       # -15% Stop Loss
+    # ===== HARD STOP LOSS - CRITICAL =====
+    stop_loss_percent: float = 12.0       # ⚠️ HARD: -12% Stop Loss
+    max_loss_percent: float = 15.0        # ⚠️ ABSOLUTE MAX: -15%
+    hard_stop_enabled: bool = True        # Force close at stop loss
     
     # ===== WINNER PROTECTION =====
     protect_winners_enabled: bool = True
@@ -115,45 +117,50 @@ class BotSettings(BaseModel):
     
     # ===== LEGACY COMPATIBILITY =====
     take_profit_percent: float = 25.0     # Legacy: First TP level
-    trailing_stop_enabled: bool = True    # Legacy: Alias for trailing_profit_enabled
+    trailing_stop_enabled: bool = True    # Legacy alias
     
-    # ===== RISK MANAGEMENT =====
-    max_daily_loss_percent: float = 20.0  # 20% max daily loss
-    max_daily_loss_sol: float = 0.6       # Max daily loss
-    max_loss_streak: int = 8              # Max 8 consecutive losses
+    # ===== RISK MANAGEMENT (VERSCHÄRFT) =====
+    max_daily_loss_percent: float = 15.0  # 15% max daily loss (stricter)
+    max_daily_loss_sol: float = 0.45      # Max daily loss
+    max_loss_streak: int = 5              # Max 5 consecutive losses (stricter)
+    loss_streak_pause_seconds: int = 300  # 5 min pause after loss streak
     
-    # ===== ENTRY QUALITY FILTERS (STRICT) =====
-    min_liquidity_usd: float = 40000.0    # $40k minimum (strict)
-    min_volume_usd: float = 5000.0        # $5k minimum
-    min_market_cap_usd: float = 80000.0   # $80k min market cap
+    # ===== ENTRY QUALITY FILTERS (VERSCHÄRFT) =====
+    min_liquidity_usd: float = 30000.0    # $30k minimum
+    min_volume_usd: float = 8000.0        # $8k minimum
+    min_volume_5m: float = 8000.0         # $8k 5-minute volume
+    min_market_cap_usd: float = 50000.0   # $50k min market cap
     max_market_cap_usd: float = 3000000.0 # $3M max market cap
     min_volume_spike: float = 2.0         # 2x volume spike required
-    max_dev_wallet_percent: float = 20.0  # Max 20% dev wallet
-    max_top10_wallet_percent: float = 70.0 # Max 70% top 10 wallets
-    min_token_age_seconds: int = 30       # Min 30 seconds old
+    max_dev_wallet_percent: float = 15.0  # Max 15% dev wallet (stricter)
+    max_top10_wallet_percent: float = 60.0 # Max 60% top 10 wallets (stricter)
+    min_token_age_seconds: int = 120      # ⚠️ Min 2 minutes old (avoid rugs)
     max_token_age_hours: int = 12         # Max 12 hours old
     min_buy_sell_ratio: float = 1.5       # Strong buy pressure required
-    min_holders: int = 50                 # Min 50 holders
+    min_holders: int = 80                 # ⚠️ Min 80 holders (stricter)
     
-    # ===== PUMP DETECTION =====
-    pump_volume_multiplier: float = 1.8   # volume_1m > volume_5m_avg × 1.8
-    pump_price_change_min: float = 3.0    # Min 3% price change
+    # ===== MOMENTUM ENTRY (VERSCHÄRFT) =====
+    pump_volume_multiplier: float = 2.0   # volume_1m > volume_5m_avg × 2.0
+    pump_price_change_min: float = 5.0    # ⚠️ Min 5% price change (momentum)
     pump_buyers_ratio: float = 1.5        # Buyers > Sellers × 1.5
     
     # ===== SLIPPAGE CONTROL =====
     max_slippage_percent: float = 8.0     # Max 8% slippage
     slippage_warning_percent: float = 5.0 # Warning at 5%
     slippage_bps: int = 300               # 3% slippage in basis points
+    reject_high_slippage: bool = True     # Reject trades > max slippage
     
-    # ===== MOMENTUM THRESHOLDS =====
-    min_momentum_score: int = 50          # Higher threshold for quality
-    min_volume_surge_percent: float = 80.0 # 80% volume surge
-    min_buyers_1m: int = 3                # 3 buyers in 1 minute
+    # ===== MOMENTUM THRESHOLDS (VERSCHÄRFT) =====
+    min_momentum_score: int = 60          # Higher threshold for quality
+    min_volume_surge_percent: float = 100.0 # 100% volume surge
+    min_buyers_1m: int = 5                # ⚠️ 5 buyers in 1 minute (stricter)
+    min_price_change_1m: float = 5.0      # ⚠️ 5% price change required
     
     # ===== AUTOMATION =====
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: float = 5.0    # 5 second scanning (less aggressive)
+    scan_interval_seconds: float = 5.0    # 5 second scanning
+    max_trades_per_token: int = 1         # ⚠️ Only 1 trade per token
     
     # ===== ADVANCED =====
     smart_wallet_tracking: bool = True
@@ -342,17 +349,17 @@ auto_trading_state = {
     "last_reset_date": None
 }
 
-# Engine Configuration - BIG WINS STRATEGY
-# ============== OPTIMIZED FOR LARGE PROFITS ==============
+# Engine Configuration - BIG WINS STRATEGY V2
+# ============== OPTIMIZED FOR LARGE PROFITS, SMALL LOSSES ==============
 ENGINE_CONFIG = {
     # ===== SCANNING (RATE-LIMIT PROTECTED) =====
-    "scan_interval_seconds": 5.0,         # 5 seconds between scans (less aggressive)
+    "scan_interval_seconds": 5.0,         # 5 seconds between scans
     "max_tokens_per_scan": 2000,          # Process up to 2000 tokens
     "max_signals_per_scan": 500,          # Focus on top 500 signals
-    "max_open_trades": 30,                # 30 focused trades (not 120 micro)
-    "max_trades_per_token": 2,            # Max 2 trades per token
-    "signal_cooldown_seconds": 60,        # 60 second cooldown
-    "min_signal_score": 50,               # Higher threshold for quality
+    "max_open_trades": 25,                # 25 focused trades
+    "max_trades_per_token": 1,            # ⚠️ STRICT: Only 1 trade per token
+    "signal_cooldown_seconds": 120,       # 2 minute cooldown per token
+    "min_signal_score": 60,               # Higher threshold for quality
     
     # ===== BIG WINS PROFIT TARGETS =====
     # Mehrstufige Take-Profit: 25% → 60% → 120% → Runner
@@ -369,13 +376,15 @@ ENGINE_CONFIG = {
     "trailing_start_percent": 35,         # Aktivieren ab +35%
     "trailing_stop_percent": 15,          # 15% unter Peak verkaufen
     "trailing_stop_enabled": True,        # Legacy
-    "trailing_stop_activation": 35,       # Legacy: Same as trailing_start
+    "trailing_stop_activation": 35,       # Legacy
     
     # ===== MINIMUM PROFIT RULE =====
     "minimum_profit_before_sell": 15,     # Kein Verkauf unter +15%
     
-    # ===== STOP LOSS =====
-    "stop_loss_percent": 15,              # -15% Stop Loss
+    # ===== HARD STOP LOSS - CRITICAL =====
+    "stop_loss_percent": 12,              # ⚠️ HARD LIMIT: -12% Stop Loss
+    "max_loss_percent": 15,               # ⚠️ ABSOLUTE MAX: -15% (emergency)
+    "hard_stop_enabled": True,            # Force close at stop loss
     
     # ===== WINNER PROTECTION =====
     "protect_winners_enabled": True,
@@ -383,69 +392,73 @@ ENGINE_CONFIG = {
     "protected_stop_percent": 40,         # SL auf +40%
     
     # ===== RISK MANAGEMENT =====
-    "daily_loss_limit_percent": 20,       # 20% max daily loss
-    "loss_streak_limit": 8,               # Max 8 consecutive losses
+    "daily_loss_limit_percent": 15,       # 15% max daily loss (stricter)
+    "loss_streak_limit": 5,               # Max 5 consecutive losses (stricter)
+    "loss_streak_pause_seconds": 300,     # 5 min pause after loss streak
     
-    # ===== ENTRY QUALITY FILTERS (STRICT) =====
-    "min_liquidity_usd": 40000,           # $40k minimum (strict)
-    "min_volume_usd": 5000,               # $5k minimum
-    "min_market_cap_usd": 80000,          # $80k min market cap
+    # ===== ENTRY QUALITY FILTERS (VERSCHÄRFT) =====
+    "min_liquidity_usd": 30000,           # $30k minimum
+    "min_volume_usd": 8000,               # $8k minimum
+    "min_volume_5m": 8000,                # $8k 5-minute volume
+    "min_market_cap_usd": 50000,          # $50k min market cap
     "max_market_cap_usd": 3000000,        # $3M max market cap
-    "min_volume_5m": 2000,                # $2k 5-minute volume
     "min_volume_spike": 2.0,              # 2x volume spike required
-    "min_volume_surge_percent": 80,       # 80% volume surge
-    "min_buy_sell_ratio": 1.5,            # Strong buy pressure
-    "min_buyers_1m": 3,                   # 3 buyers in 1 minute
-    "min_momentum_score": 50,             # Higher threshold
-    "min_price_change_1m": 3.0,           # 3% price change
+    "min_volume_surge_percent": 100,      # 100% volume surge
+    "min_buy_sell_ratio": 1.5,            # Buyers > Sellers
+    "min_buyers_1m": 5,                   # 5 buyers in 1 minute (stricter)
+    "min_momentum_score": 60,             # Higher threshold
+    "min_price_change_1m": 5.0,           # ⚠️ 5% price change (momentum entry)
     "max_token_age_hours": 12,            # Max 12 hours old
-    "min_token_age_seconds": 30,          # Min 30 seconds
+    "min_token_age_seconds": 120,         # ⚠️ Min 2 minutes old (avoid rugs)
+    "min_holders": 80,                    # ⚠️ Min 80 holders
     "price_update_interval": 3,           # Update every 3 seconds
     
-    # ===== PUMP DETECTION =====
-    "pump_volume_multiplier": 1.8,        # volume_1m > volume_5m_avg × 1.8
-    "pump_price_change_min": 3.0,         # Min 3% price change
+    # ===== PUMP DETECTION (VERSCHÄRFT) =====
+    "pump_volume_multiplier": 2.0,        # volume_1m > volume_5m_avg × 2.0
+    "pump_price_change_min": 5.0,         # Min 5% price change
     "pump_buyers_ratio": 1.5,             # Buyers > Sellers × 1.5
     
-    # ===== MOMENTUM ENTRY SIGNAL =====
-    "momentum_volume_multiplier": 1.8,    # 1.8x baseline volume
-    "momentum_price_change_min": 3.0,     # 3% price change
+    # ===== MOMENTUM ENTRY SIGNAL (VERSCHÄRFT) =====
+    "momentum_volume_multiplier": 2.0,    # 2x baseline volume
+    "momentum_price_change_min": 5.0,     # 5% price change
+    "momentum_buyers_dominance": True,    # buyers > sellers required
     
     # ===== NEW TOKEN PRIORITY =====
     "new_token_age_seconds": 300,         # < 5 minutes = bonus
     "new_token_priority_bonus": 30,       # +30 priority
-    "ultra_new_token_seconds": 120,       # < 2 minutes
-    "ultra_new_token_bonus": 50,          # +50 priority
+    "ultra_new_token_seconds": 180,       # < 3 minutes (not too new)
+    "ultra_new_token_bonus": 40,          # +40 priority
     
     # ===== EARLY PUMP DETECTION =====
-    "early_pump_volume_surge": 100,       # 100% volume surge (stricter)
-    "early_pump_price_change_1m": 3.0,    # 3.0% price change
-    "early_pump_min_liquidity": 20000,    # $20k min liquidity
+    "early_pump_volume_surge": 150,       # 150% volume surge (stricter)
+    "early_pump_price_change_1m": 5.0,    # 5.0% price change
+    "early_pump_min_liquidity": 30000,    # $30k min liquidity
     
     # ===== POSITION SIZING =====
-    "trade_percent": 2.0,                 # 2% of wallet per trade
-    "micro_trade_percent": 2.0,           # Legacy alias
+    "trade_percent": 2.5,                 # 2.5% of wallet per trade
+    "micro_trade_percent": 2.5,           # Legacy alias
     "max_trade_sol": 0.1,                 # Max 0.1 SOL per trade
     "max_micro_trade_sol": 0.1,           # Legacy alias
-    "min_trade_sol": 0.01,                # Min 0.01 SOL
-    "min_micro_trade_sol": 0.01,          # Legacy alias
+    "min_trade_sol": 0.015,               # Min 0.015 SOL
+    "min_micro_trade_sol": 0.015,         # Legacy alias
     
     # ===== CAPITAL CONTROL =====
-    "max_capital_in_trades_percent": 60,  # Max 60% in trades
-    "capital_reserve_percent": 40,        # Keep 40% reserve
+    "max_capital_in_trades_percent": 50,  # Max 50% in trades (safer)
+    "capital_reserve_percent": 50,        # Keep 50% reserve
     
     # ===== SLIPPAGE CONTROL =====
     "max_slippage_percent": 8,            # Max 8% slippage
     "slippage_warning_percent": 5,        # Warning at 5%
+    "reject_high_slippage": True,         # Reject trades > max slippage
     
     # ===== SMART WALLET TRACKING =====
-    "smart_wallet_min_profit": 50,        # 50% min profit (higher)
+    "smart_wallet_min_profit": 50,        # 50% min profit
     "smart_wallet_min_trades": 5,         # 5 min trades
     "copy_trade_delay_ms": 200,           # 200ms delay
     
     # ===== DAILY LIMITS =====
-    "max_daily_trades": 100,              # Max 100 trades/day (focused)
-    "max_portfolio_risk": 0.60,           # 60% max portfolio risk
+    "max_daily_trades": 50,               # Max 50 trades/day (quality over quantity)
+    "max_portfolio_risk": 0.50,           # 50% max portfolio risk
     
     # ===== SCANNER SOURCES =====
     "scanner_sources": [
@@ -457,6 +470,11 @@ ENGINE_CONFIG = {
         "meteora",
         "pumpfun"
     ],
+    
+    # ===== TARGET PERFORMANCE =====
+    "target_winrate": (30, 45),           # 30-45% win rate
+    "target_avg_win": (30, 80),           # +30% to +80% average win
+    "target_avg_loss": (-10, -12),        # -10% to -12% average loss
 }
 
 
@@ -4646,8 +4664,23 @@ async def update_all_trade_prices():
                 update_data["price_peak"] = current_price
                 peak = current_price
             
+            # ===== HARD STOP LOSS CHECK (-12%) =====
+            hard_stop_percent = ENGINE_CONFIG.get("stop_loss_percent", 12)
+            max_loss_percent = ENGINE_CONFIG.get("max_loss_percent", 15)
+            
+            # Calculate hard stop price if not set
+            if sl_price <= 0:
+                sl_price = entry_price * (1 - hard_stop_percent / 100)
+                update_data["stop_loss"] = sl_price
+            
+            # ⚠️ EMERGENCY STOP: Force close if loss exceeds max
+            if pnl_percent <= -max_loss_percent:
+                should_close = True
+                close_reason = "EMERGENCY_STOP"
+                logger.warning(f"🚨 EMERGENCY STOP: {trade.get('token_symbol')} at {pnl_percent:.1f}% (max loss exceeded)")
+            
             # ===== CHECK STOP LOSS =====
-            if sl_price > 0 and current_price <= sl_price:
+            elif sl_price > 0 and current_price <= sl_price:
                 should_close = True
                 close_reason = "PROTECTED_STOP" if protected else "STOP_LOSS"
             
@@ -4888,18 +4921,17 @@ async def get_portfolio_summary():
 @api_router.get("/strategy/config")
 async def get_strategy_config():
     """
-    Get current Big Wins strategy configuration.
+    Get current Big Wins V2 strategy configuration.
     
-    Shows:
-    - Take Profit Levels (25% / 60% / 120%)
-    - Trailing Profit Settings
-    - Entry Quality Filters
-    - Stop Loss Configuration
-    - Winner Protection Settings
+    Optimiert für: Große Gewinne, kleine Verluste
+    - Hard Stop Loss: -12%
+    - Take Profit Levels: 25% / 60% / 120%
+    - Verschärfte Entry-Filter
     """
     return {
-        "strategy_name": "Big Wins",
-        "description": "Optimiert für große Gewinne pro Trade statt viele kleine",
+        "strategy_name": "Big Wins V2",
+        "version": "2.0",
+        "description": "Optimiert für große Gewinne und kleine Verluste",
         "take_profit": {
             "enabled": ENGINE_CONFIG.get("take_profit_enabled", True),
             "levels": ENGINE_CONFIG.get("take_profit_levels", []),
@@ -4916,8 +4948,10 @@ async def get_strategy_config():
             "description": f"Kein Verkauf unter +{ENGINE_CONFIG.get('minimum_profit_before_sell', 15)}%"
         },
         "stop_loss": {
-            "percent": ENGINE_CONFIG.get("stop_loss_percent", 15),
-            "description": f"-{ENGINE_CONFIG.get('stop_loss_percent', 15)}% Stop Loss"
+            "hard_stop_percent": ENGINE_CONFIG.get("stop_loss_percent", 12),
+            "max_loss_percent": ENGINE_CONFIG.get("max_loss_percent", 15),
+            "hard_stop_enabled": ENGINE_CONFIG.get("hard_stop_enabled", True),
+            "description": f"⚠️ HARD STOP: -{ENGINE_CONFIG.get('stop_loss_percent', 12)}% | MAX: -{ENGINE_CONFIG.get('max_loss_percent', 15)}%"
         },
         "winner_protection": {
             "enabled": ENGINE_CONFIG.get("protect_winners_enabled", True),
@@ -4926,31 +4960,44 @@ async def get_strategy_config():
             "description": f"Bei +{ENGINE_CONFIG.get('protect_at_percent', 100)}% → SL auf +{ENGINE_CONFIG.get('protected_stop_percent', 40)}%"
         },
         "entry_quality": {
-            "min_liquidity_usd": ENGINE_CONFIG.get("min_liquidity_usd", 40000),
-            "min_market_cap_usd": ENGINE_CONFIG.get("min_market_cap_usd", 80000),
+            "min_liquidity_usd": ENGINE_CONFIG.get("min_liquidity_usd", 30000),
+            "min_volume_5m_usd": ENGINE_CONFIG.get("min_volume_5m", 8000),
+            "min_market_cap_usd": ENGINE_CONFIG.get("min_market_cap_usd", 50000),
             "max_market_cap_usd": ENGINE_CONFIG.get("max_market_cap_usd", 3000000),
             "min_volume_spike": ENGINE_CONFIG.get("min_volume_spike", 2.0),
-            "max_token_age_hours": ENGINE_CONFIG.get("max_token_age_hours", 12)
+            "min_token_age_seconds": ENGINE_CONFIG.get("min_token_age_seconds", 120),
+            "max_token_age_hours": ENGINE_CONFIG.get("max_token_age_hours", 12),
+            "min_holders": ENGINE_CONFIG.get("min_holders", 80),
+            "description": "Verschärfte Filter für bessere Trade-Qualität"
         },
-        "pump_detection": {
-            "volume_multiplier": ENGINE_CONFIG.get("pump_volume_multiplier", 1.8),
-            "price_change_min": ENGINE_CONFIG.get("pump_price_change_min", 3.0),
+        "momentum_entry": {
+            "price_change_1m_min": ENGINE_CONFIG.get("min_price_change_1m", 5.0),
+            "volume_multiplier": ENGINE_CONFIG.get("pump_volume_multiplier", 2.0),
             "buyers_ratio": ENGINE_CONFIG.get("pump_buyers_ratio", 1.5),
-            "description": "volume_1m > volume_5m_avg × 1.8"
+            "min_buyers_1m": ENGINE_CONFIG.get("min_buyers_1m", 5),
+            "description": f"price_change_1m > {ENGINE_CONFIG.get('min_price_change_1m', 5)}% + volume_1m > avg × {ENGINE_CONFIG.get('pump_volume_multiplier', 2.0)}"
         },
         "slippage": {
             "max_percent": ENGINE_CONFIG.get("max_slippage_percent", 8),
-            "warning_percent": ENGINE_CONFIG.get("slippage_warning_percent", 5)
+            "warning_percent": ENGINE_CONFIG.get("slippage_warning_percent", 5),
+            "reject_high_slippage": ENGINE_CONFIG.get("reject_high_slippage", True)
         },
         "position_sizing": {
-            "trade_percent": ENGINE_CONFIG.get("trade_percent", 2.0),
+            "trade_percent": ENGINE_CONFIG.get("trade_percent", 2.5),
             "max_trade_sol": ENGINE_CONFIG.get("max_trade_sol", 0.1),
-            "max_parallel_trades": ENGINE_CONFIG.get("max_open_trades", 30)
+            "max_parallel_trades": ENGINE_CONFIG.get("max_open_trades", 25),
+            "max_trades_per_token": ENGINE_CONFIG.get("max_trades_per_token", 1)
+        },
+        "risk_management": {
+            "daily_loss_limit_percent": ENGINE_CONFIG.get("daily_loss_limit_percent", 15),
+            "max_loss_streak": ENGINE_CONFIG.get("loss_streak_limit", 5),
+            "max_capital_in_trades": f"{ENGINE_CONFIG.get('max_capital_in_trades_percent', 50)}%"
         },
         "target_performance": {
-            "avg_win": "+35% bis +80%",
-            "avg_loss": "-10% bis -15%",
-            "winrate": "30-45%"
+            "winrate": "30-45%",
+            "avg_win": "+30% bis +80%",
+            "avg_loss": "-10% bis -12%",
+            "expectancy": "Positiv durch große Wins, kleine Losses"
         }
     }
 
@@ -4984,6 +5031,7 @@ async def get_strategy_stats():
             "trailing_stop": 0,
             "stop_loss": 0,
             "protected_stop": 0,
+            "emergency_stop": 0,
             "manual": 0
         },
         "performance": {
@@ -5019,6 +5067,8 @@ async def get_strategy_stats():
             stats["exits"]["trailing_stop"] += 1
         elif "PROTECTED" in reason:
             stats["exits"]["protected_stop"] += 1
+        elif "EMERGENCY" in reason:
+            stats["exits"]["emergency_stop"] += 1
         elif "STOP_LOSS" in reason or "SL" in reason:
             stats["exits"]["stop_loss"] += 1
         elif "MANUAL" in reason:

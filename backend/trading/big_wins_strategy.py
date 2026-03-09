@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
-# ============== BIG WINS STRATEGY CONFIGURATION ==============
+# ============== BIG WINS STRATEGY CONFIGURATION V2 ==============
+# Optimiert für: Große Gewinne, kleine Verluste
 STRATEGY_CONFIG = {
     # ===== MEHRSTUFIGE TAKE-PROFIT LEVELS =====
     "take_profit_enabled": True,
@@ -42,50 +43,64 @@ STRATEGY_CONFIG = {
     # ===== MINIMUM PROFIT RULE =====
     "minimum_profit_before_sell": 15,  # Kein Verkauf unter +15%
     
-    # ===== STOP LOSS SETTINGS =====
-    "stop_loss_percent": 15,           # -15% Standard Stop Loss
-    "stop_loss_range": (12, 18),       # Akzeptabler Bereich: -12% bis -18%
+    # ===== HARD STOP LOSS - CRITICAL =====
+    "stop_loss_percent": 12,           # ⚠️ HARD: -12% Stop Loss
+    "max_loss_percent": 15,            # ⚠️ ABSOLUTE MAX: -15%
+    "hard_stop_enabled": True,         # Force close at stop loss
+    "stop_loss_range": (10, 12),       # Akzeptabler Bereich: -10% bis -12%
     
     # ===== GEWINNER SCHÜTZEN =====
     "protect_winners_enabled": True,
     "protect_at_percent": 100,         # Bei +100% Gewinn
     "protected_stop_percent": 40,      # Stop auf +40% setzen
     
-    # ===== ENTRY QUALITY FILTER =====
+    # ===== ENTRY QUALITY FILTER (VERSCHÄRFT) =====
     "entry_quality": {
-        "min_liquidity_usd": 40000,    # Mindestens $40k Liquidität
+        "min_liquidity_usd": 30000,    # $30k minimum
+        "min_volume_5m_usd": 8000,     # $8k 5-minute volume
         "min_volume_spike": 2.0,       # 2x Volume Spike
-        "min_market_cap_usd": 80000,   # Min $80k Market Cap
-        "max_market_cap_usd": 3000000, # Max $3M Market Cap
+        "min_market_cap_usd": 50000,   # $50k min market cap
+        "max_market_cap_usd": 3000000, # $3M max market cap
+        "min_token_age_seconds": 120,  # ⚠️ Min 2 minutes (avoid rugs)
         "max_age_hours": 12,           # Max 12 Stunden alt
-        "min_holders": 50,             # Mindestens 50 Holder
+        "min_holders": 80,             # ⚠️ Min 80 Holder (stricter)
     },
     
-    # ===== PUMP DETECTION =====
+    # ===== MOMENTUM ENTRY (VERSCHÄRFT) =====
     "pump_detection": {
-        "volume_1m_multiplier": 1.8,   # volume_1m > volume_5m_avg × 1.8
-        "price_change_1m_min": 3.0,    # Min 3% Price Change in 1m
+        "volume_1m_multiplier": 2.0,   # volume_1m > volume_5m_avg × 2.0
+        "price_change_1m_min": 5.0,    # ⚠️ Min 5% Price Change (momentum)
         "buyers_dominance": 1.5,       # Buyers > Sellers × 1.5
+        "min_buyers_1m": 5,            # ⚠️ Min 5 buyers in 1 minute
     },
     
     # ===== SLIPPAGE KONTROLLE =====
     "max_slippage_percent": 8,         # Max 8% Slippage
     "slippage_warning_percent": 5,     # Warnung ab 5%
+    "reject_high_slippage": True,      # Reject trades > max
     
     # ===== POSITION SIZING =====
     "position_sizing": {
-        "max_trades": 30,              # Max 30 parallele Trades (fokussierter)
-        "trade_percent": 2.0,          # 2% des Wallets pro Trade
+        "max_trades": 25,              # Max 25 parallele Trades
+        "max_trades_per_token": 1,     # ⚠️ Only 1 trade per token
+        "trade_percent": 2.5,          # 2.5% des Wallets pro Trade
         "max_trade_sol": 0.1,          # Max 0.1 SOL pro Trade
-        "min_trade_sol": 0.01,         # Min 0.01 SOL pro Trade
-        "max_capital_percent": 60,     # Max 60% des Kapitals in Trades
+        "min_trade_sol": 0.015,        # Min 0.015 SOL pro Trade
+        "max_capital_percent": 50,     # Max 50% des Kapitals in Trades
     },
     
-    # ===== RISK MANAGEMENT =====
+    # ===== RISK MANAGEMENT (VERSCHÄRFT) =====
     "risk_management": {
-        "daily_loss_limit_percent": 20,   # Max 20% Tagesverlust
-        "max_loss_streak": 8,             # Max 8 Verlusttrades in Folge
+        "daily_loss_limit_percent": 15,   # Max 15% Tagesverlust (stricter)
+        "max_loss_streak": 5,             # Max 5 Verlusttrades in Folge
         "cooldown_after_loss_streak": 300, # 5min Pause nach Verlustserie
+    },
+    
+    # ===== TARGET PERFORMANCE =====
+    "target_performance": {
+        "winrate": (30, 45),            # 30-45% Win Rate
+        "avg_win": (30, 80),            # +30% to +80% Average Win
+        "avg_loss": (-10, -12),         # -10% to -12% Average Loss
     },
 }
 
