@@ -1267,6 +1267,68 @@ async def stop_auto_trading():
         }
     }
 
+
+@api_router.post("/auto-trading/force-restart")
+async def force_restart_auto_trading(background_tasks: BackgroundTasks):
+    """Force restart the auto trading engine - clears any stuck state"""
+    global auto_trading_state, auto_trading_task
+    
+    logger.info("⚠️ FORCE RESTART: Clearing auto trading state...")
+    
+    # Force stop any existing task
+    if auto_trading_task:
+        auto_trading_task.cancel()
+        try:
+            await auto_trading_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"Error cancelling task: {e}")
+        auto_trading_task = None
+    
+    # Force reset state
+    auto_trading_state["is_running"] = False
+    auto_trading_state["is_paused"] = False
+    auto_trading_state["pause_reason"] = None
+    
+    # Wait a moment
+    await asyncio.sleep(0.5)
+    
+    # Now start fresh
+    return await start_auto_trading(background_tasks)
+
+
+@api_router.post("/auto-trading/reset")
+async def reset_auto_trading_state():
+    """Reset the auto trading state without starting - clears stuck states"""
+    global auto_trading_state, auto_trading_task
+    
+    logger.info("🔄 RESET: Clearing auto trading state...")
+    
+    # Force stop any existing task
+    if auto_trading_task:
+        auto_trading_task.cancel()
+        try:
+            await auto_trading_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+        auto_trading_task = None
+    
+    # Reset all state
+    auto_trading_state["is_running"] = False
+    auto_trading_state["is_paused"] = False
+    auto_trading_state["pause_reason"] = None
+    auto_trading_state["scan_count"] = 0
+    auto_trading_state["trades_executed"] = 0
+    auto_trading_state["signals_processed"] = 0
+    auto_trading_state["signal_queue"] = []
+    auto_trading_state["errors"] = []
+    
+    logger.info("✅ Auto trading state reset complete")
+    return {"success": True, "message": "Auto trading state reset"}
+
 @api_router.get("/auto-trading/status")
 async def get_auto_trading_status():
     """Get comprehensive auto trading status with performance metrics"""
@@ -2817,7 +2879,14 @@ async def rpc_health_monitor():
 @app.on_event("startup")
 async def start_rpc_monitor():
     """Start RPC health monitor on app startup"""
-    global rpc_monitor_task
+    global rpc_monitor_task, auto_trading_state, auto_trading_task
+    
+    # IMPORTANT: Reset auto trading state on startup to prevent "already running" error
+    auto_trading_state["is_running"] = False
+    auto_trading_state["is_paused"] = False
+    auto_trading_state["pause_reason"] = None
+    auto_trading_task = None
+    logger.info("🔄 Auto trading state reset on startup")
     
     # Initial connection test
     await get_working_rpc()

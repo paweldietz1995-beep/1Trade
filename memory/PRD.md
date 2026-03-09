@@ -1,58 +1,60 @@
-# Pump.fun Trading Bot - PRD v13
+# Pump.fun Trading Bot - PRD v14
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
 ## Zuletzt Behoben ✅
 
-### Echtzeit-Preisaktualisierung für TEST-Trades (März 2026)
-**Problem:** P&L, ROI und aktueller Preis wurden nicht in Echtzeit aktualisiert für Test-Trades.
+### 1. "Auto Trading Already Running" Fehler (März 2026)
+**Problem:** System zeigte "already running" Fehler auch wenn kein Bot aktiv war.
 
 **Lösung:**
-1. Backend verwendet jetzt `token_address` (Base-Token) statt `pair_address` für DEX Screener API-Abfragen
-2. Frontend aktualisiert Preise alle 2,5 Sekunden ohne stale state issues
-3. Beide Live und Test Trades werden gleich behandelt (nur ohne Blockchain-Transaktion)
+- Backend setzt `is_running = False` bei jedem Neustart
+- Neue Endpoints hinzugefügt:
+  - `POST /api/auto-trading/force-restart` - Erzwingt Neustart
+  - `POST /api/auto-trading/reset` - Setzt Zustand zurück ohne zu starten
+- Frontend zeigt "Force Restart" Toast bei Konflikt
 
-**Verifiziert:**
-- UNTAXED Trade: Entry $0.00037550 → Current $0.00040440
-- P&L: +0.007696 SOL (+7.70% ROI)
-- Farbcodierung: GRÜN für Gewinn, ROT für Verlust
+### 2. Echtzeit-Preisaktualisierung für TEST-Trades (März 2026)
+**Problem:** P&L, ROI, aktueller Preis wurden nicht aktualisiert.
+
+**Lösung:**
+- Backend verwendet `token_address` für DEX Screener API
+- Frontend aktualisiert alle 2,5 Sekunden
+- Beide Live und Test Trades werden gleich behandelt
 
 ## Vollständig Implementiert ✅
 
-### 1. Echtzeit-Preisverfolgung ✅
+### Auto Trading Engine
+- **Start/Stop/Force-Restart/Reset** Funktionen
+- **Scan-Intervall:** 2 Sekunden
+- **Max offene Trades:** 20
+- **Duplikat-Schutz**
+- **Signal-Cooldown:** 60 Sekunden
+
+### Echtzeit-Preisverfolgung
 - **Update-Intervall:** 2,5 Sekunden
-- **API:** DEX Screener `/latest/dex/tokens/{tokenAddress}`
-- **Unterstützt:** Alle Trade-Typen (Live und Test)
+- **API:** DEX Screener
+- **Auto-Close:** bei TP/SL/Trailing Stop
 
-### 2. P&L Berechnung ✅
-```
-pnl_sol = ((currentPrice - entryPrice) / entryPrice) * positionSizeSOL
-roi_percent = ((currentPrice - entryPrice) / entryPrice) * 100
-```
-
-### 3. Farbcodierung ✅
-- **GRÜN:** P&L > 0 (Gewinn)
-- **ROT:** P&L < 0 (Verlust)
-
-### 4. Auto-Close ✅
-- Take Profit Check: `currentPrice >= takeProfit`
-- Stop Loss Check: `currentPrice <= stopLoss`
-- Trailing Stop Check: `currentPrice <= trailingStop`
-
-### 5. Test-Modus ✅
-- Kein Blockchain-Swap
-- Keine echte Transaktion
-- Aber: Preisverfolgung, P&L, ROI funktionieren normal
+### Trade-Typen
+- **Live Mode:** Echte Blockchain-Transaktionen (vorbereitet)
+- **Test Mode:** Simuliert Position ohne Swap
 
 ## API Endpoints
 
 | Endpoint | Beschreibung |
 |----------|-------------|
+| `POST /api/auto-trading/start` | Engine starten |
+| `POST /api/auto-trading/stop` | Engine stoppen |
+| `POST /api/auto-trading/force-restart` | Erzwingt Neustart |
+| `POST /api/auto-trading/reset` | Setzt Zustand zurück |
 | `POST /api/trades/update-all-prices` | Bulk-Preisaktualisierung |
-| `GET /api/trades?status=OPEN` | Offene Trades |
-| `POST /api/trades/{id}/close` | Trade schließen |
-| `GET /api/activity` | Activity Feed |
+
+## Aktuelle Statistiken
+- **Geschlossene Trades:** 100+
+- **Trefferquote:** 29%
+- **Gesamt P&L:** +67.3%
 
 ## Nächste Schritte
 - Jupiter Swap Integration (Live Mode)

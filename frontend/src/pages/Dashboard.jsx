@@ -293,13 +293,78 @@ const Dashboard = () => {
           description: `Scanning every 3 seconds | Mode: ${tradingMode.toUpperCase()}`
         });
       } else {
-        toast.error('Failed to start auto trading', {
-          description: response.data.message
-        });
+        // If "already running" error, offer force restart
+        if (response.data.message?.includes('already running')) {
+          toast.warning('Auto Trading Status Conflict', {
+            description: 'Bot thinks it\'s running. Click "Force Restart" to fix.',
+            action: {
+              label: 'Force Restart',
+              onClick: () => forceRestartAutoTrading()
+            }
+          });
+        } else {
+          toast.error('Failed to start auto trading', {
+            description: response.data.message
+          });
+        }
       }
     } catch (error) {
       console.error('Error starting auto trading:', error);
       toast.error('Failed to start auto trading');
+    }
+  };
+
+  const forceRestartAutoTrading = async () => {
+    try {
+      console.log('⚠️ Force restarting Auto Trading Engine...');
+      
+      // Clear local state first
+      if (autoTradingIntervalRef.current) {
+        clearInterval(autoTradingIntervalRef.current);
+        autoTradingIntervalRef.current = null;
+      }
+      setAutoTradingActive(false);
+      
+      // Force restart on backend
+      const response = await axios.post(`${API_URL}/auto-trading/force-restart`);
+      
+      if (response.data.success) {
+        setAutoTradingActive(true);
+        autoTradingIntervalRef.current = setInterval(executeAutoTrade, 3000);
+        
+        toast.success('🔄 Auto Trading Force Restarted', {
+          description: 'Engine state cleared and restarted successfully'
+        });
+      } else {
+        toast.error('Force restart failed', {
+          description: response.data.message
+        });
+      }
+    } catch (error) {
+      console.error('Error force restarting:', error);
+      toast.error('Force restart failed');
+    }
+  };
+
+  const resetAutoTradingState = async () => {
+    try {
+      console.log('🔄 Resetting Auto Trading State...');
+      
+      // Clear local state
+      if (autoTradingIntervalRef.current) {
+        clearInterval(autoTradingIntervalRef.current);
+        autoTradingIntervalRef.current = null;
+      }
+      setAutoTradingActive(false);
+      
+      // Reset on backend
+      await axios.post(`${API_URL}/auto-trading/reset`);
+      
+      toast.success('✅ State Reset', {
+        description: 'Auto trading state cleared. You can start again.'
+      });
+    } catch (error) {
+      console.error('Error resetting state:', error);
     }
   };
 
