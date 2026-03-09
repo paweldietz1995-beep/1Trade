@@ -16,6 +16,15 @@ import httpx
 import asyncio
 from decimal import Decimal
 import json
+import base58
+
+# Solana native imports
+from solana.rpc.async_api import AsyncClient
+from solana.rpc.commitment import Commitment
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey
+from solders.transaction import Transaction
+from solders.system_program import TransferParams, transfer
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -3401,6 +3410,197 @@ RPC_CONFIG = {
     "confirm_timeout": 60000         # Transaction confirmation timeout (ms)
 }
 
+
+# ============== NATIVE SOLANA CLIENT ==============
+
+class SolanaClient:
+    """
+    Native Solana client using solana-py and solders.
+    Provides direct blockchain interaction with proper keypair handling.
+    """
+    
+    def __init__(self):
+        self.client: Optional[AsyncClient] = None
+        self.keypair: Optional[Keypair] = None
+        # Use official Solana RPC as default (most reliable)
+        self.current_rpc: str = "https://api.mainnet-beta.solana.com"
+        self.initialized = False
+    
+    async def initialize(self, rpc_url: str = None):
+        """Initialize the Solana async client"""
+        if rpc_url:
+            self.current_rpc = rpc_url
+        
+        try:
+            self.client = AsyncClient(self.current_rpc, commitment=Commitment("confirmed"))
+            
+            # Test connection
+            health = await self.client.is_connected()
+            if health:
+                logger.info(f"✅ SOLANA_CLIENT_CONNECTED: {self.current_rpc[:40]}...")
+                self.initialized = True
+                return {"success": True, "rpc": self.current_rpc}
+            else:
+                raise Exception("Connection health check failed")
+                
+        except Exception as e:
+            logger.error(f"❌ SOLANA_CLIENT_INIT_FAILED: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def switch_rpc(self, new_rpc: str):
+        """Switch to a different RPC endpoint"""
+        old_rpc = self.current_rpc
+        self.current_rpc = new_rpc
+        
+        if self.client:
+            await self.client.close()
+        
+        result = await self.initialize(new_rpc)
+        if result["success"]:
+            logger.info(f"🔄 RPC_SWITCHED: {old_rpc[:30]}... -> {new_rpc[:30]}...")
+        return result
+    
+    def load_keypair_from_env(self) -> dict:
+        """
+        Load wallet keypair from SOLANA_PRIVATE_KEY environment variable.
+        Supports both base58 and JSON array formats.
+        """
+        private_key_env = os.environ.get("SOLANA_PRIVATE_KEY")
+        
+        if not private_key_env:
+            logger.info("ℹ️ No SOLANA_PRIVATE_KEY set - running in read-only mode")
+            return {"success": False, "error": "No private key configured", "read_only": True}
+        
+        try:
+            # Try base58 format first (most common)
+            if not private_key_env.startswith("["):
+                private_key_bytes = base58.b58decode(private_key_env)
+                self.keypair = Keypair.from_bytes(private_key_bytes)
+            else:
+                # JSON array format
+                key_array = json.loads(private_key_env)
+                private_key_bytes = bytes(key_array)
+                self.keypair = Keypair.from_bytes(private_key_bytes)
+            
+            pubkey = str(self.keypair.pubkey())
+            logger.info(f"✅ KEYPAIR_LOADED: {pubkey[:12]}...{pubkey[-8:]}")
+            
+            return {
+                "success": True,
+                "pubkey": pubkey,
+                "keypair_loaded": True
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ KEYPAIR_LOAD_FAILED: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_balance(self, address: str = None) -> dict:
+        """
+        Get SOL balance for an address using native client.
+        If no address provided, uses loaded keypair.
+        """
+        if not self.client or not self.initialized:
+            await self.initialize()
+        
+        try:
+            if address:
+                pubkey = Pubkey.from_string(address)
+            elif self.keypair:
+                pubkey = self.keypair.pubkey()
+            else:
+                return {"success": False, "error": "No address or keypair available"}
+            
+            response = await self.client.get_balance(pubkey)
+            
+            if response.value is not None:
+                balance_sol = response.value / 1e9
+                logger.info(f"💰 BALANCE_FETCHED: {str(pubkey)[:12]}... = {balance_sol:.6f} SOL")
+                return {
+                    "success": True,
+                    "balance_lamports": response.value,
+                    "balance_sol": balance_sol,
+                    "address": str(pubkey)
+                }
+            else:
+                return {"success": False, "error": "Failed to fetch balance"}
+                
+        except Exception as e:
+            logger.error(f"❌ BALANCE_FETCH_ERROR: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_slot(self) -> dict:
+        """Get current slot for health check"""
+        if not self.client or not self.initialized:
+            await self.initialize()
+        
+        try:
+            response = await self.client.get_slot()
+            return {"success": True, "slot": response.value}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def get_recent_blockhash(self) -> dict:
+        """Get recent blockhash for transactions"""
+        if not self.client or not self.initialized:
+            await self.initialize()
+        
+        try:
+            response = await self.client.get_latest_blockhash()
+            return {
+                "success": True,
+                "blockhash": str(response.value.blockhash),
+                "last_valid_block_height": response.value.last_valid_block_height
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def get_token_accounts(self, address: str) -> dict:
+        """Get SPL token accounts for a wallet"""
+        if not self.client or not self.initialized:
+            await self.initialize()
+        
+        try:
+            pubkey = Pubkey.from_string(address)
+            # Using httpx for token accounts query
+            async with httpx.AsyncClient(timeout=15.0) as http_client:
+                response = await http_client.post(
+                    self.current_rpc,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTokenAccountsByOwner",
+                        "params": [
+                            address,
+                            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+                            {"encoding": "jsonParsed"}
+                        ]
+                    }
+                )
+                data = response.json()
+                if "result" in data:
+                    return {"success": True, "accounts": data["result"]["value"]}
+                return {"success": False, "error": data.get("error", {}).get("message", "Unknown")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_pubkey(self) -> Optional[str]:
+        """Get public key if keypair is loaded"""
+        if self.keypair:
+            return str(self.keypair.pubkey())
+        return None
+    
+    async def close(self):
+        """Close the client connection"""
+        if self.client:
+            await self.client.close()
+            self.initialized = False
+
+
+# Initialize global Solana client
+solana_client = SolanaClient()
+
+
 # RPC State Manager
 rpc_state = {
     "connected": False,
@@ -4834,6 +5034,68 @@ async def check_can_start_trading():
         "trading_engine_ready": wallet_sync_manager.trading_engine_ready,
         "initialization_complete": wallet_sync_manager.initialization_complete
     }
+
+
+# ============== NATIVE SOLANA CLIENT ENDPOINTS ==============
+
+@api_router.post("/solana/init")
+async def init_solana_client():
+    """Initialize the native Solana client"""
+    result = await solana_client.initialize()
+    return result
+
+
+@api_router.get("/solana/status")
+async def get_solana_client_status():
+    """Get native Solana client status"""
+    return {
+        "initialized": solana_client.initialized,
+        "current_rpc": solana_client.current_rpc[:50] + "..." if solana_client.current_rpc else None,
+        "keypair_loaded": solana_client.keypair is not None,
+        "pubkey": solana_client.get_pubkey()
+    }
+
+
+@api_router.post("/solana/load-keypair")
+async def load_solana_keypair():
+    """Load keypair from SOLANA_PRIVATE_KEY environment variable"""
+    result = solana_client.load_keypair_from_env()
+    return result
+
+
+@api_router.get("/solana/balance/{address}")
+async def get_native_balance(address: str):
+    """Get SOL balance using native Solana client"""
+    result = await solana_client.get_balance(address)
+    return result
+
+
+@api_router.get("/solana/slot")
+async def get_current_slot():
+    """Get current slot from Solana network"""
+    result = await solana_client.get_slot()
+    return result
+
+
+@api_router.get("/solana/blockhash")
+async def get_blockhash():
+    """Get recent blockhash for transactions"""
+    result = await solana_client.get_recent_blockhash()
+    return result
+
+
+@api_router.get("/solana/tokens/{address}")
+async def get_native_token_accounts(address: str):
+    """Get SPL token accounts using native client"""
+    result = await solana_client.get_token_accounts(address)
+    return result
+
+
+@api_router.post("/solana/switch-rpc")
+async def switch_solana_rpc(rpc_url: str):
+    """Switch to a different RPC endpoint"""
+    result = await solana_client.switch_rpc(rpc_url)
+    return result
 
 
 # ============== SYSTEM DIAGNOSTICS ==============
