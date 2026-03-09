@@ -335,27 +335,56 @@ class MultiWalletManager:
             wallet.capital_in_trades = max(0, wallet.capital_in_trades - trade_amount)
             self.unlock_token(token_mint)
     
-    async def update_all_balances(self, rpc_client) -> Dict:
+    async def update_all_balances(self, rpc_client=None) -> Dict:
         """
-        Aktualisiert SOL-Balances für alle Wallets via RPC.
+        Aktualisiert SOL-Balances für alle Wallets via direktem RPC.
         Sollte alle 30-60 Sekunden aufgerufen werden.
         """
-        results = {"updated": 0, "errors": 0}
+        import httpx
         
-        for wallet_id, wallet in self.wallets.items():
-            try:
-                balance_result = await rpc_client.get_balance(wallet.public_key)
-                if balance_result.get("success"):
-                    wallet.balance_sol = balance_result.get("balance_sol", 0)
-                    wallet.last_balance_update = datetime.now(timezone.utc)
-                    results["updated"] += 1
-                else:
+        results = {"updated": 0, "errors": 0, "balances": {}}
+        
+        # Nutze Solana Mainnet RPC direkt
+        rpc_url = "https://api.mainnet-beta.solana.com"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for wallet_id, wallet in self.wallets.items():
+                try:
+                    # Direkte RPC getBalance Abfrage
+                    response = await client.post(
+                        rpc_url,
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": wallet_id,
+                            "method": "getBalance",
+                            "params": [wallet.public_key]
+                        }
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if "result" in data and "value" in data["result"]:
+                            # Lamports zu SOL konvertieren
+                            balance_lamports = data["result"]["value"]
+                            balance_sol = balance_lamports / 1_000_000_000
+                            wallet.balance_sol = balance_sol
+                            wallet.last_balance_update = datetime.now(timezone.utc)
+                            results["updated"] += 1
+                            results["balances"][wallet_id] = balance_sol
+                            logger.debug(f"💰 Wallet {wallet_id}: {balance_sol:.6f} SOL")
+                        else:
+                            results["errors"] += 1
+                            logger.warning(f"⚠️ Wallet {wallet_id}: Ungültige RPC-Antwort")
+                    else:
+                        results["errors"] += 1
+                        logger.warning(f"⚠️ Wallet {wallet_id}: RPC-Fehler {response.status_code}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Balance-Update Wallet {wallet_id} fehlgeschlagen: {e}")
                     results["errors"] += 1
-            except Exception as e:
-                logger.error(f"❌ Balance-Update Wallet {wallet_id} fehlgeschlagen: {e}")
-                results["errors"] += 1
         
-        logger.info(f"💰 Wallet-Balances aktualisiert: {results['updated']}/{len(self.wallets)}")
+        total_balance = sum(results["balances"].values())
+        logger.info(f"💰 Wallet-Balances aktualisiert: {results['updated']}/{len(self.wallets)} | Total: {total_balance:.4f} SOL")
         return results
     
     def get_aggregated_stats(self) -> Dict:

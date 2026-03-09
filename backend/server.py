@@ -6122,31 +6122,21 @@ async def get_single_wallet_status(wallet_id: int):
 
 @api_router.post("/wallets/refresh-balances")
 async def refresh_wallet_balances():
-    """Aktualisiert SOL-Balances aller Wallets via RPC"""
+    """Aktualisiert SOL-Balances aller Wallets via direktem RPC"""
     try:
         if not multi_wallet_manager.is_initialized:
             await multi_wallet_manager.initialize()
         
-        # Nutze bestehende get_wallet_balance Funktion für RPC-Calls
-        results = {"updated": 0, "errors": 0, "balances": {}}
+        if not multi_wallet_manager.wallets:
+            return {"success": False, "error": "Keine Wallets konfiguriert"}
         
-        for wallet_id, wallet in multi_wallet_manager.wallets.items():
-            try:
-                balance_result = await get_wallet_balance(wallet.public_key)
-                if balance_result.get("success"):
-                    wallet.balance_sol = balance_result.get("balance_sol", 0)
-                    results["updated"] += 1
-                    results["balances"][wallet_id] = wallet.balance_sol
-                else:
-                    results["errors"] += 1
-            except Exception as e:
-                logger.error(f"Balance refresh error wallet {wallet_id}: {e}")
-                results["errors"] += 1
+        # Nutze die neue direkte RPC-Methode
+        results = await multi_wallet_manager.update_all_balances()
         
         return {
             "success": True,
             "results": results,
-            "total_balance": sum(results["balances"].values())
+            "total_balance": sum(results.get("balances", {}).values())
         }
     except Exception as e:
         logger.error(f"Wallet balance refresh error: {e}")
@@ -7913,6 +7903,7 @@ async def make_rpc_call(method: str, params: list = None, retries: int = 3) -> d
 # Background task for RPC health monitoring
 rpc_monitor_task = None
 price_monitor_task = None
+wallet_balance_task = None
 
 async def rpc_health_monitor():
     """Background task that checks RPC health every 30 seconds"""
@@ -7923,6 +7914,29 @@ async def rpc_health_monitor():
             logger.error(f"RPC monitor error: {e}")
         
         await asyncio.sleep(30)
+
+async def wallet_balance_monitor():
+    """
+    Background task that updates all wallet balances every 60 seconds.
+    Ensures the MultiWalletManager has current SOL balances.
+    """
+    logger.info("💰 WALLET_BALANCE_MONITOR gestartet (60s Intervall)")
+    
+    # Warte kurz, bis alles initialisiert ist
+    await asyncio.sleep(5)
+    
+    while True:
+        try:
+            if multi_wallet_manager.is_initialized and len(multi_wallet_manager.wallets) > 0:
+                result = await multi_wallet_manager.update_all_balances()
+                logger.debug(f"💰 Balance-Update: {result.get('updated', 0)} Wallets aktualisiert")
+        except asyncio.CancelledError:
+            logger.info("💰 WALLET_BALANCE_MONITOR gestoppt")
+            break
+        except Exception as e:
+            logger.error(f"Wallet balance monitor error: {e}")
+        
+        await asyncio.sleep(60)  # Alle 60 Sekunden
 
 async def fast_price_monitor():
     """
@@ -8009,6 +8023,14 @@ async def start_rpc_monitor():
     price_monitor_task = asyncio.create_task(fast_price_monitor())
     logger.info("✅ FAST_PRICE_MONITOR_STARTED (2s Intervall)")
     
+    # STEP 6: Start wallet balance monitor (60s interval)
+    wallet_balance_task = asyncio.create_task(wallet_balance_monitor())
+    logger.info("✅ WALLET_BALANCE_MONITOR_STARTED (60s Intervall)")
+    
+    # Initial balance fetch
+    if multi_wallet_manager.is_initialized:
+        await multi_wallet_manager.update_all_balances()
+    
     # Log startup complete
     logger.info("=" * 60)
     logger.info("✅ TRADING BOT STARTUP COMPLETE")
@@ -8016,16 +8038,19 @@ async def start_rpc_monitor():
     logger.info("   - RPC: " + ("Connected" if rpc_state.get("connected") else "Pending"))
     logger.info("   - Auto-Trading: Stopped (ready to start)")
     logger.info("   - Price Monitor: Active (2s)")
+    logger.info("   - Balance Monitor: Active (60s)")
     logger.info("=" * 60)
 
 @app.on_event("shutdown")
 async def stop_rpc_monitor():
-    """Stop RPC monitor and price monitor on shutdown"""
-    global rpc_monitor_task, price_monitor_task
+    """Stop RPC monitor, price monitor and wallet balance monitor on shutdown"""
+    global rpc_monitor_task, price_monitor_task, wallet_balance_task
     if rpc_monitor_task:
         rpc_monitor_task.cancel()
     if price_monitor_task:
         price_monitor_task.cancel()
+    if wallet_balance_task:
+        wallet_balance_task.cancel()
 
 # ============== RPC API ENDPOINTS ==============
 
