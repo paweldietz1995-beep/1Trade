@@ -290,8 +290,291 @@ ENGINE_CONFIG = {
     "min_volume_usd": 3000,            # $3k minimum volume (relaxed)
     "min_volume_surge_percent": 20,    # 20% volume surge (relaxed)
     "min_buy_sell_ratio": 1.1,         # 1.1x buy pressure
-    "price_update_interval": 3         # Update prices every 3 seconds
+    "price_update_interval": 3,        # Update prices every 3 seconds
+    # Early Pump Detection
+    "early_pump_volume_surge": 300,    # 300% volume surge for early pump
+    "early_pump_price_change_1m": 3,   # 3% price change in 1 minute
+    "early_pump_min_liquidity": 10000, # $10k min liquidity for early pumps
+    # Smart Wallet Tracking
+    "smart_wallet_min_profit": 50,     # 50% min profit to track wallet
+    "smart_wallet_min_trades": 5,      # 5 min trades to qualify
+    "copy_trade_delay_ms": 500,        # 500ms delay for copy trades
+    # Risk Management
+    "max_daily_trades": 100,           # Max trades per day
+    "max_portfolio_risk": 0.20,        # 20% max portfolio at risk
 }
+
+
+# ============== API FAILOVER SYSTEM ==============
+class APIFailover:
+    """Manages API failover for data sources"""
+    
+    def __init__(self):
+        self.primary_api = "dexscreener"
+        self.fallback_apis = ["birdeye", "jupiter"]
+        self.api_status = {
+            "dexscreener": {"healthy": True, "last_check": None, "failures": 0},
+            "birdeye": {"healthy": True, "last_check": None, "failures": 0},
+            "jupiter": {"healthy": True, "last_check": None, "failures": 0}
+        }
+        self.max_failures = 3
+        
+    def mark_failure(self, api_name: str):
+        """Mark an API as failed"""
+        if api_name in self.api_status:
+            self.api_status[api_name]["failures"] += 1
+            if self.api_status[api_name]["failures"] >= self.max_failures:
+                self.api_status[api_name]["healthy"] = False
+                logger.warning(f"⚠️ API {api_name} marked as unhealthy after {self.max_failures} failures")
+    
+    def mark_success(self, api_name: str):
+        """Mark an API call as successful"""
+        if api_name in self.api_status:
+            self.api_status[api_name]["failures"] = 0
+            self.api_status[api_name]["healthy"] = True
+            self.api_status[api_name]["last_check"] = datetime.now(timezone.utc)
+    
+    def get_healthy_api(self) -> str:
+        """Get the best healthy API"""
+        if self.api_status[self.primary_api]["healthy"]:
+            return self.primary_api
+        for api in self.fallback_apis:
+            if self.api_status[api]["healthy"]:
+                return api
+        # Reset all if none healthy
+        for api in self.api_status:
+            self.api_status[api]["healthy"] = True
+            self.api_status[api]["failures"] = 0
+        return self.primary_api
+    
+    def get_status(self) -> dict:
+        return self.api_status
+
+api_failover = APIFailover()
+
+
+# ============== EARLY PUMP DETECTOR ==============
+class EarlyPumpDetector:
+    """Detects early pump signals for tokens"""
+    
+    def __init__(self):
+        self.detected_pumps = {}  # token_address -> detection_time
+        self.pump_cooldown = 300  # 5 minutes cooldown per token
+    
+    def check_early_pump(self, pair: dict) -> tuple:
+        """
+        Check if token shows early pump signals.
+        Returns: (is_pump, confidence, reasons)
+        
+        Early Pump Conditions:
+        - Liquidity > $10k
+        - Volume 5m increase > 300%
+        - Buys > Sells
+        - Price change 1m > 3%
+        """
+        reasons = []
+        confidence = 0
+        
+        # Get metrics
+        liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+        volume_5m = float(pair.get("volume", {}).get("m5", 0) or 0)
+        volume_1h = float(pair.get("volume", {}).get("h1", 0) or 0)
+        price_change_1m = float(pair.get("priceChange", {}).get("m5", 0) or 0) / 5  # Approximate 1m
+        price_change_5m = float(pair.get("priceChange", {}).get("m5", 0) or 0)
+        
+        txns_5m = pair.get("txns", {}).get("m5", {})
+        buys_5m = txns_5m.get("buys", 0)
+        sells_5m = txns_5m.get("sells", 0)
+        
+        token_address = pair.get("baseToken", {}).get("address", "")
+        
+        # Check cooldown
+        if token_address in self.detected_pumps:
+            time_since = (datetime.now(timezone.utc) - self.detected_pumps[token_address]).total_seconds()
+            if time_since < self.pump_cooldown:
+                return (False, 0, ["In cooldown"])
+        
+        # CHECK 1: Liquidity threshold
+        min_liq = ENGINE_CONFIG.get("early_pump_min_liquidity", 10000)
+        if liquidity >= min_liq:
+            confidence += 20
+            reasons.append(f"Liquidity ${liquidity:.0f} >= ${min_liq}")
+        else:
+            return (False, 0, [f"Low liquidity: ${liquidity:.0f}"])
+        
+        # CHECK 2: Volume surge
+        avg_volume_1h = volume_1h / 12 if volume_1h > 0 else 0  # 5min avg
+        volume_surge_percent = ENGINE_CONFIG.get("early_pump_volume_surge", 300)
+        if avg_volume_1h > 0:
+            surge = (volume_5m / avg_volume_1h) * 100
+            if surge >= volume_surge_percent:
+                confidence += 30
+                reasons.append(f"Volume surge {surge:.0f}%")
+        
+        # CHECK 3: Buy pressure
+        if buys_5m > sells_5m and buys_5m > 5:
+            buy_ratio = buys_5m / max(sells_5m, 1)
+            if buy_ratio >= 1.5:
+                confidence += 25
+                reasons.append(f"Strong buy pressure: {buy_ratio:.1f}x")
+        
+        # CHECK 4: Price momentum
+        price_threshold = ENGINE_CONFIG.get("early_pump_price_change_1m", 3)
+        if price_change_5m >= price_threshold * 2:  # 5m threshold is 2x 1m
+            confidence += 25
+            reasons.append(f"Price momentum +{price_change_5m:.1f}%")
+        
+        is_pump = confidence >= 60
+        
+        if is_pump:
+            self.detected_pumps[token_address] = datetime.now(timezone.utc)
+            logger.info(f"🚀 EARLY PUMP DETECTED: {pair.get('baseToken', {}).get('symbol')} - Confidence: {confidence}%")
+        
+        return (is_pump, confidence, reasons)
+
+early_pump_detector = EarlyPumpDetector()
+
+
+# ============== SMART WALLET TRACKER ==============
+class SmartWalletTracker:
+    """Tracks profitable wallets and generates copy trade signals"""
+    
+    def __init__(self):
+        self.tracked_wallets = {}  # address -> wallet_data
+        self.wallet_trades = {}    # address -> [trades]
+        self.copy_signals = []     # Pending copy trade signals
+        
+    async def load_wallets_from_db(self):
+        """Load tracked wallets from database"""
+        try:
+            wallets = await db.smart_wallets.find({"is_tracking": True}, {"_id": 0}).to_list(100)
+            for w in wallets:
+                self.tracked_wallets[w["address"]] = w
+            logger.info(f"👛 Loaded {len(wallets)} smart wallets from database")
+        except Exception as e:
+            logger.error(f"Error loading smart wallets: {e}")
+    
+    def add_wallet(self, address: str, name: str = None, profit_rate: float = 0):
+        """Add a wallet to track"""
+        self.tracked_wallets[address] = {
+            "address": address,
+            "name": name or f"Wallet_{address[:8]}",
+            "profit_rate": profit_rate,
+            "trades_count": 0,
+            "added_at": datetime.now(timezone.utc).isoformat(),
+            "is_tracking": True
+        }
+    
+    def record_wallet_trade(self, wallet_address: str, token_address: str, trade_type: str, price: float):
+        """Record a trade from a tracked wallet"""
+        if wallet_address not in self.wallet_trades:
+            self.wallet_trades[wallet_address] = []
+        
+        trade = {
+            "token_address": token_address,
+            "trade_type": trade_type,  # BUY or SELL
+            "price": price,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        self.wallet_trades[wallet_address].append(trade)
+        
+        # Generate copy signal for BUY trades
+        if trade_type == "BUY":
+            self.copy_signals.append({
+                "wallet": wallet_address,
+                "token": token_address,
+                "price": price,
+                "created_at": datetime.now(timezone.utc),
+                "executed": False
+            })
+            logger.info(f"📋 Copy trade signal from {wallet_address[:8]}... for token {token_address[:8]}...")
+    
+    def get_pending_copy_signals(self) -> list:
+        """Get pending copy trade signals"""
+        pending = [s for s in self.copy_signals if not s["executed"]]
+        return pending[:5]  # Max 5 at a time
+    
+    def mark_signal_executed(self, signal_index: int):
+        """Mark a copy signal as executed"""
+        if 0 <= signal_index < len(self.copy_signals):
+            self.copy_signals[signal_index]["executed"] = True
+    
+    def get_wallet_stats(self, address: str) -> dict:
+        """Get statistics for a tracked wallet"""
+        trades = self.wallet_trades.get(address, [])
+        return {
+            "address": address,
+            "total_trades": len(trades),
+            "buys": sum(1 for t in trades if t["trade_type"] == "BUY"),
+            "sells": sum(1 for t in trades if t["trade_type"] == "SELL")
+        }
+
+smart_wallet_tracker = SmartWalletTracker()
+
+
+# ============== CRASH RECOVERY SYSTEM ==============
+class CrashRecovery:
+    """Handles crash recovery and state persistence"""
+    
+    def __init__(self):
+        self.state_file = "/tmp/trading_bot_state.json"
+        
+    async def save_state(self):
+        """Save current trading state to database"""
+        try:
+            state = {
+                "is_running": auto_trading_state["is_running"],
+                "scan_count": auto_trading_state["scan_count"],
+                "trades_executed": auto_trading_state["trades_executed"],
+                "trades_today": auto_trading_state["trades_today"],
+                "daily_pnl": auto_trading_state["daily_pnl"],
+                "saved_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.bot_state.update_one(
+                {"type": "trading_state"},
+                {"$set": state},
+                upsert=True
+            )
+            logger.debug("💾 Bot state saved to database")
+        except Exception as e:
+            logger.error(f"Error saving bot state: {e}")
+    
+    async def load_state(self) -> dict:
+        """Load trading state from database"""
+        try:
+            state = await db.bot_state.find_one({"type": "trading_state"}, {"_id": 0})
+            if state:
+                logger.info(f"📥 Loaded bot state from database (saved at {state.get('saved_at')})")
+                return state
+        except Exception as e:
+            logger.error(f"Error loading bot state: {e}")
+        return None
+    
+    async def recover_active_trades(self):
+        """Recover active trades after crash"""
+        try:
+            active_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(100)
+            if active_trades:
+                logger.info(f"🔄 Recovered {len(active_trades)} active trades from database")
+                # Log recovery event
+                activity_feed.add_event("INFO", "SYSTEM", {
+                    "message": f"Recovered {len(active_trades)} active trades after restart"
+                })
+            return active_trades
+        except Exception as e:
+            logger.error(f"Error recovering trades: {e}")
+            return []
+    
+    async def check_and_recover(self):
+        """Check for crashed state and recover if needed"""
+        state = await self.load_state()
+        if state and state.get("is_running"):
+            logger.warning("⚠️ Detected previous running state - recovering...")
+            await self.recover_active_trades()
+            return True
+        return False
+
+crash_recovery = CrashRecovery()
 
 # Activity Feed - stores recent trading events
 class ActivityFeed:
@@ -1096,6 +1379,9 @@ async def auto_trading_loop():
     - Manages up to 30 simultaneous trades
     - Signal queue for overflow
     - Dynamic capital allocation
+    - Early pump detection
+    - Smart wallet tracking
+    - Crash recovery state saving
     """
     global auto_trading_state
     
@@ -1107,6 +1393,12 @@ async def auto_trading_loop():
     logger.info(f"   - Stop loss: {ENGINE_CONFIG['stop_loss_percent']}%")
     
     scan_start_time = datetime.now(timezone.utc)
+    last_state_save = datetime.now(timezone.utc)
+    
+    # Log bot start to activity feed
+    activity_feed.add_event("INFO", "SYSTEM", {
+        "message": "🚀 Auto-Trading Engine gestartet"
+    })
     
     while auto_trading_state["is_running"]:
         cycle_start = datetime.now(timezone.utc)
@@ -1114,6 +1406,11 @@ async def auto_trading_loop():
         try:
             settings = await get_bot_settings()
             portfolio = await get_portfolio_summary()
+            
+            # Save state every 30 seconds for crash recovery
+            if (cycle_start - last_state_save).total_seconds() >= 30:
+                await crash_recovery.save_state()
+                last_state_save = cycle_start
             
             # Check risk limits first
             is_blocked, block_reason = await check_risk_limits(portfolio, settings)
@@ -2837,6 +3134,192 @@ async def clear_activity_feed():
     """Clear activity feed"""
     activity_feed.events = []
     return {"success": True}
+
+
+# ============== EARLY PUMP DETECTION ENDPOINTS ==============
+
+@api_router.get("/early-pumps")
+async def get_early_pumps():
+    """Get detected early pump tokens"""
+    return {
+        "detected_pumps": [
+            {
+                "address": addr,
+                "detected_at": time.isoformat()
+            }
+            for addr, time in early_pump_detector.detected_pumps.items()
+        ],
+        "count": len(early_pump_detector.detected_pumps)
+    }
+
+
+@api_router.post("/scan-early-pumps")
+async def scan_for_early_pumps():
+    """Manually trigger early pump scan"""
+    pump_pairs = await fetch_pump_fun_tokens()
+    dex_pairs = await fetch_dex_screener_tokens(50)
+    
+    detected = []
+    for pair in pump_pairs + dex_pairs:
+        is_pump, confidence, reasons = early_pump_detector.check_early_pump(pair)
+        if is_pump:
+            token = pair.get("baseToken", {})
+            detected.append({
+                "symbol": token.get("symbol"),
+                "address": token.get("address"),
+                "confidence": confidence,
+                "reasons": reasons,
+                "price": pair.get("priceUsd"),
+                "liquidity": pair.get("liquidity", {}).get("usd")
+            })
+            
+            # Log to activity feed
+            activity_feed.add_event("SIGNAL", token.get("symbol", "???"), {
+                "signal_type": "EARLY_PUMP",
+                "strength": "STRONG" if confidence >= 80 else "MEDIUM",
+                "score": confidence,
+                "message": f"🚀 Early pump detected: {token.get('symbol')} (Confidence: {confidence}%)"
+            })
+    
+    return {
+        "detected": detected,
+        "total_scanned": len(pump_pairs) + len(dex_pairs)
+    }
+
+
+# ============== SMART WALLET TRACKER ENDPOINTS ==============
+
+@api_router.get("/smart-wallets")
+async def get_smart_wallets():
+    """Get all tracked smart wallets"""
+    wallets = await db.smart_wallets.find({"is_tracking": True}, {"_id": 0}).to_list(100)
+    return wallets
+
+
+@api_router.post("/smart-wallets/add")
+async def add_smart_wallet(address: str, name: str = None):
+    """Add a wallet to track"""
+    existing = await db.smart_wallets.find_one({"address": address})
+    if existing:
+        return {"success": False, "message": "Wallet already being tracked"}
+    
+    doc = {
+        "address": address,
+        "name": name or f"Wallet_{address[:8]}",
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "is_tracking": True,
+        "profit_rate": 0,
+        "trades_count": 0
+    }
+    await db.smart_wallets.insert_one(doc)
+    smart_wallet_tracker.add_wallet(address, name)
+    
+    activity_feed.add_event("INFO", "WALLET", {
+        "message": f"📋 Started tracking wallet: {address[:12]}..."
+    })
+    
+    return {"success": True, "wallet": doc}
+
+
+@api_router.delete("/smart-wallets/{address}")
+async def remove_smart_wallet(address: str):
+    """Remove a wallet from tracking"""
+    await db.smart_wallets.update_one(
+        {"address": address},
+        {"$set": {"is_tracking": False}}
+    )
+    if address in smart_wallet_tracker.tracked_wallets:
+        del smart_wallet_tracker.tracked_wallets[address]
+    return {"success": True}
+
+
+@api_router.get("/smart-wallets/copy-signals")
+async def get_copy_signals():
+    """Get pending copy trade signals"""
+    return smart_wallet_tracker.get_pending_copy_signals()
+
+
+# ============== API FAILOVER ENDPOINTS ==============
+
+@api_router.get("/api-status")
+async def get_api_status():
+    """Get API health status"""
+    return {
+        "current_api": api_failover.get_healthy_api(),
+        "status": api_failover.get_status()
+    }
+
+
+# ============== CRASH RECOVERY ENDPOINTS ==============
+
+@api_router.post("/bot/save-state")
+async def save_bot_state():
+    """Manually save bot state"""
+    await crash_recovery.save_state()
+    return {"success": True, "message": "State saved"}
+
+
+@api_router.get("/bot/recover-state")
+async def get_recovery_state():
+    """Get last saved state"""
+    state = await crash_recovery.load_state()
+    return state or {"message": "No saved state found"}
+
+
+@api_router.post("/bot/recover")
+async def trigger_recovery():
+    """Trigger crash recovery"""
+    recovered = await crash_recovery.check_and_recover()
+    trades = await crash_recovery.recover_active_trades()
+    return {
+        "recovered": recovered,
+        "active_trades_restored": len(trades)
+    }
+
+
+# ============== SYSTEM STATUS ENDPOINTS ==============
+
+@api_router.get("/system/modules")
+async def get_system_modules():
+    """Get status of all trading modules"""
+    return {
+        "modules": {
+            "market_scanner": {
+                "status": "active" if auto_trading_state["is_running"] else "stopped",
+                "interval_ms": ENGINE_CONFIG["scan_interval_seconds"] * 1000
+            },
+            "early_pump_detector": {
+                "status": "active",
+                "detected_count": len(early_pump_detector.detected_pumps)
+            },
+            "momentum_analyzer": {
+                "status": "active",
+                "min_score": ENGINE_CONFIG["min_signal_score"]
+            },
+            "smart_wallet_tracker": {
+                "status": "active",
+                "tracked_wallets": len(smart_wallet_tracker.tracked_wallets),
+                "pending_signals": len(smart_wallet_tracker.get_pending_copy_signals())
+            },
+            "trade_monitor": {
+                "status": "active",
+                "interval_ms": ENGINE_CONFIG["price_update_interval"] * 1000
+            },
+            "risk_manager": {
+                "status": "active",
+                "max_trades": ENGINE_CONFIG["max_open_trades"],
+                "daily_loss_limit": ENGINE_CONFIG["daily_loss_limit_percent"]
+            },
+            "api_failover": {
+                "status": "active",
+                "current_api": api_failover.get_healthy_api()
+            },
+            "crash_recovery": {
+                "status": "active"
+            }
+        },
+        "engine_config": ENGINE_CONFIG
+    }
 
 
 # ============== RPC CONNECTION MANAGER ==============

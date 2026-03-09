@@ -11,7 +11,7 @@ export default defineConfig({
     ['json', { outputFile: './test-results/results.json' }],
   ],
   use: {
-    baseURL: 'https://solana-auto-trade.preview.emergentagent.com',
+    baseURL: 'https://pump-fun-trader.preview.emergentagent.com',
     screenshot: 'on',
     trace: 'on-first-retry',
     headless: true,

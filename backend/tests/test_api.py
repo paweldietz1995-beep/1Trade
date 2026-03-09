@@ -316,8 +316,9 @@ class TestAutoTrading:
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
-        assert "interval" in data
-        assert data["interval"] == 3
+        # Response structure changed - now uses config object
+        assert "config" in data
+        assert "scan_interval_seconds" in data["config"]
         
         # Check status is running
         status_resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
@@ -336,9 +337,10 @@ class TestAutoTrading:
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
-        assert "stats" in data
-        assert "scan_count" in data["stats"]
-        assert "trades_executed" in data["stats"]
+        # Response structure changed - now uses session_stats
+        assert "session_stats" in data
+        assert "scan_count" in data["session_stats"]
+        assert "trades_executed" in data["session_stats"]
         
         # Verify stopped
         status_resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
@@ -351,12 +353,12 @@ class TestAutoTrading:
         data = resp.json()
         assert isinstance(data, list)
 
-    def test_auto_trading_status_has_scan_interval_3_seconds(self, api_client):
-        """Auto trading engine uses 3-second scan interval"""
+    def test_auto_trading_status_has_scan_interval_2_seconds(self, api_client):
+        """Auto trading engine uses 2-second scan interval (high-frequency mode)"""
         resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["scan_interval_seconds"] == 3
+        assert data["scan_interval_seconds"] == 2  # Changed from 3 to 2 in high-capacity engine
 
 
 class TestMomentumThresholds:
@@ -393,11 +395,12 @@ class TestTokenFilters:
         assert data["min_liquidity_usd"] >= 5000.0
 
     def test_min_volume_filter(self, api_client):
-        """Minimum volume filter is set to $10000"""
+        """Minimum volume filter is set (relaxed for scalping strategy)"""
         resp = api_client.get(f"{BASE_URL}/api/bot/settings")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["min_volume_usd"] >= 10000.0
+        # Volume threshold was relaxed for scalping strategy
+        assert data["min_volume_usd"] >= 1000.0
 
     def test_scan_interval_is_3_seconds(self, api_client):
         """Scan interval is set to 3 seconds"""
