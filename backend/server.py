@@ -1173,52 +1173,93 @@ async def execute_auto_trade_cycle():
             logger.info("🔍 No trading opportunities found")
             return {"executed": False, "reason": "No opportunities found", "scan_count": auto_trading_state["scan_count"]}
         
-        # Take the best opportunity
-        best = opportunities[0]
+        # Calculate available slots for multi-trade
+        available_slots = max_trades - portfolio.open_trades
+        if available_slots <= 0:
+            return {"executed": False, "reason": f"Max parallel trades reached ({max_trades})"}
         
-        # Check minimum confidence
-        if best["momentum_score"] < 70:
-            return {"executed": False, "reason": f"Best opportunity score {best['momentum_score']} < 70"}
+        # Get existing open trade tokens to avoid duplicates
+        existing_open_trades = await db.trades.find(
+            {"status": "OPEN"}, 
+            {"token_address": 1, "_id": 0}
+        ).to_list(100)
+        active_trade_tokens = set(t.get("token_address") for t in existing_open_trades)
         
-        # Calculate trade amount
-        trade_amount = min(
-            settings.total_budget_sol * (settings.max_trade_percent / 100),
-            settings.max_trade_amount_sol,
-            portfolio.available_sol
-        )
+        logger.info(f"📈 MULTI-TRADE MODE: {available_slots} slots available (max: {max_trades}, open: {portfolio.open_trades})")
         
-        if trade_amount < settings.min_trade_sol:
-            return {"executed": False, "reason": f"Trade amount {trade_amount} < min {settings.min_trade_sol}"}
+        # Execute multiple trades
+        trades_executed = []
         
-        # Execute trade
-        logger.info(f"🚀 Auto Trading: Executing trade for {best['symbol']} ({trade_amount} SOL)")
+        for opp in opportunities:
+            # Check if we've filled all available slots
+            if len(trades_executed) >= available_slots:
+                logger.info(f"🛑 Max trades reached ({len(trades_executed)}/{available_slots})")
+                break
+            
+            # Skip if already trading this token
+            if opp["address"] in active_trade_tokens:
+                continue
+            
+            # Check minimum confidence
+            if opp["momentum_score"] < 70:
+                continue
+            
+            # Calculate trade amount
+            trade_amount = min(
+                settings.total_budget_sol * (settings.max_trade_percent / 100),
+                settings.max_trade_amount_sol,
+                portfolio.available_sol / max(1, available_slots - len(trades_executed))  # Divide remaining budget
+            )
+            
+            if trade_amount < settings.min_trade_sol:
+                continue
+            
+            # Execute trade
+            try:
+                trade_data = TradeCreate(
+                    token_address=opp["address"],
+                    token_symbol=opp["symbol"],
+                    token_name=opp["name"],
+                    pair_address=opp.get("pair_address"),
+                    trade_type="BUY",
+                    amount_sol=trade_amount,
+                    price_entry=opp["price_usd"],
+                    take_profit_percent=settings.take_profit_percent,
+                    stop_loss_percent=settings.stop_loss_percent,
+                    trailing_stop_percent=settings.trailing_stop_percent if settings.trailing_stop_enabled else None,
+                    paper_trade=is_paper,
+                    auto_trade=True
+                )
+                
+                trade = await create_trade(trade_data)
+                trades_executed.append({
+                    "trade_id": trade.id,
+                    "token": opp["symbol"],
+                    "amount": trade_amount,
+                    "signal_score": opp["signal_score"]
+                })
+                
+                # Add to active tokens to prevent duplicates
+                active_trade_tokens.add(opp["address"])
+                
+                auto_trading_state["trades_executed"] += 1
+                
+                # Log each trade
+                current_open = portfolio.open_trades + len(trades_executed)
+                logger.info(f"✅ AUTO TRADE EXECUTED | token: {opp['symbol']} | {trade_amount:.4f} SOL | active_trades: {current_open}/{max_trades}")
+                
+            except Exception as e:
+                logger.error(f"Trade execution error for {opp['symbol']}: {e}")
         
-        trade_data = TradeCreate(
-            token_address=best["address"],
-            token_symbol=best["symbol"],
-            token_name=best["name"],
-            pair_address=best.get("pair_address"),
-            trade_type="BUY",
-            amount_sol=trade_amount,
-            price_entry=best["price_usd"],
-            take_profit_percent=settings.take_profit_percent,
-            stop_loss_percent=settings.stop_loss_percent,
-            trailing_stop_percent=settings.trailing_stop_percent if settings.trailing_stop_enabled else None,
-            paper_trade=is_paper,
-            auto_trade=True
-        )
-        
-        trade = await create_trade(trade_data)
-        auto_trading_state["trades_executed"] += 1
+        if not trades_executed:
+            return {"executed": False, "reason": "No trades executed (all filtered)", "scan_count": auto_trading_state["scan_count"]}
         
         return {
             "executed": True,
-            "trade_id": trade.id,
-            "token": best["symbol"],
-            "amount": trade_amount,
-            "momentum_score": best["momentum_score"],
-            "signal_reasons": best["signal_reasons"],
-            "paper_trade": is_paper
+            "trades_count": len(trades_executed),
+            "trades": trades_executed,
+            "paper_trade": is_paper,
+            "available_slots_remaining": available_slots - len(trades_executed)
         }
         
     except Exception as e:
@@ -1559,14 +1600,40 @@ async def auto_trading_loop():
             logger.info(f"📊 {len(all_pairs)} tokens scanned, {len(opportunities)} opportunities (Score >= {ENGINE_CONFIG['min_signal_score']})")
             
             # Execute trades for available slots
+            # Use user's max_parallel_trades setting (respecting system max)
+            max_parallel = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
+            available_slots = max_parallel - open_trades
+            
             trades_executed_this_cycle = 0
             max_trades_per_token = ENGINE_CONFIG.get("max_trades_per_token", 1)
             
-            for opp in opportunities[:available_slots]:
+            # Track tokens we're trading in this cycle to avoid duplicates
+            active_trade_tokens = set()
+            
+            # Get existing open trade tokens
+            existing_open_trades = await db.trades.find(
+                {"status": "OPEN"}, 
+                {"token_address": 1, "_id": 0}
+            ).to_list(100)
+            for t in existing_open_trades:
+                active_trade_tokens.add(t.get("token_address"))
+            
+            logger.info(f"📈 MULTI-TRADE: {available_slots} slots available (max: {max_parallel}, open: {open_trades})")
+            
+            for opp in opportunities:
+                # Check if we've filled all available slots
+                if trades_executed_this_cycle >= available_slots:
+                    logger.info(f"🛑 Max trades reached for this cycle ({trades_executed_this_cycle}/{available_slots})")
+                    break
+                
                 try:
                     token_address = opp["address"]
                     
-                    # DUPLICATE PROTECTION: Check if we already have a trade for this token
+                    # DUPLICATE PROTECTION: Skip if we already have a trade for this token
+                    if token_address in active_trade_tokens:
+                        continue
+                    
+                    # Double-check database for existing trades (safety check)
                     existing_count = await db.trades.count_documents({
                         "token_address": token_address,
                         "status": "OPEN"
@@ -1578,7 +1645,7 @@ async def auto_trading_loop():
                     if check_signal_cooldown(token_address):
                         continue
                     
-                    # Calculate trade size
+                    # Calculate trade size dynamically
                     trade_amount = calculate_dynamic_trade_size(portfolio, settings)
                     
                     if trade_amount < settings.min_trade_sol:
@@ -1605,6 +1672,9 @@ async def auto_trading_loop():
                     auto_trading_state["trades_executed"] += 1
                     auto_trading_state["trades_today"] += 1
                     
+                    # Add to active tokens to prevent duplicates in this cycle
+                    active_trade_tokens.add(token_address)
+                    
                     # Set cooldown for this token
                     set_signal_cooldown(token_address)
                     
@@ -1617,10 +1687,12 @@ async def auto_trading_loop():
                         reasons=opp.get('signal_reasons', [])
                     )
                     
-                    logger.info(f"✅ TRADE: {opp['symbol']} | {trade_amount} SOL | Score: {opp['signal_score']:.0f} | B/S: {opp['buy_sell_ratio']:.1f}x")
+                    # Log with active trades count
+                    current_open = open_trades + trades_executed_this_cycle
+                    logger.info(f"✅ AUTO TRADE EXECUTED | token: {opp['symbol']} | {trade_amount:.4f} SOL | Score: {opp['signal_score']:.0f} | active_trades: {current_open}/{max_parallel}")
                     
                 except Exception as e:
-                    logger.error(f"Trade execution error: {e}")
+                    logger.error(f"Trade execution error for {opp.get('symbol', '???')}: {e}")
             
             # Queue remaining opportunities
             remaining_opps = opportunities[available_slots:available_slots + 20]  # Queue up to 20

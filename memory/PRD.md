@@ -11,6 +11,15 @@ Letztes Update: 2026-03-09
 
 ## Changelog (2026-03-09)
 
+### Multi-Trade Fix (Latest)
+- **Problem gelöst:** Bot öffnete nur einen Trade pro Scan-Zyklus
+- **Ursache:** Loop iterierte nur über `opportunities[0]` statt mehrere
+- **Lösung:**
+  1. `auto_trading_loop` nutzt jetzt `max_parallel_trades` aus User-Settings
+  2. Iteriert über alle Opportunities bis `available_slots` erreicht
+  3. Tracking von aktiven Token-Adressen verhindert Duplikate
+  4. Logging: `AUTO TRADE EXECUTED | token: ABC | active_trades: 2/5`
+
 ### Wallet Synchronization Fix
 - **Problem gelöst:** "Unable to sync wallet with trading engine" Fehler erschien obwohl Backend-Sync erfolgreich war
 - **Ursache:** Frontend/Backend State-Synchronisierung fehlte
