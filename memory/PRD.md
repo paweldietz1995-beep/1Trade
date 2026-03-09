@@ -1,9 +1,9 @@
-# Pump.fun Trading Bot - PRD v21
+# Pump.fun Trading Bot - PRD v22
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
-## System Status: ⚡ ULTRA-FAST SNIPER BOT AKTIV ⚡
+## System Status: 🚀 HIGH-FREQUENCY MOMENTUM SCALPER AKTIV
 
 Letztes Update: 2026-03-09
 
@@ -11,34 +11,44 @@ Letztes Update: 2026-03-09
 
 ## Changelog (2026-03-09)
 
-### Ultra-Fast Sniper Bot (Latest)
-- **Scan-Intervall:** 0.8 Sekunden (sub-second)
-- **Max Parallel Trades:** 100 (vorher 20)
-- **Micro-Trade Sizing:** 0.5% des Wallets (0.005-0.05 SOL)
-- **Token Age Bonus:**
-  - < 60s: +60 Priority
-  - < 120s: +40 Priority
-  - < 5min: +20 Priority
-- **Momentum Score v2:**
-  ```
-  score = vol_growth*0.30 + buyers*0.25 + price_1m*0.20 + accel*0.15 + age*0.10
-  ```
-- **Logging:**
-  ```
-  ⚡ SNIPER LOOP | tokens_scanned: 149 | opportunities: 27 | new_tokens: 0 | open_trades: 10 | slots_left: 90
-  🔥 TOP MOMENTUM | 1. 🆕memeless score=125 (45s) | 2. Mirabel score=90 (5m)
-  ⚡ TRADE EXECUTED | 🆕token: MEME | trade_size: 0.015 SOL | score=85 | age=30s | target_profit: 8%
-  ```
+### High-Frequency Momentum Scalping (Latest)
+- **Scan-Intervall:** 1.0 Sekunde
+- **Max Parallel Trades:** 30 (optimiert für realistisches Trading)
+- **Trade Size:** 0.5-1% Wallet (~0.02 SOL pro Trade)
+- **Ergebnis:** 30 aktive Trades parallel
 
-### Sniper Exit Strategy
-- **take_profit_percent:** 8% (vorher 10%)
-- **stop_loss_percent:** 6%
-- **trailing_stop_percent:** 4%
-- **signal_cooldown:** 45 Sekunden
+### Momentum Score Formula:
+```
+score = (volume_growth * 0.35) + (buyers_1m * 0.25) + (price_1m * 0.20) + (accel * 0.20)
+```
 
-### Scanner Scale-Up
-- **Kapazität:** 1500 Tokens pro Scan
-- **7 DEX-Quellen:** parallel via asyncio.gather()
+### Entry Conditions (1-minute based):
+- `price_change_1m >= 2%`
+- `volume_1m >= 1.5x baseline`
+- `buyers_1m >= sellers_1m`
+
+### New Token Priority:
+- Token < 60s: +50 bonus
+- Token < 120s: +30 bonus
+- Token < 5min: +15 bonus
+
+### Exit Strategy:
+- Take Profit: 10% (8-12%)
+- Stop Loss: 7% (6-8%)
+- Trailing Stop: 4%
+- Cooldown: 60 Sekunden
+
+### Token Filters:
+- min_liquidity: $500
+- min_volume: $500
+- min_buy_sell_ratio: 1.05
+
+### Logging:
+```
+📊 SCANNER SUMMARY | tokens_scanned: 146 | opportunities: 23 | open_trades: 30
+🔥 TOP MOMENTUM | 1. memeless score=96 | 2. XPD score=73 | 3. FMC score=67
+✅ TRADE EXECUTED | token: ABC | size: 0.02 SOL | target_profit: 10%
+```
 
 ---
 

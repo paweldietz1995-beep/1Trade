@@ -71,44 +71,44 @@ class AuthResponse(BaseModel):
 class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    # SNIPER CAPITAL MANAGEMENT (Micro-Trades)
+    # SCALPING CAPITAL MANAGEMENT
     total_budget_sol: float = 3.0
-    max_trade_percent: float = 1.0     # Max 1% of budget per trade (micro)
+    max_trade_percent: float = 1.0     # Max 1% of budget per trade
     min_trade_sol: float = 0.005       # Min 0.005 SOL per trade
-    max_parallel_trades: int = 100     # Up to 100 simultaneous trades
-    max_trade_amount_sol: float = 0.05 # Max 0.05 SOL per trade
-    # SNIPER RISK MANAGEMENT
-    take_profit_percent: float = 8.0   # 6-12% take profit
-    stop_loss_percent: float = 6.0     # 5-7% stop loss
+    max_parallel_trades: int = 30      # 20-40 simultaneous trades
+    max_trade_amount_sol: float = 0.03 # Max 0.03 SOL per trade
+    # SCALPING RISK MANAGEMENT
+    take_profit_percent: float = 10.0  # 8-12% take profit
+    stop_loss_percent: float = 7.0     # 6-8% stop loss
     trailing_stop_enabled: bool = True
     trailing_stop_percent: float = 4.0
-    max_daily_loss_percent: float = 25.0
-    max_daily_loss_sol: float = 0.75   # Max daily loss
-    max_loss_streak: int = 15          # Higher tolerance for micro-trades
+    max_daily_loss_percent: float = 20.0
+    max_daily_loss_sol: float = 0.6    # Max daily loss
+    max_loss_streak: int = 10          # Max consecutive losses
     # Live Trading Safety
     require_confirmation: bool = True
     first_live_trade_done: bool = False
     slippage_bps: int = 150            # 1.5% slippage for speed
-    # SNIPER TOKEN FILTERS (Lower thresholds)
+    # MOMENTUM TOKEN FILTERS
     min_liquidity_usd: float = 500.0   # $500 minimum
     min_volume_usd: float = 500.0      # $500 minimum
     max_dev_wallet_percent: float = 25.0
     max_top10_wallet_percent: float = 70.0
     min_token_age_seconds: int = 30    # Min 30 seconds old
-    max_token_age_hours: int = 2       # Max 2 hours old (fresh tokens)
-    min_buy_sell_ratio: float = 0.5    # Allow selling pressure
-    # SNIPER MOMENTUM THRESHOLDS
-    min_momentum_score: int = 20       # Lower threshold
-    min_volume_surge_percent: float = 3.0
+    max_token_age_hours: int = 4       # Max 4 hours old
+    min_buy_sell_ratio: float = 1.05   # Buy pressure required
+    # MOMENTUM THRESHOLDS
+    min_momentum_score: int = 25       # Score threshold
+    min_volume_surge_percent: float = 5.0
     min_buyers_1m: int = 3             # 3 buyers in 1 minute
     # Automation
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: float = 0.8 # Sub-second scanning
+    scan_interval_seconds: float = 1.0 # 1 second scanning
     # Advanced
     smart_wallet_tracking: bool = True
     migration_detection: bool = True
-    sniper_mode: bool = True           # Enable sniper mode
+    sniper_mode: bool = True
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class TokenRiskAnalysis(BaseModel):
@@ -280,35 +280,36 @@ auto_trading_state = {
 }
 
 # Engine Configuration - High Capacity
-# ============== ULTRA-FAST SNIPER BOT CONFIGURATION ==============
+# ============== HIGH-FREQUENCY MOMENTUM SCALPING CONFIGURATION ==============
 ENGINE_CONFIG = {
-    # ULTRA-FAST SCANNING
-    "scan_interval_seconds": 0.8,      # 0.8 second scans (sub-second)
-    "max_tokens_per_scan": 1500,       # Process up to 1500 tokens
-    "max_signals_per_scan": 800,       # Analyze top 800 signals
-    "max_open_trades": 100,            # Allow up to 100 simultaneous micro-trades
+    # HIGH-FREQUENCY SCANNING (0.8-1.2s interval)
+    "scan_interval_seconds": 1.0,      # 1 second scans
+    "max_tokens_per_scan": 1000,       # Process up to 1000 tokens
+    "max_signals_per_scan": 500,       # Analyze top 500 signals
+    "max_open_trades": 30,             # 20-40 simultaneous trades (realistic)
     "max_trades_per_token": 1,         # Only 1 trade per token
-    "signal_cooldown_seconds": 45,     # 45 second cooldown per token
-    "min_signal_score": 20,            # Lower threshold for more opportunities
+    "signal_cooldown_seconds": 60,     # 60 second cooldown per token
+    "min_signal_score": 25,            # Minimum score for opportunities
     
-    # SNIPER PROFIT TARGETS (smaller, faster exits)
-    "take_profit_percent": 8,          # 6-12% take profit
-    "stop_loss_percent": 6,            # 5-7% stop loss
+    # SCALPING PROFIT TARGETS (quick exits)
+    "take_profit_percent": 10,         # 8-12% take profit
+    "stop_loss_percent": 7,            # 6-8% stop loss
     "trailing_stop_enabled": True,
     "trailing_stop_percent": 4,        # 4% trailing stop
-    "trailing_stop_activation": 4,     # Activate after 4% profit
-    "daily_loss_limit_percent": 25,    # 25% max daily loss
-    "loss_streak_limit": 15,           # 15 consecutive losses (more tolerance)
+    "trailing_stop_activation": 5,     # Activate after 5% profit
+    "daily_loss_limit_percent": 20,    # 20% max daily loss
+    "loss_streak_limit": 10,           # 10 consecutive losses max
     
-    # MICRO-TRADE FILTERS (lower thresholds)
+    # MOMENTUM FILTERS (aggressive but safe)
     "min_liquidity_usd": 500,          # $500 minimum liquidity
     "min_volume_usd": 500,             # $500 minimum volume
-    "min_volume_surge_percent": 3,     # 3% volume surge
-    "min_buy_sell_ratio": 0.7,         # Allow slight sell pressure
+    "min_volume_5m": 500,              # $500 5-minute volume
+    "min_volume_surge_percent": 5,     # 5% volume surge
+    "min_buy_sell_ratio": 1.05,        # Buy pressure required
     "min_buyers_1m": 3,                # 3 buyers in 1 minute
-    "min_momentum_score": 20,          # Lower momentum threshold
+    "min_momentum_score": 25,          # Momentum threshold
     "min_price_change_1m": 2,          # 2% price change in 1m (momentum signal)
-    "max_token_age_hours": 2,          # Only tokens < 2 hours old (fresher)
+    "max_token_age_hours": 4,          # Tokens < 4 hours old
     "min_token_age_seconds": 30,       # At least 30 seconds old
     "price_update_interval": 1,        # Update prices every 1 second
     
@@ -316,32 +317,32 @@ ENGINE_CONFIG = {
     "momentum_volume_multiplier": 1.5, # 1.5x baseline volume required
     "momentum_price_change_min": 2,    # 2% price change for momentum
     
-    # NEW TOKEN DETECTION BONUS
+    # NEW TOKEN PRIORITY BONUS
     "new_token_age_seconds": 120,      # Tokens < 2 minutes old get bonus
-    "new_token_priority_bonus": 40,    # +40 priority score for new tokens
+    "new_token_priority_bonus": 30,    # +30 priority score for new tokens
     "ultra_new_token_seconds": 60,     # Tokens < 1 minute old
-    "ultra_new_token_bonus": 60,       # +60 priority for ultra-new
+    "ultra_new_token_bonus": 50,       # +50 priority for ultra-new
     
     # EARLY PUMP DETECTION
     "early_pump_volume_surge": 100,    # 100% volume surge for early pump
     "early_pump_price_change_1m": 2,   # 2% price change in 1 minute
     "early_pump_min_liquidity": 1000,  # $1k min liquidity for early pumps
     
-    # MICRO-TRADE POSITION SIZING
-    "micro_trade_percent": 0.5,        # 0.5% of wallet per trade
-    "max_micro_trade_sol": 0.05,       # Max 0.05 SOL per micro-trade
+    # MICRO-TRADE POSITION SIZING (0.5%-1% of wallet)
+    "micro_trade_percent": 0.75,       # 0.75% of wallet per trade
+    "max_micro_trade_sol": 0.03,       # Max 0.03 SOL per micro-trade
     "min_micro_trade_sol": 0.005,      # Min 0.005 SOL per micro-trade
     
     # Smart Wallet Tracking
-    "smart_wallet_min_profit": 20,     # 20% min profit to track wallet
-    "smart_wallet_min_trades": 2,      # 2 min trades to qualify
+    "smart_wallet_min_profit": 25,     # 25% min profit to track wallet
+    "smart_wallet_min_trades": 3,      # 3 min trades to qualify
     "copy_trade_delay_ms": 100,        # 100ms delay for copy trades
     
     # Risk Management
-    "max_daily_trades": 500,           # Max trades per day (high volume)
-    "max_portfolio_risk": 0.40,        # 40% max portfolio at risk
+    "max_daily_trades": 300,           # Max trades per day
+    "max_portfolio_risk": 0.35,        # 35% max portfolio at risk
     
-    # SCANNER SOURCES
+    # SCANNER SOURCES (all parallel)
     "scanner_sources": [
         "dexscreener",
         "birdeye", 
@@ -1508,15 +1509,16 @@ async def auto_trading_loop():
     """
     global auto_trading_state
     
-    logger.info("⚡" + "=" * 50)
-    logger.info("⚡ ULTRA-FAST SNIPER BOT ACTIVATED ⚡")
-    logger.info("⚡" + "=" * 50)
+    logger.info("=" * 60)
+    logger.info("🚀 HIGH-FREQUENCY MOMENTUM SCALPING ENGINE ACTIVATED 🚀")
+    logger.info("=" * 60)
     logger.info(f"   🔄 Scan interval: {ENGINE_CONFIG['scan_interval_seconds']}s")
     logger.info(f"   📊 Max tokens/scan: {ENGINE_CONFIG['max_tokens_per_scan']}")
     logger.info(f"   💰 Max parallel trades: {ENGINE_CONFIG['max_open_trades']}")
     logger.info(f"   🎯 Take profit: {ENGINE_CONFIG['take_profit_percent']}%")
     logger.info(f"   🛡️ Stop loss: {ENGINE_CONFIG['stop_loss_percent']}%")
-    logger.info(f"   🆕 New token bonus: +{ENGINE_CONFIG.get('new_token_priority_bonus', 40)} (< {ENGINE_CONFIG.get('new_token_age_seconds', 120)}s)")
+    logger.info(f"   🆕 New token bonus: +{ENGINE_CONFIG.get('new_token_priority_bonus', 30)} (< {ENGINE_CONFIG.get('new_token_age_seconds', 120)}s)")
+    logger.info(f"   ⏱️ Cooldown: {ENGINE_CONFIG.get('signal_cooldown_seconds', 60)}s")
     logger.info(f"   📡 Sources: {', '.join(ENGINE_CONFIG['scanner_sources'])}")
     
     scan_start_time = datetime.now(timezone.utc)
@@ -1524,7 +1526,7 @@ async def auto_trading_loop():
     
     # Log bot start to activity feed
     activity_feed.add_event("INFO", "SYSTEM", {
-        "message": "⚡ Ultra-Fast Sniper Bot gestartet"
+        "message": "🚀 High-Frequency Momentum Scalper gestartet"
     })
     
     while auto_trading_state["is_running"]:
@@ -1553,8 +1555,8 @@ async def auto_trading_loop():
             open_trades = await db.trades.count_documents({"status": "OPEN"})
             available_slots = ENGINE_CONFIG["max_open_trades"] - open_trades
             
-            # SNIPER SCAN
-            logger.info(f"⚡ SNIPER SCAN #{auto_trading_state['scan_count']+1} | Open: {open_trades}/{ENGINE_CONFIG['max_open_trades']} | Slots: {available_slots}")
+            # SCAN
+            logger.info(f"🔍 SCAN #{auto_trading_state['scan_count']+1} | Open: {open_trades}/{ENGINE_CONFIG['max_open_trades']} | Slots: {available_slots}")
             
             # Use multi-source scanner to get tokens from all DEX sources
             all_pairs_list = await multi_source_scanner.scan_all_sources()
@@ -1679,8 +1681,8 @@ async def auto_trading_loop():
             if elapsed_minutes > 0:
                 auto_trading_state["signals_per_minute"] = auto_trading_state["signals_processed"] / elapsed_minutes
             
-            # LOG SNIPER SUMMARY
-            logger.info(f"⚡ SNIPER LOOP | tokens_scanned: {len(all_pairs)} | opportunities: {len(opportunities)} | new_tokens: {new_tokens_count} | open_trades: {open_trades} | slots_left: {available_slots}")
+            # LOG SCANNER SUMMARY
+            logger.info(f"📊 SCANNER SUMMARY | tokens_scanned: {len(all_pairs)} | opportunities: {len(opportunities)} | open_trades: {open_trades}")
             
             # LOG TOP MOMENTUM TOKENS (include age info)
             if top_momentum[:5]:
@@ -1803,13 +1805,9 @@ async def auto_trading_loop():
                         reasons=opp.get('signal_reasons', [])
                     )
                     
-                    # SNIPER LOG: Trade executed with full details
+                    # TRADE EXECUTED LOG
                     current_open = open_trades + trades_executed_this_cycle
-                    age_s = opp.get('age_seconds', 0)
-                    age_str = f"{int(age_s)}s" if age_s < 300 else f"{int(age_s/60)}m"
-                    new_tag = "🆕" if opp.get('is_new_token') else ""
-                    
-                    logger.info(f"⚡ TRADE EXECUTED | {new_tag}token: {opp['symbol']} | trade_size: {trade_amount:.4f} SOL | score={opp['signal_score']:.0f} | age={age_str} | target_profit: {ENGINE_CONFIG['take_profit_percent']}% | active_trades: {current_open}/{max_parallel}")
+                    logger.info(f"✅ TRADE EXECUTED | token: {opp['symbol']} | size: {trade_amount:.4f} SOL | score={opp['signal_score']:.0f} | target_profit: {ENGINE_CONFIG['take_profit_percent']}%")
                     
                 except Exception as e:
                     logger.error(f"Trade execution error for {opp.get('symbol', '???')}: {e}")
@@ -2621,11 +2619,12 @@ multi_source_scanner = MultiSourceScanner()
 
 def calculate_momentum_score_v2(pair: Dict) -> dict:
     """
-    ULTRA-FAST SNIPER MOMENTUM SCORE
+    HIGH-FREQUENCY MOMENTUM SCALPING SCORE
     
     Score formula (optimized for 1-minute signals):
-    score = (volume_growth * 0.30) + (buyers_1m * 0.25) + (price_change_1m * 0.20) 
-          + (price_acceleration * 0.15) + (token_age_bonus * 0.10)
+    score = (volume_growth * 0.35) + (buyers_1m * 0.25) + (price_change_1m * 0.20) + (price_acceleration * 0.20)
+    
+    New tokens (< 120s) receive +30 priority bonus.
     
     Returns dict with score and breakdown.
     """
@@ -2649,24 +2648,24 @@ def calculate_momentum_score_v2(pair: Dict) -> dict:
     
     liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
     
-    # Calculate TOKEN AGE (critical for sniping)
+    # Calculate TOKEN AGE
     created_at = pair.get("pairCreatedAt", 0)
     if created_at:
         age_seconds = (datetime.now(timezone.utc).timestamp() * 1000 - created_at) / 1000
     else:
         age_seconds = 999999  # Unknown age = old
     
-    # ===== SNIPER SCORING COMPONENTS =====
+    # ===== MOMENTUM SCORING (Weighted Formula) =====
     
-    # 1. Volume Growth Score (0-30 points)
+    # 1. Volume Growth Score (35% weight = 0-35 points)
     baseline_1m = volume_1h / 60 if volume_1h > 0 else 1
     volume_growth = (volume_1m / baseline_1m) if baseline_1m > 0 else 0
-    volume_score = min(30, volume_growth * 10)  # 3x growth = 30 points
+    volume_score = min(35, volume_growth * 12)  # 3x growth = 35 points
     
-    # 2. Buyer Activity Score (0-25 points) - 1 minute focus
+    # 2. Buyer Activity Score (25% weight = 0-25 points)
     buyer_score = min(25, buys_1m * 5)  # 5 buyers/min = 25 points
     
-    # 3. Price Momentum Score (0-20 points)
+    # 3. Price Momentum Score (20% weight = 0-20 points)
     if price_change_1m >= 5:
         price_score = 20
     elif price_change_1m >= 3:
@@ -2680,54 +2679,59 @@ def calculate_momentum_score_v2(pair: Dict) -> dict:
     else:
         price_score = 0
     
-    # 4. Price Acceleration Score (0-15 points)
-    # Compare 5m change to 1h change
+    # 4. Price Acceleration Score (20% weight = 0-20 points)
     price_accel = 0
     if price_change_1h != 0:
         accel_ratio = abs(price_change_5m) / max(abs(price_change_1h), 1)
-        if accel_ratio >= 0.5:  # 5m is 50%+ of 1h change = accelerating
-            price_accel = min(15, int(accel_ratio * 15))
+        if accel_ratio >= 0.8:
+            price_accel = 20
+        elif accel_ratio >= 0.5:
+            price_accel = 15
+        elif accel_ratio >= 0.3:
+            price_accel = 10
+        elif accel_ratio >= 0.1:
+            price_accel = 5
     
-    # 5. TOKEN AGE BONUS (0-10+ points) - CRITICAL FOR SNIPING
+    # ===== BASE SCORE (0-100) =====
+    base_score = volume_score + buyer_score + price_score + price_accel
+    
+    # ===== NEW TOKEN PRIORITY BONUS =====
     age_bonus = 0
     if age_seconds < ENGINE_CONFIG.get("ultra_new_token_seconds", 60):
-        age_bonus = ENGINE_CONFIG.get("ultra_new_token_bonus", 60)  # Ultra-new: +60
+        age_bonus = ENGINE_CONFIG.get("ultra_new_token_bonus", 50)  # Ultra-new: +50
     elif age_seconds < ENGINE_CONFIG.get("new_token_age_seconds", 120):
-        age_bonus = ENGINE_CONFIG.get("new_token_priority_bonus", 40)  # New: +40
+        age_bonus = ENGINE_CONFIG.get("new_token_priority_bonus", 30)  # New: +30
     elif age_seconds < 300:  # < 5 minutes
-        age_bonus = 20
+        age_bonus = 15
     elif age_seconds < 600:  # < 10 minutes
-        age_bonus = 10
+        age_bonus = 8
     elif age_seconds < 3600:  # < 1 hour
-        age_bonus = 5
+        age_bonus = 3
     
-    # Normalize age bonus to 0-10 range for base score
-    age_score = min(10, age_bonus / 6)
-    
-    # ===== BONUS POINTS =====
+    # ===== ADDITIONAL BONUSES =====
     bonus = 0
     
-    # Buy pressure bonus
+    # Buy/sell pressure bonus (momentum entry signal)
     buy_sell_ratio = buys_1m / max(sells_1m, 1)
     if buy_sell_ratio >= 2.0:
-        bonus += 15
-    elif buy_sell_ratio >= 1.5:
         bonus += 10
-    elif buy_sell_ratio >= 1.0:
-        bonus += 5
+    elif buy_sell_ratio >= 1.5:
+        bonus += 7
+    elif buy_sell_ratio >= 1.05:
+        bonus += 3
     
     # Early pump detection bonus
     if price_change_1m >= ENGINE_CONFIG.get("momentum_price_change_min", 2) and volume_growth >= ENGINE_CONFIG.get("momentum_volume_multiplier", 1.5):
-        bonus += 20  # Strong momentum signal
+        bonus += 15  # Strong momentum signal
     
-    # Add the full age bonus on top (for priority ranking)
+    # Add age bonus for priority ranking
     bonus += age_bonus
     
     # ===== TOTAL SCORE =====
-    base_score = volume_score + buyer_score + price_score + price_accel + age_score
     total_score = base_score + bonus
     
-    # Determine if this is a SNIPER opportunity (1-minute based)
+    # Determine if this is a MOMENTUM opportunity (entry conditions)
+    # price_change_1m >= 2% AND volume_1m >= 1.5x baseline AND buyers >= sellers
     is_momentum = (
         price_change_1m >= ENGINE_CONFIG.get("min_price_change_1m", 2) and
         volume_growth >= ENGINE_CONFIG.get("momentum_volume_multiplier", 1.5) and
@@ -2737,21 +2741,21 @@ def calculate_momentum_score_v2(pair: Dict) -> dict:
     # Build signal reasons
     signal_reasons = []
     if age_seconds < 120:
-        signal_reasons.append(f"🆕 NEW TOKEN ({int(age_seconds)}s old)")
+        signal_reasons.append(f"🆕 NEW ({int(age_seconds)}s)")
     if price_change_1m >= 2:
         signal_reasons.append(f"📈 +{price_change_1m:.1f}%/1m")
     if volume_growth >= 1.5:
         signal_reasons.append(f"📊 {volume_growth:.1f}x vol")
-    if buy_sell_ratio >= 1.5:
-        signal_reasons.append(f"🔥 {buy_sell_ratio:.1f}x buy pressure")
+    if buy_sell_ratio >= 1.05:
+        signal_reasons.append(f"🔥 {buy_sell_ratio:.1f}x buys")
     
     return {
         "score": round(total_score, 1),
+        "base_score": round(base_score, 1),
         "volume_score": round(volume_score, 1),
         "buyer_score": round(buyer_score, 1),
         "price_score": round(price_score, 1),
         "price_accel": price_accel,
-        "age_score": round(age_score, 1),
         "age_bonus": age_bonus,
         "age_seconds": int(age_seconds),
         "bonus": bonus,
