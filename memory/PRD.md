@@ -1,16 +1,56 @@
-# Pump.fun Trading Bot - PRD v33
+# Pump.fun Trading Bot - PRD v34
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
-**HIGH-CAPACITY TRADING ENGINE: 50-150 parallele Trades mit massiver Skalierung.**
+**MULTI-WALLET HIGH-CAPACITY ENGINE: Bis zu 1200 parallele Trades (10 Wallets x 120 Trades)**
 
-## System Status: HIGH-CAPACITY TRADING ENGINE V3 AKTIV ✅
+## System Status: MULTI-WALLET ENGINE V1 IMPLEMENTIERT ✅
 
-Letztes Update: 2026-03-09 17:30
+Letztes Update: 2026-03-09 18:30
 
 ---
 
-## NEU: 2-Sekunden Preis-Monitor
+## NEU: Multi-Wallet System (10 Wallets)
+
+### Features
+- **10 unabhängige Wallets** mit eigenen Balances
+- **Zentrale Handelslogik** - ein Bot-Prozess für alle Wallets
+- **Verteilung nach freiem Kapital** (konfigurierbar: round_robin, least_trades)
+- **Strikte Doppelkauf-Sperre** - ein Token wird nur von einem Wallet gehandelt
+- **1200 parallele Trades möglich** (10 x 120)
+
+### Neue Dateien
+- `/app/backend/multi_wallet.py` - MultiWalletManager Klasse
+- `/app/backend/wallets_config.json` - Wallet-Konfiguration (10 Keys)
+- `/app/backend/wallets_config.example.json` - Beispiel-Konfiguration
+
+### API Endpoints
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/wallets/status` | Status aller Wallets |
+| `GET /api/wallets/{id}` | Einzelnes Wallet |
+| `POST /api/wallets/refresh-balances` | Balance-Update |
+| `PUT /api/wallets/strategy` | Strategie ändern |
+| `GET /api/wallets/trades/{id}` | Trades pro Wallet |
+
+### Konfiguration (wallets_config.json)
+```json
+{
+  "distribution_strategy": "free_capital",
+  "max_trades_per_wallet": 120,
+  "wallets": ["privkey1...", "privkey2...", ...]
+}
+```
+
+### Trade-Modell erweitert
+```python
+class Trade:
+    wallet_id: int = 0  # NEU: Index des Wallets (0-9)
+```
+
+---
+
+## 2-Sekunden Preis-Monitor
 
 ### Features
 - **Dedizierter Background-Task** (`fast_price_monitor()`)

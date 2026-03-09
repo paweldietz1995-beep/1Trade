@@ -33,6 +33,9 @@ from scanner import scanner_instance, scanner_health
 # Big Wins Trading Strategy
 from trading import BigWinsStrategy, STRATEGY_CONFIG
 
+# Multi-Wallet Manager
+from multi_wallet import multi_wallet_manager, MultiWalletManager
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -294,6 +297,7 @@ class Trade(BaseModel):
     paper_trade: bool = True
     auto_trade: bool = False
     wallet_address: Optional[str] = None
+    wallet_id: int = 0  # MULTI-WALLET: Index des Wallets (0-9)
     tx_signature: Optional[str] = None
     close_reason: Optional[str] = None  # TP1_HIT, TP2_HIT, TP3_HIT, TRAILING_STOP, STOP_LOSS, PROTECTED_STOP, MANUAL
     partial_sells: List[Dict] = []  # History of partial sells
@@ -4401,9 +4405,23 @@ async def build_swap_transaction(quote: Dict, user_public_key: str):
 # ============== TRADES ENDPOINTS ==============
 
 @api_router.post("/trades", response_model=Trade)
-async def create_trade(trade_data: TradeCreate):
-    """Create a new trade"""
+async def create_trade(trade_data: TradeCreate, wallet_id: int = None):
+    """
+    Create a new trade with Multi-Wallet support.
+    
+    Args:
+        trade_data: Trade-Daten
+        wallet_id: Optional - wenn nicht angegeben, wird automatisch ein Wallet gewählt
+    """
     settings = await get_bot_settings()
+    
+    # MULTI-WALLET: Prüfe Token-Sperre (verhindert Doppelkäufe)
+    if multi_wallet_manager.is_initialized:
+        if multi_wallet_manager.is_token_locked(trade_data.token_address):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Token {trade_data.token_symbol} wird bereits von einem Wallet gehandelt"
+            )
     
     # Check trade limits
     open_trades = await db.trades.count_documents({"status": "OPEN"})
@@ -4426,6 +4444,29 @@ async def create_trade(trade_data: TradeCreate):
     if trade_data.amount_sol > portfolio.available_sol:
         raise HTTPException(status_code=400, detail="Insufficient available balance")
     
+    # MULTI-WALLET: Wallet-Auswahl
+    selected_wallet_id = wallet_id if wallet_id is not None else 0
+    
+    if multi_wallet_manager.is_initialized and wallet_id is None:
+        # Automatische Wallet-Auswahl basierend auf Strategie
+        selected_wallet = multi_wallet_manager.select_wallet_for_trade(trade_data.token_address)
+        if selected_wallet:
+            selected_wallet_id = selected_wallet.wallet_id
+            
+            # Prüfe ob Wallet genug Kapital hat
+            if selected_wallet.available_capital < trade_data.amount_sol:
+                # Versuche anderes Wallet
+                for w in multi_wallet_manager.wallets.values():
+                    if w.can_trade and w.available_capital >= trade_data.amount_sol:
+                        selected_wallet = w
+                        selected_wallet_id = w.wallet_id
+                        break
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Kein Wallet mit ausreichend Kapital verfügbar"
+                    )
+    
     # Additional safety checks for live trading
     if not trade_data.paper_trade:
         # Check daily loss limit
@@ -4443,7 +4484,7 @@ async def create_trade(trade_data: TradeCreate):
             )
         
         # Log live trade warning
-        logger.warning(f"🔴 LIVE TRADE: {trade_data.token_symbol} - {trade_data.amount_sol} SOL")
+        logger.warning(f"🔴 LIVE TRADE: {trade_data.token_symbol} - {trade_data.amount_sol} SOL (Wallet {selected_wallet_id})")
     
     # Calculate prices
     take_profit_price = trade_data.price_entry * (1 + trade_data.take_profit_percent / 100)
@@ -4469,6 +4510,7 @@ async def create_trade(trade_data: TradeCreate):
         paper_trade=trade_data.paper_trade,
         auto_trade=trade_data.auto_trade,
         wallet_address=trade_data.wallet_address,
+        wallet_id=selected_wallet_id,  # MULTI-WALLET
         tx_signature=trade_data.tx_signature
     )
     
@@ -4476,8 +4518,17 @@ async def create_trade(trade_data: TradeCreate):
     doc["opened_at"] = doc["opened_at"].isoformat()
     await db.trades.insert_one(doc)
     
+    # MULTI-WALLET: Trade bei Wallet registrieren
+    if multi_wallet_manager.is_initialized:
+        multi_wallet_manager.add_trade_to_wallet(
+            selected_wallet_id, 
+            trade_data.amount_sol, 
+            trade_data.token_address
+        )
+    
     trade_type_str = "Paper" if trade_data.paper_trade else "LIVE"
-    logger.info(f"[{trade_type_str}] Trade created: {trade.id} - {trade.token_symbol} - {trade.amount_sol} SOL")
+    wallet_info = f" [Wallet {selected_wallet_id}]" if multi_wallet_manager.is_initialized else ""
+    logger.info(f"[{trade_type_str}]{wallet_info} Trade created: {trade.id} - {trade.token_symbol} - {trade.amount_sol} SOL")
     return trade
 
 @api_router.get("/trades", response_model=List[Trade])
@@ -4625,9 +4676,23 @@ async def close_trade_auto(trade_id: str, reason: str = "MANUAL"):
     
     await db.trades.update_one({"id": trade_id}, {"$set": update_data})
     
+    # MULTI-WALLET: Trade vom Wallet entfernen und Token entsperren
+    wallet_id = trade.get("wallet_id", 0)
+    token_address = trade.get("token_address", "")
+    trade_amount = trade.get("amount_sol", 0)
+    
+    if multi_wallet_manager.is_initialized:
+        multi_wallet_manager.remove_trade_from_wallet(wallet_id, trade_amount, token_address)
+        multi_wallet_manager.update_wallet_stats(wallet_id, {
+            "pnl_sol": pnl_sol,
+            "pnl_percent": pnl_percent,
+            "is_win": pnl_percent > 0
+        })
+    
     mode_str = "Paper" if is_paper else "Live"
     token_symbol = trade.get('token_symbol', 'Unknown')
-    logger.info(f"✅ [{mode_str}] Trade closed: {token_symbol} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
+    wallet_info = f" [W{wallet_id}]" if multi_wallet_manager.is_initialized else ""
+    logger.info(f"✅ [{mode_str}]{wallet_info} Trade closed: {token_symbol} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
     
     # Log TP/SL hit events
     if reason in ["TP_HIT", "TAKE_PROFIT"]:
@@ -6001,6 +6066,135 @@ async def get_dashboard_snapshot():
     except Exception as e:
         logger.error(f"Dashboard snapshot error: {e}")
         return {"error": str(e)}
+
+
+
+# ============== MULTI-WALLET API ==============
+
+@api_router.get("/wallets/status")
+async def get_multi_wallet_status():
+    """
+    Status aller Wallets im Multi-Wallet-System.
+    Zeigt Balance, offene Trades, P&L pro Wallet.
+    """
+    try:
+        if not multi_wallet_manager.is_initialized:
+            # Initialisiere bei Bedarf
+            await multi_wallet_manager.initialize()
+        
+        return {
+            "is_initialized": multi_wallet_manager.is_initialized,
+            "wallet_count": len(multi_wallet_manager.wallets),
+            "distribution_strategy": multi_wallet_manager.distribution_strategy,
+            "aggregated": multi_wallet_manager.get_aggregated_stats(),
+            "wallets": multi_wallet_manager.get_all_wallet_stats(),
+            "active_tokens": len(multi_wallet_manager.active_tokens)
+        }
+    except Exception as e:
+        logger.error(f"Multi-wallet status error: {e}")
+        return {"error": str(e)}
+
+
+@api_router.get("/wallets/{wallet_id}")
+async def get_single_wallet_status(wallet_id: int):
+    """Status eines einzelnen Wallets"""
+    try:
+        wallet = multi_wallet_manager.get_wallet(wallet_id)
+        if not wallet:
+            raise HTTPException(status_code=404, detail=f"Wallet {wallet_id} nicht gefunden")
+        
+        # Lade Trades für dieses Wallet
+        trades = await db.trades.find(
+            {"wallet_id": wallet_id, "status": "OPEN"},
+            {"_id": 0}
+        ).to_list(length=200)
+        
+        return {
+            "wallet": wallet.to_dict(),
+            "open_trades": trades
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Single wallet status error: {e}")
+        return {"error": str(e)}
+
+
+@api_router.post("/wallets/refresh-balances")
+async def refresh_wallet_balances():
+    """Aktualisiert SOL-Balances aller Wallets via RPC"""
+    try:
+        if not multi_wallet_manager.is_initialized:
+            await multi_wallet_manager.initialize()
+        
+        # Nutze bestehenden WalletSyncManager für RPC-Calls
+        results = {"updated": 0, "errors": 0, "balances": {}}
+        
+        for wallet_id, wallet in multi_wallet_manager.wallets.items():
+            try:
+                balance_result = await native_wallet.get_balance(wallet.public_key)
+                if balance_result.get("success"):
+                    wallet.balance_sol = balance_result.get("balance_sol", 0)
+                    results["updated"] += 1
+                    results["balances"][wallet_id] = wallet.balance_sol
+                else:
+                    results["errors"] += 1
+            except Exception as e:
+                logger.error(f"Balance refresh error wallet {wallet_id}: {e}")
+                results["errors"] += 1
+        
+        return {
+            "success": True,
+            "results": results,
+            "total_balance": sum(results["balances"].values())
+        }
+    except Exception as e:
+        logger.error(f"Wallet balance refresh error: {e}")
+        return {"error": str(e)}
+
+
+@api_router.put("/wallets/strategy")
+async def update_distribution_strategy(strategy: str):
+    """
+    Ändert die Verteilungsstrategie für Trades.
+    Optionen: free_capital, round_robin, least_trades
+    """
+    valid_strategies = ["free_capital", "round_robin", "least_trades"]
+    if strategy not in valid_strategies:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Ungültige Strategie. Erlaubt: {valid_strategies}"
+        )
+    
+    multi_wallet_manager.distribution_strategy = strategy
+    logger.info(f"📊 Verteilungsstrategie geändert auf: {strategy}")
+    
+    return {
+        "success": True,
+        "new_strategy": strategy
+    }
+
+
+@api_router.get("/wallets/trades/{wallet_id}")
+async def get_wallet_trades(wallet_id: int, status: str = "OPEN"):
+    """Alle Trades eines bestimmten Wallets"""
+    try:
+        query = {"wallet_id": wallet_id}
+        if status:
+            query["status"] = status
+        
+        trades = await db.trades.find(query, {"_id": 0}).to_list(length=500)
+        
+        return {
+            "wallet_id": wallet_id,
+            "status_filter": status,
+            "trade_count": len(trades),
+            "trades": trades
+        }
+    except Exception as e:
+        logger.error(f"Wallet trades error: {e}")
+        return {"error": str(e)}
+
 
 
 
@@ -7784,6 +7978,20 @@ async def start_rpc_monitor():
     logger.info(f"   - Max retries: {WALLET_SYNC_CONFIG['max_retries']}")
     logger.info(f"   - Min balance: {WALLET_SYNC_CONFIG['min_balance_sol']} SOL")
     
+    # STEP 2b: Initialize Multi-Wallet Manager
+    logger.info("🔐 Initialisiere Multi-Wallet Manager...")
+    try:
+        await multi_wallet_manager.initialize()
+        if multi_wallet_manager.is_initialized:
+            wallet_count = len(multi_wallet_manager.wallets)
+            logger.info(f"✅ MULTI_WALLET_MANAGER: {wallet_count} Wallet(s) geladen")
+            logger.info(f"   - Strategie: {multi_wallet_manager.distribution_strategy}")
+            logger.info(f"   - Max Trades gesamt: {sum(w.max_trades for w in multi_wallet_manager.wallets.values())}")
+        else:
+            logger.info("ℹ️ Multi-Wallet: Single-Wallet-Modus (SOLANA_PRIVATE_KEY)")
+    except Exception as e:
+        logger.warning(f"⚠️ Multi-Wallet Initialisierung fehlgeschlagen: {e}")
+    
     # STEP 3: Initial RPC connection test
     logger.info("🔌 Initializing RPC connection...")
     await get_working_rpc()
@@ -7804,7 +8012,7 @@ async def start_rpc_monitor():
     # Log startup complete
     logger.info("=" * 60)
     logger.info("✅ TRADING BOT STARTUP COMPLETE")
-    logger.info("   - Wallet: Waiting for connection")
+    logger.info("   - Wallets: " + (f"{len(multi_wallet_manager.wallets)} geladen" if multi_wallet_manager.is_initialized else "Single-Mode"))
     logger.info("   - RPC: " + ("Connected" if rpc_state.get("connected") else "Pending"))
     logger.info("   - Auto-Trading: Stopped (ready to start)")
     logger.info("   - Price Monitor: Active (2s)")

@@ -1,0 +1,62 @@
+{
+    "description": "Multi-Wallet Konfiguration für Pump.fun Trading Bot",
+    "distribution_strategy": "free_capital",
+    "max_trades_per_wallet": 120,
+    "wallets": [
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_0_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Hauptwallet"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_1_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 2"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_2_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 3"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_3_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 4"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_4_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 5"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_5_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 6"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_6_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 7"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_7_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 8"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_8_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 9"
+        },
+        {
+            "private_key": "HIER_PRIVATE_KEY_WALLET_9_EINFUEGEN",
+            "max_trades": 120,
+            "description": "Wallet 10"
+        }
+    ],
+    "notes": [
+        "Private Keys im Base58-Format einfuegen",
+        "Diese Datei sollte NICHT in Git committed werden!",
+        "Fuer Produktion: Verschluesselung empfohlen"
+    ]
+}
