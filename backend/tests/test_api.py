@@ -365,12 +365,13 @@ class TestAutoTrading:
         data = resp.json()
         assert isinstance(data, list)
 
-    def test_auto_trading_status_has_scan_interval_1_second(self, api_client):
-        """Auto trading engine uses 1-second scan interval (high-frequency V3 mode)"""
+    def test_auto_trading_status_has_scan_interval(self, api_client):
+        """Auto trading engine uses 3-second scan interval (V4 rate limit protection)"""
         resp = api_client.get(f"{BASE_URL}/api/auto-trading/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["scan_interval_seconds"] == 1.0  # Changed to 1.0s in Scanner V3 high-frequency mode
+        # Scanner V4 uses 3.0s scan interval for rate limit protection
+        assert data["scan_interval_seconds"] == 3.0
 
 
 class TestMomentumThresholds:

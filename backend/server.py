@@ -27,6 +27,9 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 from solders.system_program import TransferParams, transfer
 
+# Multi-Source Scanner V4 - Hochverfügbar mit Rate-Limit Schutz
+from scanner import scanner_instance, scanner_health
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -284,13 +287,13 @@ auto_trading_state = {
 # Engine Configuration - High Capacity
 # ============== MAXIMUM SIGNAL GENERATION CONFIG ==============
 ENGINE_CONFIG = {
-    # ULTRA-HIGH-FREQUENCY SCANNING
-    "scan_interval_seconds": 0.8,       # 0.8 second scans
-    "max_tokens_per_scan": 6000,        # Process up to 6000 tokens (increased from 3000)
-    "max_signals_per_scan": 2000,       # Analyze top 2000 signals (increased from 1000)
+    # SCANNING WITH RATE-LIMIT PROTECTION
+    "scan_interval_seconds": 3.0,       # 3 seconds between scans (rate limit protection)
+    "max_tokens_per_scan": 2000,        # Process up to 2000 tokens
+    "max_signals_per_scan": 1000,       # Analyze top 1000 signals
     "max_open_trades": 120,             # 120 simultaneous micro-trades
-    "max_trades_per_token": 4,          # Allow 4 trades per token (increased from 2)
-    "signal_cooldown_seconds": 10,      # 10 second cooldown (reduced from 20)
+    "max_trades_per_token": 4,          # Allow 4 trades per token
+    "signal_cooldown_seconds": 10,      # 10 second cooldown
     "min_signal_score": 10,             # Lowered to 10 for maximum signals
     
     # QUICK EXIT PROFIT TARGETS
@@ -3070,7 +3073,16 @@ class MultiSourceScanner:
         logger.info(f"   dedup_time: {dedup_time:.1f}ms")
         logger.info(f"   avg_scan_time: {avg_scan_time:.1f}ms")
         logger.info(f"   cache_hits: {cache_stats['hits']} ({cache_stats['hit_rate']:.1f}%)")
-        logger.info(f"   sources: {source_breakdown}")
+        logger.info("=" * 70)
+        
+        # ===== DETAILED SCANNER DEBUG =====
+        logger.info("=" * 70)
+        logger.info("🔍 SCANNER DEBUG - TOKENS BY SOURCE")
+        for source_name, count in source_results.items():
+            logger.info(f"   {source_name}: {count}")
+        logger.info(f"   ─────────────────")
+        logger.info(f"   tokens_total: {len(enriched_tokens)}")
+        logger.info(f"   duplicates_removed: {len(all_tokens) - len(enriched_tokens)}")
         logger.info("=" * 70)
         
         return enriched_tokens
@@ -3145,28 +3157,27 @@ class MultiSourceScanner:
     
     async def scan_dexscreener(self) -> List[Dict]:
         """
-        ENHANCED DexScreener Scanner for High-Frequency Trading
+        OPTIMIZED DexScreener Scanner with Rate-Limit Protection
         
         Features:
-        - Parallel query execution
-        - Multiple endpoints for maximum coverage
-        - Optimized for 500+ tokens per call
+        - Strategic search queries for maximum coverage
+        - Rate-limit protection with delays
+        - Target: 500+ tokens per scan
         """
         pairs = []
         seen_addresses = set()
         
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                # Multiple search queries for maximum coverage
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                # Strategic queries (reduced to avoid rate limits)
                 queries = [
-                    "solana trending", "sol meme", "pump.fun", "raydium sol",
-                    "solana new", "sol degen", "bonk", "wif", "jup sol",
-                    "solana token", "sol pump", "meme sol", "solana defi",
-                    "raydium new", "orca sol", "meteora sol"
+                    "solana", "sol meme", "pump.fun", "raydium",
+                    "orca", "meteora", "bonk", "wif", "jup",
+                    "sol degen", "meme", "solana token", "sol new"
                 ]
                 
-                # Execute queries in parallel batches
-                batch_size = 5
+                # Process queries in small batches with delays
+                batch_size = 4
                 for i in range(0, len(queries), batch_size):
                     batch_queries = queries[i:i + batch_size]
                     
@@ -3179,12 +3190,11 @@ class MultiSourceScanner:
                             if resp.status_code == 200:
                                 return resp.json().get("pairs", [])
                             elif resp.status_code == 429:
-                                await asyncio.sleep(0.3)
+                                await asyncio.sleep(1.0)  # Longer delay on rate limit
                         except:
                             pass
                         return []
                     
-                    # Parallel fetch for this batch
                     results = await asyncio.gather(*[fetch_query(q) for q in batch_queries])
                     
                     for result in results:
@@ -3193,192 +3203,114 @@ class MultiSourceScanner:
                                 addr = p.get("baseToken", {}).get("address", "")
                                 if addr and addr not in seen_addresses:
                                     liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                    if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                    if liq >= 100:
                                         p["source"] = "dexscreener"
                                         pairs.append(p)
                                         seen_addresses.add(addr)
-                
-                # Fetch latest tokens endpoint
-                try:
-                    resp = await client.get(
-                        "https://api.dexscreener.com/token-profiles/latest/v1",
-                        params={"chainId": "solana"}
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for p in data if isinstance(data, list) else data.get("pairs", []):
-                            if isinstance(p, dict) and p.get("chainId", "solana") == "solana":
-                                addr = p.get("baseToken", {}).get("address", "") or p.get("tokenAddress", "")
-                                if addr and addr not in seen_addresses:
-                                    pairs.append({
-                                        "chainId": "solana",
-                                        "baseToken": {"address": addr, "symbol": p.get("symbol", "?"), "name": p.get("name", "Unknown")},
-                                        "priceUsd": str(p.get("priceUsd", 0)),
-                                        "liquidity": {"usd": float(p.get("liquidity", {}).get("usd", 0) if isinstance(p.get("liquidity"), dict) else 1000)},
-                                        "volume": {"h24": 0, "m5": 0, "h1": 0},
-                                        "priceChange": {"h24": 0, "m5": 0, "h1": 0},
-                                        "txns": {"m5": {"buys": 0, "sells": 0}},
-                                        "pairCreatedAt": p.get("pairCreatedAt", 0),
-                                        "source": "dexscreener_new"
-                                    })
-                                    seen_addresses.add(addr)
-                except Exception as e:
-                    logger.debug(f"DexScreener latest endpoint error: {e}")
-                
-                # Fetch boosted tokens (trending)
-                try:
-                    resp = await client.get("https://api.dexscreener.com/token-boosts/top/v1")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for p in data if isinstance(data, list) else []:
-                            if p.get("chainId") == "solana":
-                                addr = p.get("tokenAddress", "")
-                                if addr and addr not in seen_addresses:
-                                    pairs.append({
-                                        "chainId": "solana",
-                                        "baseToken": {"address": addr, "symbol": "BOOST", "name": "Boosted Token"},
-                                        "priceUsd": "0",
-                                        "liquidity": {"usd": 5000},
-                                        "volume": {"h24": 0, "m5": 0, "h1": 0},
-                                        "priceChange": {"h24": 0, "m5": 0, "h1": 0},
-                                        "txns": {"m5": {"buys": 0, "sells": 0}},
-                                        "source": "dexscreener_boost"
-                                    })
-                                    seen_addresses.add(addr)
-                except:
-                    pass
+                    
+                    # Delay between batches to avoid rate limits
+                    if i + batch_size < len(queries):
+                        await asyncio.sleep(0.3)
                         
         except Exception as e:
             logger.debug(f"DexScreener scan error: {e}")
         
-        logger.debug(f"DexScreener returned {len(pairs)} unique tokens")
+        logger.info(f"📊 DexScreener: {len(pairs)} tokens")
         return pairs
     
     async def scan_birdeye(self) -> List[Dict]:
-        """
-        Birdeye-style Scanner using DexScreener (since Birdeye requires API key).
-        Focuses on trending and high-volume tokens.
-        """
+        """Optimized Birdeye-style Scanner"""
         pairs = []
         seen_addresses = set()
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Use DexScreener for Birdeye-like data (trending, volume sorted)
-                queries = ["trending solana", "solana volume", "solana gainers", "hot sol"]
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                queries = ["trending solana", "volume sol", "gainers sol", "hot solana"]
                 
-                async def fetch_birdeye_style(q):
+                async def fetch(q):
                     try:
-                        resp = await client.get(
-                            "https://api.dexscreener.com/latest/dex/search",
-                            params={"q": q}
-                        )
+                        resp = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": q})
                         if resp.status_code == 200:
                             return resp.json().get("pairs", [])
                     except:
                         pass
                     return []
                 
-                results = await asyncio.gather(*[fetch_birdeye_style(q) for q in queries])
+                results = await asyncio.gather(*[fetch(q) for q in queries])
                 
                 for result in results:
                     for p in result:
                         if p.get("chainId") == "solana":
                             addr = p.get("baseToken", {}).get("address", "")
                             if addr and addr not in seen_addresses:
-                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                if float(p.get("liquidity", {}).get("usd", 0) or 0) >= 100:
                                     p["source"] = "birdeye"
                                     pairs.append(p)
                                     seen_addresses.add(addr)
                         
         except Exception as e:
-            logger.debug(f"Birdeye-style scan error: {e}")
+            logger.debug(f"Birdeye scan error: {e}")
         
-        logger.debug(f"Birdeye-style returned {len(pairs)} unique tokens")
+        logger.info(f"📊 Birdeye: {len(pairs)} tokens")
         return pairs
     
     async def scan_jupiter(self) -> List[Dict]:
-        """
-        OPTIMIZED Jupiter Scanner for High-Frequency Trading
-        
-        Uses strict token list for verified, tradeable tokens only.
-        Avoids loading the massive 'all' list for speed.
-        """
+        """Optimized Jupiter Scanner - uses token list"""
         pairs = []
         seen_addresses = set()
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Jupiter strict token list (verified tokens only)
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.get("https://token.jup.ag/strict")
                 if resp.status_code == 200:
                     tokens = resp.json()
-                    
-                    # Process top 300 Jupiter tokens (quality over quantity)
-                    for t in tokens[:300]:
+                    for t in tokens[:500]:  # Top 500 verified tokens
                         addr = t.get("address", "")
                         if addr and addr not in seen_addresses:
-                            pair = {
+                            pairs.append({
                                 "chainId": "solana",
-                                "baseToken": {
-                                    "address": addr,
-                                    "symbol": t.get("symbol", ""),
-                                    "name": t.get("name", "")
-                                },
+                                "baseToken": {"address": addr, "symbol": t.get("symbol", ""), "name": t.get("name", "")},
                                 "priceUsd": "0",
-                                "liquidity": {"usd": 10000},  # Jupiter tokens have liquidity
+                                "liquidity": {"usd": 5000},
                                 "volume": {"h24": 0, "m5": 0, "h1": 0},
                                 "priceChange": {"h24": 0, "m5": 0, "h1": 0},
-                                "txns": {"m5": {"buys": 0, "sells": 0}, "h1": {"buys": 0, "sells": 0}},
+                                "txns": {"m5": {"buys": 0, "sells": 0}},
                                 "source": "jupiter"
-                            }
-                            pairs.append(pair)
+                            })
                             seen_addresses.add(addr)
                     
         except Exception as e:
             logger.debug(f"Jupiter scan error: {e}")
         
-        logger.debug(f"Jupiter returned {len(pairs)} unique tokens")
+        logger.info(f"📊 Jupiter: {len(pairs)} tokens")
         return pairs
     
     async def scan_raydium_pools(self) -> List[Dict]:
-        """
-        ENHANCED Raydium Scanner - Parallel query execution
-        """
+        """Optimized Raydium Scanner"""
         pairs = []
         seen_addresses = set()
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                # Multiple Raydium queries - expanded
-                queries = [
-                    "raydium sol", "raydium meme", "raydium new",
-                    "raydium pump", "raydium token", "raydium defi"
-                ]
+                queries = ["raydium", "raydium sol", "raydium meme", "ray pool"]
                 
-                # Execute all queries in parallel
-                async def fetch_raydium(q):
+                async def fetch(q):
                     try:
-                        resp = await client.get(
-                            "https://api.dexscreener.com/latest/dex/search",
-                            params={"q": q}
-                        )
+                        resp = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": q})
                         if resp.status_code == 200:
                             return resp.json().get("pairs", [])
                     except:
                         pass
                     return []
                 
-                results = await asyncio.gather(*[fetch_raydium(q) for q in queries])
+                results = await asyncio.gather(*[fetch(q) for q in queries])
                 
                 for result in results:
                     for p in result:
-                        if p.get("chainId") == "solana" and "raydium" in p.get("dexId", "").lower():
+                        if p.get("chainId") == "solana":
                             addr = p.get("baseToken", {}).get("address", "")
                             if addr and addr not in seen_addresses:
-                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                if float(p.get("liquidity", {}).get("usd", 0) or 0) >= 100:
                                     p["source"] = "raydium"
                                     pairs.append(p)
                                     seen_addresses.add(addr)
@@ -3386,41 +3318,35 @@ class MultiSourceScanner:
         except Exception as e:
             logger.debug(f"Raydium scan error: {e}")
         
-        logger.debug(f"Raydium returned {len(pairs)} unique tokens")
+        logger.info(f"📊 Raydium: {len(pairs)} tokens")
         return pairs
     
     async def scan_orca_pools(self) -> List[Dict]:
-        """
-        ENHANCED Orca Whirlpool Scanner - Parallel query execution
-        """
+        """Optimized Orca Scanner"""
         pairs = []
         seen_addresses = set()
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                queries = ["orca sol", "orca whirlpool", "orca meme", "orca token", "orca new"]
+                queries = ["orca", "orca sol", "whirlpool", "orca meme"]
                 
-                async def fetch_orca(q):
+                async def fetch(q):
                     try:
-                        resp = await client.get(
-                            "https://api.dexscreener.com/latest/dex/search",
-                            params={"q": q}
-                        )
+                        resp = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": q})
                         if resp.status_code == 200:
                             return resp.json().get("pairs", [])
                     except:
                         pass
                     return []
                 
-                results = await asyncio.gather(*[fetch_orca(q) for q in queries])
+                results = await asyncio.gather(*[fetch(q) for q in queries])
                 
                 for result in results:
                     for p in result:
-                        if p.get("chainId") == "solana" and "orca" in p.get("dexId", "").lower():
+                        if p.get("chainId") == "solana":
                             addr = p.get("baseToken", {}).get("address", "")
                             if addr and addr not in seen_addresses:
-                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                if float(p.get("liquidity", {}).get("usd", 0) or 0) >= 100:
                                     p["source"] = "orca"
                                     pairs.append(p)
                                     seen_addresses.add(addr)
@@ -3428,41 +3354,35 @@ class MultiSourceScanner:
         except Exception as e:
             logger.debug(f"Orca scan error: {e}")
         
-        logger.debug(f"Orca returned {len(pairs)} unique tokens")
+        logger.info(f"📊 Orca: {len(pairs)} tokens")
         return pairs
     
     async def scan_meteora_pools(self) -> List[Dict]:
-        """
-        ENHANCED Meteora DLMM Scanner - Parallel query execution
-        """
+        """Optimized Meteora Scanner"""
         pairs = []
         seen_addresses = set()
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                queries = ["meteora sol", "meteora dlmm", "meteora new", "meteora meme", "meteora token"]
+                queries = ["meteora", "meteora sol", "dlmm", "meteora pool"]
                 
-                async def fetch_meteora(q):
+                async def fetch(q):
                     try:
-                        resp = await client.get(
-                            "https://api.dexscreener.com/latest/dex/search",
-                            params={"q": q}
-                        )
+                        resp = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": q})
                         if resp.status_code == 200:
                             return resp.json().get("pairs", [])
                     except:
                         pass
                     return []
                 
-                results = await asyncio.gather(*[fetch_meteora(q) for q in queries])
+                results = await asyncio.gather(*[fetch(q) for q in queries])
                 
                 for result in results:
                     for p in result:
-                        if p.get("chainId") == "solana" and "meteora" in p.get("dexId", "").lower():
+                        if p.get("chainId") == "solana":
                             addr = p.get("baseToken", {}).get("address", "")
                             if addr and addr not in seen_addresses:
-                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                if float(p.get("liquidity", {}).get("usd", 0) or 0) >= 100:
                                     p["source"] = "meteora"
                                     pairs.append(p)
                                     seen_addresses.add(addr)
@@ -3470,48 +3390,35 @@ class MultiSourceScanner:
         except Exception as e:
             logger.debug(f"Meteora scan error: {e}")
         
-        logger.debug(f"Meteora returned {len(pairs)} unique tokens")
+        logger.info(f"📊 Meteora: {len(pairs)} tokens")
         return pairs
     
     async def scan_pumpfun_pairs(self) -> List[Dict]:
-        """
-        ENHANCED Pump.fun Scanner for New Token Detection
-        
-        Focuses on finding the newest token launches with priority.
-        """
+        """Optimized Pump.fun Scanner"""
         pairs = []
         seen_addresses = set()
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                # Multiple queries for pump.fun tokens - expanded
-                queries = [
-                    "pump.fun", "pumpfun", "bonding curve", "pump sol", "pump meme",
-                    "pump new", "solana pump", "pump token", "pumpfun new"
-                ]
+                queries = ["pump.fun", "pumpfun", "pump sol", "bonding curve", "pump meme"]
                 
-                async def fetch_pumpfun(q):
+                async def fetch(q):
                     try:
-                        resp = await client.get(
-                            "https://api.dexscreener.com/latest/dex/search",
-                            params={"q": q}
-                        )
+                        resp = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": q})
                         if resp.status_code == 200:
                             return resp.json().get("pairs", [])
                     except:
                         pass
                     return []
                 
-                results = await asyncio.gather(*[fetch_pumpfun(q) for q in queries])
+                results = await asyncio.gather(*[fetch(q) for q in queries])
                 
                 for result in results:
                     for p in result:
                         if p.get("chainId") == "solana":
                             addr = p.get("baseToken", {}).get("address", "")
                             if addr and addr not in seen_addresses:
-                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
-                                    # Mark as pump.fun source with creation time
+                                if float(p.get("liquidity", {}).get("usd", 0) or 0) >= 100:
                                     p["source"] = "pumpfun"
                                     pairs.append(p)
                                     seen_addresses.add(addr)
@@ -3519,12 +3426,13 @@ class MultiSourceScanner:
         except Exception as e:
             logger.debug(f"Pump.fun scan error: {e}")
         
-        logger.debug(f"Pump.fun returned {len(pairs)} unique tokens")
+        logger.info(f"📊 Pump.fun: {len(pairs)} tokens")
         return pairs
 
 
-# Global scanner instance
-multi_source_scanner = MultiSourceScanner()
+# Global scanner instance - Nutzt neuen MultiSourceScannerV4
+# Der alte Code bleibt für Rückwärtskompatibilität als Fallback
+multi_source_scanner = scanner_instance  # Verweis auf neuen Scanner
 
 
 def calculate_momentum_score_v2(pair: Dict) -> dict:
@@ -4857,21 +4765,22 @@ async def get_scanner_stats():
     - avg_scan_time_ms: Rolling average scan time
     - cache_stats: Cache hit rate and statistics
     - source_status: Health status per source
+    - api_health: Rate limiting and backoff status
     """
-    cache_stats = multi_source_scanner.cache.get_stats()
+    # Get comprehensive stats from new scanner
+    scanner_stats = multi_source_scanner.get_stats()
+    health_summary = scanner_health.get_health_summary()
     
     return {
-        "scanner_version": "v3",
-        "stats": {
-            **multi_source_scanner.scan_stats,
-            "cache": cache_stats
-        },
-        "source_status": multi_source_scanner.source_status,
+        "scanner_version": "v4",  # Updated to V4
+        "stats": scanner_stats,
+        "health": health_summary,
         "config": {
-            "batch_size": multi_source_scanner.batch_size,
-            "cache_ttl_seconds": multi_source_scanner.cache._ttl,
-            "target_tokens_per_cycle": "1000-5000",
-            "target_scan_interval": "0.8-1.2s"
+            "rate_limit_per_second": 8,
+            "cache_ttl_seconds": 2.0,
+            "backoff_max_retries": 5,
+            "target_tokens_per_cycle": "2000-6000",
+            "target_scan_interval": "1-3s"
         }
     }
 
@@ -4879,8 +4788,44 @@ async def get_scanner_stats():
 @api_router.post("/scanner/clear-cache")
 async def clear_scanner_cache():
     """Clear the scanner cache to force fresh API calls"""
-    await multi_source_scanner.cache.clear()
+    await multi_source_scanner.clear_cache()
     return {"success": True, "message": "Scanner cache cleared"}
+
+
+@api_router.post("/scanner/reset-health")
+async def reset_scanner_health(api_name: str = None):
+    """
+    Reset API health status to recover from rate-limiting.
+    
+    Args:
+        api_name: Optional specific API to reset (dexscreener, birdeye, etc.)
+                  If not provided, resets all APIs.
+    """
+    multi_source_scanner.reset_api_health(api_name)
+    return {
+        "success": True,
+        "message": f"Health reset for: {api_name or 'all APIs'}",
+        "current_health": scanner_health.get_health_summary()
+    }
+
+
+@api_router.get("/scanner/health")
+async def get_scanner_health():
+    """
+    Get detailed scanner health status.
+    
+    SCANNER HEALTH Log Format:
+    - dexscreener_status
+    - birdeye_status
+    - raydium_status
+    - orca_status
+    - meteora_status
+    - jupiter_status
+    - pumpfun_status
+    - tokens_total
+    - scan_time
+    """
+    return scanner_health.get_health_summary()
 
 
 # ============== ACTIVITY FEED ==============
