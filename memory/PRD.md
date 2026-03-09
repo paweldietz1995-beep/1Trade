@@ -1,30 +1,57 @@
-# Pump.fun Trading Bot - PRD v28
+# Pump.fun Trading Bot - PRD v29
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
-**Big Wins V2: Große Gewinne, kleine Verluste.**
+**High Capacity V3: 50-100 gleichzeitige Trades mit dynamischer Positionsgröße.**
 
-## System Status: BIG WINS V2 AKTIV ✅
+## System Status: HIGH CAPACITY V3 AKTIV ✅
 
 Letztes Update: 2026-03-09
 
 ---
 
-## Big Wins V2 Strategy
+## High Capacity Scaling V3
 
-### Ziel
-- **Winrate:** 30-45%
-- **Avg Win:** +30% bis +80%
-- **Avg Loss:** -10% bis -12%
+### Trade-Kapazität
+| Parameter | Wert |
+|-----------|------|
+| Min Trades | 50 |
+| **Max Trades** | **100** |
+| Target | 75 |
+| Per Token | 1 max |
 
-### Stop-Loss (HARD LIMIT)
-| Typ | Wert |
-|-----|------|
-| Hard Stop | **-12%** |
-| Max Loss | **-15%** (Emergency) |
+### Dynamische Trade-Größe
+```
+trade_size = available_balance / target_active_trades
 
-Der Bot verkauft **automatisch** bei -12% Verlust.
-Verluste über -15% sind **unmöglich**.
+Beispiel:
+Wallet = 3 SOL, Target = 100 Trades
+→ Trade-Größe = 0.03 SOL
+```
+
+| Parameter | Wert |
+|-----------|------|
+| Min Trade | 0.02 SOL |
+| Max Trade | 0.08 SOL |
+| Target | 0.03 SOL |
+
+### Kapital-Management
+| Parameter | Wert |
+|-----------|------|
+| Max in Trades | **80%** |
+| Reserve | 20% |
+| Warn Level | 10% |
+
+### API Endpoints (NEU)
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/capital/status` | Kapital-Status & Trade-Kapazität |
+| `GET /api/capital/metrics` | Erweiterte Metriken |
+| `GET /api/strategy/config` | High Capacity V3 Config |
+
+---
+
+## Big Wins Strategie
 
 ### Take-Profit Levels
 | Level | Trigger | Aktion |
@@ -32,86 +59,45 @@ Verluste über -15% sind **unmöglich**.
 | TP1 | +25% | 30% verkaufen |
 | TP2 | +60% | 30% verkaufen |
 | TP3 | +120% | 20% verkaufen |
-| Runner | - | 20% laufen lassen |
+| Runner | - | 20% laufen |
 
-### Trailing Profit
-- **Start:** +35%
-- **Stop:** 15% unter Peak
+### Stop-Loss
+- **Hard Stop:** -12%
+- **Max Loss:** -15%
 
-### Entry Quality Filter (VERSCHÄRFT)
+### Entry Quality
 | Filter | Wert |
 |--------|------|
-| Liquidität | ≥ $30,000 |
-| Volume 5m | ≥ $8,000 |
-| Holders | ≥ 80 |
-| Token Age | 2min - 12h |
-| Market Cap | $50k - $3M |
-
-### Momentum Entry
-| Kriterium | Wert |
-|-----------|------|
-| Price Change 1m | ≥ 5% |
-| Volume Spike | ≥ 2x |
-| Buyers 1m | > Sellers |
-
-### Position Sizing
-| Parameter | Wert |
-|-----------|------|
-| Trade Size | 2.5% Wallet |
-| Max Trade | 0.1 SOL |
-| Max Trades | 25 parallel |
-| Per Token | 1 Trade max |
-| Capital in Trades | 50% max |
-
-### Risk Management
-| Parameter | Wert |
-|-----------|------|
-| Daily Loss Limit | 15% |
-| Max Loss Streak | 5 |
-| Pause nach Streak | 5 Minuten |
+| Liquidity | ≥ $25,000 |
+| Volume 5m | ≥ $5,000 |
+| Holders | ≥ 60 |
+| Token Age | 90s - 12h |
+| Price Change | ≥ 4% |
 
 ---
 
-## API Endpoints
+## Skalierung
 
-### Strategy
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `GET /api/strategy/config` | Big Wins V2 Konfiguration |
-| `GET /api/strategy/stats` | Performance-Statistiken |
+### Mit 3 SOL Wallet
+```
+3 SOL × 80% = 2.4 SOL verfügbar
+2.4 SOL / 0.03 SOL = ~80 Trades möglich
+```
 
-### Scanner
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `GET /api/scanner/health` | Scanner Health Status |
-| `POST /api/scanner/reset-health` | Health zurücksetzen |
-
----
-
-## Changelog
-
-### 2026-03-09 - Big Wins V2
-
-**Verlust-Begrenzung:**
-- Hard Stop Loss: -12% (statt -15%)
-- Emergency Stop: -15% (absolutes Maximum)
-- Keine Trades über -15% Verlust möglich
-
-**Entry-Filter verschärft:**
-- Liquidity: $30k (statt $40k variabel)
-- Volume 5m: $8k (neu)
-- Holders: 80 (statt 50)
-- Token Age: min 2 Minuten (statt 30s)
-- Price Change: 5% (statt 3%)
-
-**Risk Management:**
-- Max Loss Streak: 5 (statt 8)
-- Daily Loss: 15% (statt 20%)
-- Max Trades per Token: 1 (statt 2)
+### Auto-Scaling
+- Mehr Kapital → Mehr oder größere Trades
+- Weniger Kapital → Kleinere Trades
+- Dynamische Anpassung pro Scan
 
 ---
 
 ## Credentials
 
 - **PIN:** 1234
-- **Birdeye API Key:** Optional (BIRDEYE_API_KEY)
+
+---
+
+## Nächste Schritte
+
+🟠 **P1:** Dashboard UI für Kapital-Metriken
+🟡 **P2:** Telegram Benachrichtigungen

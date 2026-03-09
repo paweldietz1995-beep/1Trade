@@ -79,88 +79,102 @@ class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     
-    # ===== BIG WINS V2 CAPITAL MANAGEMENT =====
+    # ===== HIGH CAPACITY SCALING V3 =====
     total_budget_sol: float = 3.0
-    max_trade_percent: float = 2.5        # 2.5% of budget per trade
-    min_trade_sol: float = 0.015          # Min 0.015 SOL per trade
-    max_parallel_trades: int = 25         # 25 focused trades
-    max_trade_amount_sol: float = 0.1     # Max 0.1 SOL per trade
-    max_capital_in_trades_percent: float = 50.0  # Max 50% of wallet (safer)
+    min_active_trades: int = 50           # Target minimum
+    max_parallel_trades: int = 100        # ⚠️ ERHÖHT: 100 Trades
+    target_active_trades: int = 75        # Optimal target
+    
+    # ===== DYNAMIC POSITION SIZING =====
+    dynamic_sizing_enabled: bool = True
+    min_trade_sol: float = 0.02           # ⚠️ Min 0.02 SOL
+    max_trade_amount_sol: float = 0.08    # Max 0.08 SOL
+    target_trade_sol: float = 0.03        # Target ~0.03 SOL
+    max_trade_percent: float = 1.0        # 1% of wallet (dynamic)
+    
+    # ===== CAPITAL MANAGEMENT =====
+    max_capital_in_trades_percent: float = 80.0  # ⚠️ ERHÖHT: 80%
+    capital_reserve_percent: float = 20.0
+    warn_low_capital_percent: float = 10.0
     
     # ===== BIG WINS PROFIT TARGETS =====
-    # Mehrstufige Take-Profit Levels
-    tp1_percent: float = 25.0             # TP1: +25% → sell 30%
+    tp1_percent: float = 25.0
     tp1_sell_percent: float = 30.0
-    tp2_percent: float = 60.0             # TP2: +60% → sell 30%
+    tp2_percent: float = 60.0
     tp2_sell_percent: float = 30.0
-    tp3_percent: float = 120.0            # TP3: +120% → sell 20%
+    tp3_percent: float = 120.0
     tp3_sell_percent: float = 20.0
-    runner_percent: float = 20.0          # Runner: 20% laufen lassen
+    runner_percent: float = 20.0
     
-    # ===== TRAILING PROFIT SYSTEM =====
+    # ===== TRAILING PROFIT =====
     trailing_profit_enabled: bool = True
-    trailing_start_percent: float = 35.0  # Trailing ab +35%
-    trailing_stop_percent: float = 15.0   # 15% unter Peak verkaufen
+    trailing_start_percent: float = 35.0
+    trailing_stop_percent: float = 15.0
     
     # ===== MINIMUM PROFIT RULE =====
-    minimum_profit_before_sell: float = 15.0  # Kein Verkauf unter +15%
+    minimum_profit_before_sell: float = 15.0
     
-    # ===== HARD STOP LOSS - CRITICAL =====
-    stop_loss_percent: float = 12.0       # ⚠️ HARD: -12% Stop Loss
-    max_loss_percent: float = 15.0        # ⚠️ ABSOLUTE MAX: -15%
-    hard_stop_enabled: bool = True        # Force close at stop loss
+    # ===== HARD STOP LOSS =====
+    stop_loss_percent: float = 12.0
+    max_loss_percent: float = 15.0
+    hard_stop_enabled: bool = True
     
     # ===== WINNER PROTECTION =====
     protect_winners_enabled: bool = True
-    protect_at_percent: float = 100.0     # Bei +100%
-    protected_stop_percent: float = 40.0  # SL auf +40%
+    protect_at_percent: float = 100.0
+    protected_stop_percent: float = 40.0
     
     # ===== LEGACY COMPATIBILITY =====
-    take_profit_percent: float = 25.0     # Legacy: First TP level
-    trailing_stop_enabled: bool = True    # Legacy alias
+    take_profit_percent: float = 25.0
+    trailing_stop_enabled: bool = True
     
-    # ===== RISK MANAGEMENT (VERSCHÄRFT) =====
-    max_daily_loss_percent: float = 15.0  # 15% max daily loss (stricter)
-    max_daily_loss_sol: float = 0.45      # Max daily loss
-    max_loss_streak: int = 5              # Max 5 consecutive losses (stricter)
-    loss_streak_pause_seconds: int = 300  # 5 min pause after loss streak
+    # ===== RISK MANAGEMENT =====
+    max_daily_loss_percent: float = 15.0
+    max_daily_loss_sol: float = 0.45
+    max_loss_streak: int = 8
+    loss_streak_pause_seconds: int = 180
     
-    # ===== ENTRY QUALITY FILTERS (VERSCHÄRFT) =====
-    min_liquidity_usd: float = 30000.0    # $30k minimum
-    min_volume_usd: float = 8000.0        # $8k minimum
-    min_volume_5m: float = 8000.0         # $8k 5-minute volume
-    min_market_cap_usd: float = 50000.0   # $50k min market cap
-    max_market_cap_usd: float = 3000000.0 # $3M max market cap
-    min_volume_spike: float = 2.0         # 2x volume spike required
-    max_dev_wallet_percent: float = 15.0  # Max 15% dev wallet (stricter)
-    max_top10_wallet_percent: float = 60.0 # Max 60% top 10 wallets (stricter)
-    min_token_age_seconds: int = 120      # ⚠️ Min 2 minutes old (avoid rugs)
-    max_token_age_hours: int = 12         # Max 12 hours old
-    min_buy_sell_ratio: float = 1.5       # Strong buy pressure required
-    min_holders: int = 80                 # ⚠️ Min 80 holders (stricter)
+    # ===== ENTRY QUALITY FILTERS =====
+    min_liquidity_usd: float = 25000.0
+    min_volume_usd: float = 5000.0
+    min_volume_5m: float = 5000.0
+    min_market_cap_usd: float = 40000.0
+    max_market_cap_usd: float = 5000000.0
+    min_volume_spike: float = 1.8
+    max_dev_wallet_percent: float = 15.0
+    max_top10_wallet_percent: float = 60.0
+    min_token_age_seconds: int = 90
+    max_token_age_hours: int = 12
+    min_buy_sell_ratio: float = 1.3
+    min_holders: int = 60
     
-    # ===== MOMENTUM ENTRY (VERSCHÄRFT) =====
-    pump_volume_multiplier: float = 2.0   # volume_1m > volume_5m_avg × 2.0
-    pump_price_change_min: float = 5.0    # ⚠️ Min 5% price change (momentum)
-    pump_buyers_ratio: float = 1.5        # Buyers > Sellers × 1.5
+    # ===== MOMENTUM ENTRY =====
+    pump_volume_multiplier: float = 1.8
+    pump_price_change_min: float = 4.0
+    pump_buyers_ratio: float = 1.3
     
     # ===== SLIPPAGE CONTROL =====
-    max_slippage_percent: float = 8.0     # Max 8% slippage
-    slippage_warning_percent: float = 5.0 # Warning at 5%
-    slippage_bps: int = 300               # 3% slippage in basis points
-    reject_high_slippage: bool = True     # Reject trades > max slippage
+    max_slippage_percent: float = 8.0
+    slippage_warning_percent: float = 5.0
+    slippage_bps: int = 300
+    reject_high_slippage: bool = True
     
-    # ===== MOMENTUM THRESHOLDS (VERSCHÄRFT) =====
-    min_momentum_score: int = 60          # Higher threshold for quality
-    min_volume_surge_percent: float = 100.0 # 100% volume surge
-    min_buyers_1m: int = 5                # ⚠️ 5 buyers in 1 minute (stricter)
-    min_price_change_1m: float = 5.0      # ⚠️ 5% price change required
+    # ===== MOMENTUM THRESHOLDS =====
+    min_momentum_score: int = 55
+    min_volume_surge_percent: float = 80.0
+    min_buyers_1m: int = 4
+    min_price_change_1m: float = 4.0
     
     # ===== AUTOMATION =====
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: float = 5.0    # 5 second scanning
-    max_trades_per_token: int = 1         # ⚠️ Only 1 trade per token
+    scan_interval_seconds: float = 3.0
+    max_trades_per_token: int = 1
+    
+    # ===== ASYNC EXECUTION =====
+    async_execution_enabled: bool = True
+    trade_queue_max_size: int = 50
+    parallel_order_limit: int = 10
     
     # ===== ADVANCED =====
     smart_wallet_tracking: bool = True
@@ -349,116 +363,124 @@ auto_trading_state = {
     "last_reset_date": None
 }
 
-# Engine Configuration - BIG WINS STRATEGY V2
-# ============== OPTIMIZED FOR LARGE PROFITS, SMALL LOSSES ==============
+# Engine Configuration - HIGH CAPACITY SCALING V3
+# ============== 50-100 SIMULTANEOUS TRADES ==============
 ENGINE_CONFIG = {
     # ===== SCANNING (RATE-LIMIT PROTECTED) =====
-    "scan_interval_seconds": 5.0,         # 5 seconds between scans
+    "scan_interval_seconds": 3.0,         # 3 seconds between scans (faster)
     "max_tokens_per_scan": 2000,          # Process up to 2000 tokens
     "max_signals_per_scan": 500,          # Focus on top 500 signals
-    "max_open_trades": 25,                # 25 focused trades
-    "max_trades_per_token": 1,            # ⚠️ STRICT: Only 1 trade per token
-    "signal_cooldown_seconds": 120,       # 2 minute cooldown per token
-    "min_signal_score": 60,               # Higher threshold for quality
+    "min_signal_score": 55,               # Quality threshold
+    
+    # ===== HIGH CAPACITY TRADE LIMITS =====
+    "min_active_trades": 50,              # Target minimum trades
+    "max_open_trades": 100,               # ⚠️ ERHÖHT: 100 gleichzeitige Trades
+    "target_active_trades": 75,           # Optimal target
+    "max_trades_per_token": 1,            # STRICT: Only 1 trade per token
+    "signal_cooldown_seconds": 90,        # 90 second cooldown per token
+    
+    # ===== DYNAMIC POSITION SIZING =====
+    "dynamic_sizing_enabled": True,
+    "min_trade_sol": 0.02,                # ⚠️ Min 0.02 SOL per trade
+    "max_trade_sol": 0.08,                # Max 0.08 SOL per trade
+    "target_trade_sol": 0.03,             # Target ~0.03 SOL (3 SOL / 100)
+    "trade_percent": 1.0,                 # 1% of wallet per trade (dynamic)
+    
+    # ===== CAPITAL MANAGEMENT =====
+    "max_capital_in_trades_percent": 80,  # ⚠️ ERHÖHT: 80% in Trades (mehr Kapazität)
+    "capital_reserve_percent": 20,        # Keep 20% reserve
+    "warn_low_capital_percent": 10,       # Warn if < 10% free
     
     # ===== BIG WINS PROFIT TARGETS =====
-    # Mehrstufige Take-Profit: 25% → 60% → 120% → Runner
     "take_profit_enabled": True,
     "take_profit_levels": [
         {"level": "TP1", "percent": 25, "sell_percent": 30},
         {"level": "TP2", "percent": 60, "sell_percent": 30},
         {"level": "TP3", "percent": 120, "sell_percent": 20},
     ],
-    "take_profit_percent": 25,            # Legacy: First TP level
+    "take_profit_percent": 25,
     
     # ===== TRAILING PROFIT SYSTEM =====
     "trailing_profit_enabled": True,
-    "trailing_start_percent": 35,         # Aktivieren ab +35%
-    "trailing_stop_percent": 15,          # 15% unter Peak verkaufen
-    "trailing_stop_enabled": True,        # Legacy
-    "trailing_stop_activation": 35,       # Legacy
+    "trailing_start_percent": 35,
+    "trailing_stop_percent": 15,
+    "trailing_stop_enabled": True,
+    "trailing_stop_activation": 35,
     
     # ===== MINIMUM PROFIT RULE =====
-    "minimum_profit_before_sell": 15,     # Kein Verkauf unter +15%
+    "minimum_profit_before_sell": 15,
     
-    # ===== HARD STOP LOSS - CRITICAL =====
-    "stop_loss_percent": 12,              # ⚠️ HARD LIMIT: -12% Stop Loss
-    "max_loss_percent": 15,               # ⚠️ ABSOLUTE MAX: -15% (emergency)
-    "hard_stop_enabled": True,            # Force close at stop loss
+    # ===== HARD STOP LOSS =====
+    "stop_loss_percent": 12,
+    "max_loss_percent": 15,
+    "hard_stop_enabled": True,
     
     # ===== WINNER PROTECTION =====
     "protect_winners_enabled": True,
-    "protect_at_percent": 100,            # Bei +100% Gewinn
-    "protected_stop_percent": 40,         # SL auf +40%
+    "protect_at_percent": 100,
+    "protected_stop_percent": 40,
     
     # ===== RISK MANAGEMENT =====
-    "daily_loss_limit_percent": 15,       # 15% max daily loss (stricter)
-    "loss_streak_limit": 5,               # Max 5 consecutive losses (stricter)
-    "loss_streak_pause_seconds": 300,     # 5 min pause after loss streak
+    "daily_loss_limit_percent": 15,
+    "loss_streak_limit": 8,               # Erhöht für mehr Trades
+    "loss_streak_pause_seconds": 180,     # 3 min pause
     
-    # ===== ENTRY QUALITY FILTERS (VERSCHÄRFT) =====
-    "min_liquidity_usd": 30000,           # $30k minimum
-    "min_volume_usd": 8000,               # $8k minimum
-    "min_volume_5m": 8000,                # $8k 5-minute volume
-    "min_market_cap_usd": 50000,          # $50k min market cap
-    "max_market_cap_usd": 3000000,        # $3M max market cap
-    "min_volume_spike": 2.0,              # 2x volume spike required
-    "min_volume_surge_percent": 100,      # 100% volume surge
-    "min_buy_sell_ratio": 1.5,            # Buyers > Sellers
-    "min_buyers_1m": 5,                   # 5 buyers in 1 minute (stricter)
-    "min_momentum_score": 60,             # Higher threshold
-    "min_price_change_1m": 5.0,           # ⚠️ 5% price change (momentum entry)
-    "max_token_age_hours": 12,            # Max 12 hours old
-    "min_token_age_seconds": 120,         # ⚠️ Min 2 minutes old (avoid rugs)
-    "min_holders": 80,                    # ⚠️ Min 80 holders
-    "price_update_interval": 3,           # Update every 3 seconds
+    # ===== ENTRY QUALITY FILTERS =====
+    "min_liquidity_usd": 25000,           # Leicht reduziert für mehr Signale
+    "min_volume_usd": 5000,
+    "min_volume_5m": 5000,
+    "min_market_cap_usd": 40000,
+    "max_market_cap_usd": 5000000,        # Erhöht auf $5M
+    "min_volume_spike": 1.8,              # Leicht reduziert
+    "min_volume_surge_percent": 80,
+    "min_buy_sell_ratio": 1.3,
+    "min_buyers_1m": 4,
+    "min_momentum_score": 55,
+    "min_price_change_1m": 4.0,           # 4% price change
+    "max_token_age_hours": 12,
+    "min_token_age_seconds": 90,          # Min 90 Sekunden
+    "min_holders": 60,
+    "price_update_interval": 2,           # Schnellere Updates
     
-    # ===== PUMP DETECTION (VERSCHÄRFT) =====
-    "pump_volume_multiplier": 2.0,        # volume_1m > volume_5m_avg × 2.0
-    "pump_price_change_min": 5.0,         # Min 5% price change
-    "pump_buyers_ratio": 1.5,             # Buyers > Sellers × 1.5
+    # ===== PUMP DETECTION =====
+    "pump_volume_multiplier": 1.8,
+    "pump_price_change_min": 4.0,
+    "pump_buyers_ratio": 1.3,
     
-    # ===== MOMENTUM ENTRY SIGNAL (VERSCHÄRFT) =====
-    "momentum_volume_multiplier": 2.0,    # 2x baseline volume
-    "momentum_price_change_min": 5.0,     # 5% price change
-    "momentum_buyers_dominance": True,    # buyers > sellers required
+    # ===== MOMENTUM ENTRY =====
+    "momentum_volume_multiplier": 1.8,
+    "momentum_price_change_min": 4.0,
+    "momentum_buyers_dominance": True,
     
     # ===== NEW TOKEN PRIORITY =====
-    "new_token_age_seconds": 300,         # < 5 minutes = bonus
-    "new_token_priority_bonus": 30,       # +30 priority
-    "ultra_new_token_seconds": 180,       # < 3 minutes (not too new)
-    "ultra_new_token_bonus": 40,          # +40 priority
+    "new_token_age_seconds": 300,
+    "new_token_priority_bonus": 25,
+    "ultra_new_token_seconds": 180,
+    "ultra_new_token_bonus": 35,
     
     # ===== EARLY PUMP DETECTION =====
-    "early_pump_volume_surge": 150,       # 150% volume surge (stricter)
-    "early_pump_price_change_1m": 5.0,    # 5.0% price change
-    "early_pump_min_liquidity": 30000,    # $30k min liquidity
-    
-    # ===== POSITION SIZING =====
-    "trade_percent": 2.5,                 # 2.5% of wallet per trade
-    "micro_trade_percent": 2.5,           # Legacy alias
-    "max_trade_sol": 0.1,                 # Max 0.1 SOL per trade
-    "max_micro_trade_sol": 0.1,           # Legacy alias
-    "min_trade_sol": 0.015,               # Min 0.015 SOL
-    "min_micro_trade_sol": 0.015,         # Legacy alias
-    
-    # ===== CAPITAL CONTROL =====
-    "max_capital_in_trades_percent": 50,  # Max 50% in trades (safer)
-    "capital_reserve_percent": 50,        # Keep 50% reserve
+    "early_pump_volume_surge": 120,
+    "early_pump_price_change_1m": 4.0,
+    "early_pump_min_liquidity": 25000,
     
     # ===== SLIPPAGE CONTROL =====
-    "max_slippage_percent": 8,            # Max 8% slippage
-    "slippage_warning_percent": 5,        # Warning at 5%
-    "reject_high_slippage": True,         # Reject trades > max slippage
+    "max_slippage_percent": 8,
+    "slippage_warning_percent": 5,
+    "reject_high_slippage": True,
     
     # ===== SMART WALLET TRACKING =====
-    "smart_wallet_min_profit": 50,        # 50% min profit
-    "smart_wallet_min_trades": 5,         # 5 min trades
-    "copy_trade_delay_ms": 200,           # 200ms delay
+    "smart_wallet_min_profit": 50,
+    "smart_wallet_min_trades": 5,
+    "copy_trade_delay_ms": 150,
     
     # ===== DAILY LIMITS =====
-    "max_daily_trades": 50,               # Max 50 trades/day (quality over quantity)
-    "max_portfolio_risk": 0.50,           # 50% max portfolio risk
+    "max_daily_trades": 300,              # ⚠️ ERHÖHT: 300 Trades/Tag
+    "max_portfolio_risk": 0.80,
+    
+    # ===== ASYNC EXECUTION =====
+    "async_execution_enabled": True,
+    "trade_queue_max_size": 50,
+    "parallel_order_limit": 10,           # 10 parallele Orders
     
     # ===== SCANNER SOURCES =====
     "scanner_sources": [
@@ -472,9 +494,9 @@ ENGINE_CONFIG = {
     ],
     
     # ===== TARGET PERFORMANCE =====
-    "target_winrate": (30, 45),           # 30-45% win rate
-    "target_avg_win": (30, 80),           # +30% to +80% average win
-    "target_avg_loss": (-10, -12),        # -10% to -12% average loss
+    "target_winrate": (30, 45),
+    "target_avg_win": (30, 80),
+    "target_avg_loss": (-10, -12),
 }
 
 
@@ -4553,15 +4575,17 @@ async def update_trade_price(trade_id: str, current_price: float):
 @api_router.post("/trades/update-all-prices")
 async def update_all_trade_prices():
     """
-    BIG WINS: Bulk update prices with multi-level take profits.
+    HIGH CAPACITY: Bulk update prices for up to 120 trades.
     
     Features:
     - Mehrstufige Take-Profit (25% / 60% / 120%)
     - Trailing Profit ab +35%
     - Minimum Profit Rule (kein Verkauf unter +15%)
     - Winner Protection (bei +100% → SL auf +40%)
+    - Hard Stop Loss -12%
     """
-    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(100)
+    # ⚠️ ERHÖHT: Bis zu 150 Trades unterstützen
+    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(150)
     
     if not open_trades:
         return {"updated": 0, "closed": 0, "partial_sells": 0, "trades": []}
@@ -4923,15 +4947,42 @@ async def get_strategy_config():
     """
     Get current Big Wins V2 strategy configuration.
     
-    Optimiert für: Große Gewinne, kleine Verluste
+    Optimiert für: Große Gewinne, kleine Verluste + High Capacity Scaling
+    - 50-100 gleichzeitige Trades
+    - Dynamische Trade-Größe
     - Hard Stop Loss: -12%
-    - Take Profit Levels: 25% / 60% / 120%
-    - Verschärfte Entry-Filter
     """
     return {
-        "strategy_name": "Big Wins V2",
-        "version": "2.0",
-        "description": "Optimiert für große Gewinne und kleine Verluste",
+        "strategy_name": "High Capacity V3",
+        "version": "3.0",
+        "description": "50-100 Trades mit dynamischer Positionsgröße",
+        
+        # HIGH CAPACITY SCALING
+        "scaling": {
+            "min_active_trades": ENGINE_CONFIG.get("min_active_trades", 50),
+            "max_active_trades": ENGINE_CONFIG.get("max_open_trades", 100),
+            "target_active_trades": ENGINE_CONFIG.get("target_active_trades", 75),
+            "max_trades_per_token": ENGINE_CONFIG.get("max_trades_per_token", 1),
+            "description": "Automatisch 50-100 parallele Trades"
+        },
+        
+        # DYNAMIC POSITION SIZING
+        "position_sizing": {
+            "dynamic_enabled": ENGINE_CONFIG.get("dynamic_sizing_enabled", True),
+            "min_trade_sol": ENGINE_CONFIG.get("min_trade_sol", 0.02),
+            "max_trade_sol": ENGINE_CONFIG.get("max_trade_sol", 0.08),
+            "target_trade_sol": ENGINE_CONFIG.get("target_trade_sol", 0.03),
+            "formula": "trade_size = available_balance / target_active_trades",
+            "example": "3 SOL / 100 = 0.03 SOL pro Trade"
+        },
+        
+        # CAPITAL MANAGEMENT
+        "capital": {
+            "max_in_trades_percent": ENGINE_CONFIG.get("max_capital_in_trades_percent", 80),
+            "reserve_percent": ENGINE_CONFIG.get("capital_reserve_percent", 20),
+            "description": "80% des Wallets können in Trades sein"
+        },
+        
         "take_profit": {
             "enabled": ENGINE_CONFIG.get("take_profit_enabled", True),
             "levels": ENGINE_CONFIG.get("take_profit_levels", []),
@@ -4940,64 +4991,42 @@ async def get_strategy_config():
         "trailing_profit": {
             "enabled": ENGINE_CONFIG.get("trailing_profit_enabled", True),
             "start_percent": ENGINE_CONFIG.get("trailing_start_percent", 35),
-            "stop_percent": ENGINE_CONFIG.get("trailing_stop_percent", 15),
-            "description": f"Ab +{ENGINE_CONFIG.get('trailing_start_percent', 35)}% aktiv, {ENGINE_CONFIG.get('trailing_stop_percent', 15)}% unter Peak verkaufen"
+            "stop_percent": ENGINE_CONFIG.get("trailing_stop_percent", 15)
         },
         "minimum_profit": {
-            "percent": ENGINE_CONFIG.get("minimum_profit_before_sell", 15),
-            "description": f"Kein Verkauf unter +{ENGINE_CONFIG.get('minimum_profit_before_sell', 15)}%"
+            "percent": ENGINE_CONFIG.get("minimum_profit_before_sell", 15)
         },
         "stop_loss": {
             "hard_stop_percent": ENGINE_CONFIG.get("stop_loss_percent", 12),
             "max_loss_percent": ENGINE_CONFIG.get("max_loss_percent", 15),
-            "hard_stop_enabled": ENGINE_CONFIG.get("hard_stop_enabled", True),
-            "description": f"⚠️ HARD STOP: -{ENGINE_CONFIG.get('stop_loss_percent', 12)}% | MAX: -{ENGINE_CONFIG.get('max_loss_percent', 15)}%"
+            "description": f"HARD STOP: -{ENGINE_CONFIG.get('stop_loss_percent', 12)}%"
         },
         "winner_protection": {
             "enabled": ENGINE_CONFIG.get("protect_winners_enabled", True),
             "at_percent": ENGINE_CONFIG.get("protect_at_percent", 100),
-            "stop_at_percent": ENGINE_CONFIG.get("protected_stop_percent", 40),
-            "description": f"Bei +{ENGINE_CONFIG.get('protect_at_percent', 100)}% → SL auf +{ENGINE_CONFIG.get('protected_stop_percent', 40)}%"
+            "stop_at_percent": ENGINE_CONFIG.get("protected_stop_percent", 40)
         },
         "entry_quality": {
-            "min_liquidity_usd": ENGINE_CONFIG.get("min_liquidity_usd", 30000),
-            "min_volume_5m_usd": ENGINE_CONFIG.get("min_volume_5m", 8000),
-            "min_market_cap_usd": ENGINE_CONFIG.get("min_market_cap_usd", 50000),
-            "max_market_cap_usd": ENGINE_CONFIG.get("max_market_cap_usd", 3000000),
-            "min_volume_spike": ENGINE_CONFIG.get("min_volume_spike", 2.0),
-            "min_token_age_seconds": ENGINE_CONFIG.get("min_token_age_seconds", 120),
-            "max_token_age_hours": ENGINE_CONFIG.get("max_token_age_hours", 12),
-            "min_holders": ENGINE_CONFIG.get("min_holders", 80),
-            "description": "Verschärfte Filter für bessere Trade-Qualität"
+            "min_liquidity_usd": ENGINE_CONFIG.get("min_liquidity_usd", 25000),
+            "min_volume_5m_usd": ENGINE_CONFIG.get("min_volume_5m", 5000),
+            "min_market_cap_usd": ENGINE_CONFIG.get("min_market_cap_usd", 40000),
+            "max_market_cap_usd": ENGINE_CONFIG.get("max_market_cap_usd", 5000000),
+            "min_holders": ENGINE_CONFIG.get("min_holders", 60)
         },
         "momentum_entry": {
-            "price_change_1m_min": ENGINE_CONFIG.get("min_price_change_1m", 5.0),
-            "volume_multiplier": ENGINE_CONFIG.get("pump_volume_multiplier", 2.0),
-            "buyers_ratio": ENGINE_CONFIG.get("pump_buyers_ratio", 1.5),
-            "min_buyers_1m": ENGINE_CONFIG.get("min_buyers_1m", 5),
-            "description": f"price_change_1m > {ENGINE_CONFIG.get('min_price_change_1m', 5)}% + volume_1m > avg × {ENGINE_CONFIG.get('pump_volume_multiplier', 2.0)}"
-        },
-        "slippage": {
-            "max_percent": ENGINE_CONFIG.get("max_slippage_percent", 8),
-            "warning_percent": ENGINE_CONFIG.get("slippage_warning_percent", 5),
-            "reject_high_slippage": ENGINE_CONFIG.get("reject_high_slippage", True)
-        },
-        "position_sizing": {
-            "trade_percent": ENGINE_CONFIG.get("trade_percent", 2.5),
-            "max_trade_sol": ENGINE_CONFIG.get("max_trade_sol", 0.1),
-            "max_parallel_trades": ENGINE_CONFIG.get("max_open_trades", 25),
-            "max_trades_per_token": ENGINE_CONFIG.get("max_trades_per_token", 1)
+            "price_change_1m_min": ENGINE_CONFIG.get("min_price_change_1m", 4.0),
+            "volume_multiplier": ENGINE_CONFIG.get("pump_volume_multiplier", 1.8),
+            "min_buyers_1m": ENGINE_CONFIG.get("min_buyers_1m", 4)
         },
         "risk_management": {
             "daily_loss_limit_percent": ENGINE_CONFIG.get("daily_loss_limit_percent", 15),
-            "max_loss_streak": ENGINE_CONFIG.get("loss_streak_limit", 5),
-            "max_capital_in_trades": f"{ENGINE_CONFIG.get('max_capital_in_trades_percent', 50)}%"
+            "max_loss_streak": ENGINE_CONFIG.get("loss_streak_limit", 8),
+            "max_daily_trades": ENGINE_CONFIG.get("max_daily_trades", 300)
         },
         "target_performance": {
             "winrate": "30-45%",
             "avg_win": "+30% bis +80%",
-            "avg_loss": "-10% bis -12%",
-            "expectancy": "Positiv durch große Wins, kleine Losses"
+            "avg_loss": "-10% bis -12%"
         }
     }
 
@@ -5104,6 +5133,170 @@ async def get_strategy_stats():
     stats["performance"]["biggest_loss"] = round(stats["performance"]["biggest_loss"], 2)
     
     return stats
+
+
+# ============== CAPITAL & POSITION SIZING ==============
+
+def calculate_dynamic_trade_size(wallet_balance: float, open_trades_count: int) -> dict:
+    """
+    Berechnet die dynamische Trade-Größe basierend auf Wallet-Balance.
+    
+    Formel: trade_size = available_balance / target_active_trades
+    
+    Returns:
+        {
+            "trade_size_sol": float,
+            "is_min_size": bool,
+            "warning": str or None
+        }
+    """
+    target_trades = ENGINE_CONFIG.get("target_active_trades", 75)
+    min_trade = ENGINE_CONFIG.get("min_trade_sol", 0.02)
+    max_trade = ENGINE_CONFIG.get("max_trade_sol", 0.08)
+    max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 80)
+    
+    # Calculate available capital
+    available_capital = wallet_balance * (max_capital_percent / 100)
+    
+    # Calculate remaining slots
+    max_trades = ENGINE_CONFIG.get("max_open_trades", 100)
+    remaining_slots = max(0, max_trades - open_trades_count)
+    
+    if remaining_slots == 0:
+        return {
+            "trade_size_sol": 0,
+            "is_min_size": False,
+            "warning": "Max trades reached",
+            "can_trade": False
+        }
+    
+    # Dynamic sizing: divide available capital by target trades
+    effective_target = min(target_trades, remaining_slots)
+    calculated_size = available_capital / max(effective_target, 1)
+    
+    # Apply limits
+    trade_size = max(min_trade, min(calculated_size, max_trade))
+    
+    # Check if at minimum
+    is_min_size = trade_size <= min_trade
+    warning = None
+    
+    if is_min_size and calculated_size < min_trade:
+        warning = f"Trade-Größe unter Minimum ({calculated_size:.4f} < {min_trade})"
+    
+    return {
+        "trade_size_sol": round(trade_size, 4),
+        "calculated_size": round(calculated_size, 4),
+        "is_min_size": is_min_size,
+        "warning": warning,
+        "can_trade": True
+    }
+
+
+@api_router.get("/capital/status")
+async def get_capital_status():
+    """
+    Gibt den aktuellen Kapitalstatus zurück.
+    
+    Returns:
+        - available_balance: Freies Kapital
+        - capital_in_trades: Gebundenes Kapital
+        - capital_usage_percent: Auslastung in %
+        - active_trades: Anzahl aktiver Trades
+        - trade_capacity: Verbleibende Trade-Slots
+        - dynamic_trade_size: Empfohlene Trade-Größe
+    """
+    # Get wallet balance
+    settings = await get_bot_settings()
+    wallet_balance = wallet_state.get("balance", 0)
+    
+    # Get open trades
+    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(200)
+    active_count = len(open_trades)
+    
+    # Calculate capital in trades
+    capital_in_trades = sum(t.get("amount_sol", 0) * (t.get("remaining_percent", 100) / 100) for t in open_trades)
+    
+    # Calculate available balance
+    available_balance = wallet_balance - capital_in_trades
+    
+    # Calculate usage
+    capital_usage = (capital_in_trades / max(wallet_balance, 0.001)) * 100
+    max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 80)
+    
+    # Trade capacity
+    max_trades = ENGINE_CONFIG.get("max_open_trades", 100)
+    remaining_slots = max(0, max_trades - active_count)
+    
+    # Dynamic trade size
+    trade_sizing = calculate_dynamic_trade_size(wallet_balance, active_count)
+    
+    # Warnings
+    warnings = []
+    if capital_usage >= max_capital_percent:
+        warnings.append(f"Kapital-Limit erreicht ({capital_usage:.1f}%)")
+    if remaining_slots == 0:
+        warnings.append("Max Trades erreicht")
+    if trade_sizing.get("warning"):
+        warnings.append(trade_sizing["warning"])
+    
+    return {
+        "wallet_balance": round(wallet_balance, 4),
+        "available_balance": round(available_balance, 4),
+        "capital_in_trades": round(capital_in_trades, 4),
+        "capital_usage_percent": round(capital_usage, 1),
+        "max_capital_percent": max_capital_percent,
+        
+        "active_trades": active_count,
+        "max_trades": max_trades,
+        "remaining_slots": remaining_slots,
+        "target_trades": ENGINE_CONFIG.get("target_active_trades", 75),
+        
+        "dynamic_trade_size": trade_sizing["trade_size_sol"],
+        "min_trade_size": ENGINE_CONFIG.get("min_trade_sol", 0.02),
+        "max_trade_size": ENGINE_CONFIG.get("max_trade_sol", 0.08),
+        
+        "avg_trade_size": round(capital_in_trades / max(active_count, 1), 4),
+        
+        "can_open_trades": remaining_slots > 0 and capital_usage < max_capital_percent,
+        "warnings": warnings,
+        
+        "scaling": {
+            "description": f"Mit {wallet_balance:.2f} SOL → ~{int(wallet_balance / trade_sizing['trade_size_sol'])} mögliche Trades",
+            "recommended_trades": min(int(wallet_balance / trade_sizing["trade_size_sol"]), max_trades)
+        }
+    }
+
+
+@api_router.get("/capital/metrics")
+async def get_capital_metrics():
+    """
+    Gibt erweiterte Kapital-Metriken für das Dashboard zurück.
+    """
+    # Get basic status
+    status = await get_capital_status()
+    
+    # Get trade history for metrics
+    trades_today = await db.trades.find({
+        "opened_at": {"$gte": datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()}
+    }, {"_id": 0}).to_list(500)
+    
+    # Calculate trades per minute (last 10 minutes)
+    ten_min_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+    recent_trades = [t for t in trades_today if t.get("opened_at", "") > ten_min_ago.isoformat()]
+    trades_per_minute = len(recent_trades) / 10 if recent_trades else 0
+    
+    return {
+        **status,
+        "trades_today": len(trades_today),
+        "trades_per_minute": round(trades_per_minute, 2),
+        "config": {
+            "min_active_trades": ENGINE_CONFIG.get("min_active_trades", 50),
+            "max_active_trades": ENGINE_CONFIG.get("max_open_trades", 100),
+            "target_active_trades": ENGINE_CONFIG.get("target_active_trades", 75),
+            "dynamic_sizing": ENGINE_CONFIG.get("dynamic_sizing_enabled", True)
+        }
+    }
 
 
 # ============== SMART WALLET TRACKING ==============
