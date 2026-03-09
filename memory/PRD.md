@@ -1,9 +1,9 @@
-# Pump.fun Trading Bot - PRD v20
+# Pump.fun Trading Bot - PRD v21
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
-## System Status: ✅ VOLLSTÄNDIG FUNKTIONSFÄHIG - HIGH-CAPACITY SCANNER
+## System Status: ⚡ ULTRA-FAST SNIPER BOT AKTIV ⚡
 
 Letztes Update: 2026-03-09
 
@@ -11,27 +11,34 @@ Letztes Update: 2026-03-09
 
 ## Changelog (2026-03-09)
 
-### Scanner Scale-Up (Latest)
-- **Kapazität erhöht:** 500-1000 Tokens pro Scan-Zyklus
-- **Ergebnis:** 
+### Ultra-Fast Sniper Bot (Latest)
+- **Scan-Intervall:** 0.8 Sekunden (sub-second)
+- **Max Parallel Trades:** 100 (vorher 20)
+- **Micro-Trade Sizing:** 0.5% des Wallets (0.005-0.05 SOL)
+- **Token Age Bonus:**
+  - < 60s: +60 Priority
+  - < 120s: +40 Priority
+  - < 5min: +20 Priority
+- **Momentum Score v2:**
   ```
-  SCANNER DEBUG | raw_tokens: 341 | after_dedup: 147 | opportunities: 32
-  Sources: dexscreener=171 | raydium=26 | orca=26 | meteora=61 | pumpfun=57
+  score = vol_growth*0.30 + buyers*0.25 + price_1m*0.20 + accel*0.15 + age*0.10
   ```
-- **Frontend Pagination:** "Zeige 1-50 von 125 Tokens" mit Seiten-Navigation
-- **Parallel API-Calls:** asyncio.gather() für alle 7 Quellen
+- **Logging:**
+  ```
+  ⚡ SNIPER LOOP | tokens_scanned: 149 | opportunities: 27 | new_tokens: 0 | open_trades: 10 | slots_left: 90
+  🔥 TOP MOMENTUM | 1. 🆕memeless score=125 (45s) | 2. Mirabel score=90 (5m)
+  ⚡ TRADE EXECUTED | 🆕token: MEME | trade_size: 0.015 SOL | score=85 | age=30s | target_profit: 8%
+  ```
 
-### Multi-Source Momentum Scanner
-- **7 DEX-Quellen:** DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun
-- **Deduplication:** Tokens nach Adresse zusammengeführt
-
-### Momentum Scoring System v2
-- **Formel:** `score = volume_growth * 0.4 + buyers * 0.3 + price_change * 0.3`
-
-### Aggressive Scalping Strategy
-- **take_profit_percent:** 10%
+### Sniper Exit Strategy
+- **take_profit_percent:** 8% (vorher 10%)
 - **stop_loss_percent:** 6%
-- **trailing_stop:** 4%
+- **trailing_stop_percent:** 4%
+- **signal_cooldown:** 45 Sekunden
+
+### Scanner Scale-Up
+- **Kapazität:** 1500 Tokens pro Scan
+- **7 DEX-Quellen:** parallel via asyncio.gather()
 
 ---
 
