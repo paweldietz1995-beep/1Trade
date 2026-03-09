@@ -88,9 +88,31 @@ passes_filter = (
 | TP3 | +120% | 20% verkaufen |
 | Runner | - | 20% laufen |
 
-### Trailing Profit
-- Start: +35%
-- Stop: 15% unter Peak
+### Trailing Profit (DYNAMISCH - NEU)
+**Dynamischer Trailing-Stop basierend auf Gewinn-Level:**
+
+| Peak P&L | Trail % | Beschreibung |
+|----------|---------|--------------|
+| +500%+ | 5% | Sehr eng - maximaler Gewinnschutz |
+| +200-500% | 8% | Eng |
+| +100-200% | 10% | Mittel |
+| +50-100% | 12% | Standard |
+| +35-50% | 15% | Default |
+
+**MEGA-WINNER Logik:**
+- Bei +300%: Automatisch 50% Position sichern
+- Schützt gegen plötzliche Einbrüche bei extremen Gewinnen
+
+---
+
+## Aktuelle Performance (2026-03-09)
+
+| Metrik | Wert |
+|--------|------|
+| Offene Trades | 119 |
+| Gesamt P&L | +100.3% |
+| Geschlossene Trades | 305 |
+| Win Rate | 32% |
 
 ---
 

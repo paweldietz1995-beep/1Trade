@@ -4882,19 +4882,54 @@ async def update_all_trade_prices():
                         update_data["stop_loss"] = new_sl
                         logger.info(f"🛡️ WINNER PROTECTED: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! SL → +{protected_stop}%")
                     
-                    # --- ACTIVATE TRAILING PROFIT ---
+                    # --- ACTIVATE TRAILING PROFIT (DYNAMISCH ANGEPASST) ---
+                    # Dynamischer Trailing basierend auf Gewinn-Level
+                    # Je höher der Gewinn, desto enger der Trailing-Stop
+                    
+                    peak_pnl_percent = ((peak / entry_price) - 1) * 100 if entry_price > 0 else 0
+                    
+                    # DYNAMISCHE TRAILING-STOP BERECHNUNG
+                    # Bei niedrigem Gewinn: weiter (15%), bei hohem Gewinn: enger (5%)
+                    if peak_pnl_percent >= 500:  # +500% und mehr
+                        dynamic_trail_pct = 5   # Sehr eng: 5% vom Peak
+                    elif peak_pnl_percent >= 200:  # +200-500%
+                        dynamic_trail_pct = 8   # Eng: 8% vom Peak
+                    elif peak_pnl_percent >= 100:  # +100-200%
+                        dynamic_trail_pct = 10  # Mittel: 10% vom Peak
+                    elif peak_pnl_percent >= 50:   # +50-100%
+                        dynamic_trail_pct = 12  # Standard: 12% vom Peak
+                    else:
+                        dynamic_trail_pct = trailing_stop_pct  # Default: 15%
+                    
                     if pnl_percent >= trailing_start:
-                        # Calculate trailing stop based on peak
-                        new_trailing = peak * (1 - trailing_stop_pct / 100)
+                        # Calculate trailing stop based on peak with dynamic percentage
+                        new_trailing = peak * (1 - dynamic_trail_pct / 100)
                         if new_trailing > (trailing or 0):
                             update_data["trailing_stop"] = new_trailing
+                            logger.debug(f"📊 TRAILING UPDATE: {trade.get('token_symbol')} | Peak +{peak_pnl_percent:.1f}% | Trail {dynamic_trail_pct}% | Stop @ ${new_trailing:.8f}")
                         
                         # Check if we've dropped enough from peak
                         distance_from_peak = ((current_price / peak) - 1) * 100 if peak > 0 else 0
-                        if distance_from_peak <= -trailing_stop_pct:
+                        if distance_from_peak <= -dynamic_trail_pct:
                             should_close = True
                             close_reason = "TRAILING_STOP"
-                            logger.info(f"📉 TRAILING: {trade.get('token_symbol')} stopped at +{pnl_percent:.1f}% (peak was +{((peak/entry_price)-1)*100:.1f}%)")
+                            logger.info(f"📉 TRAILING: {trade.get('token_symbol')} stopped at +{pnl_percent:.1f}% (peak was +{peak_pnl_percent:.1f}%, trail {dynamic_trail_pct}%)")
+                    
+                    # --- MEGA-WINNER SOFORT-SCHLIESSUNG ---
+                    # Bei extremen Gewinnen: Automatisch 50% verkaufen wenn noch nicht geschehen
+                    if pnl_percent >= 300 and "MEGA" not in levels_hit:
+                        should_partial = True
+                        partial_reason = "MEGA_WINNER"
+                        sell_percent = 50  # 50% bei +300% sofort sichern
+                        levels_hit.append("MEGA")
+                        update_data["levels_hit"] = levels_hit
+                        new_remaining = remaining_percent - sell_percent
+                        update_data["remaining_percent"] = max(0, new_remaining)
+                        if new_remaining <= 5:
+                            should_close = True
+                            close_reason = "MEGA_WINNER"
+                            should_partial = False
+                        logger.info(f"💎 MEGA-WINNER: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! Sichern 50%!")
             
             # Update trade in database
             await db.trades.update_one({"id": trade["id"]}, {"$set": update_data})
