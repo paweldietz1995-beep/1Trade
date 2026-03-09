@@ -1,1 +1,17 @@
-{"wallets": [""], "distribution_strategy": "free_capital", "max_trades_per_wallet": 120}
+{
+    "description": "Multi-Wallet Konfiguration - Fuege deine Private Keys hier ein",
+    "distribution_strategy": "free_capital",
+    "max_trades_per_wallet": 120,
+    "wallets": [
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_1",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_2",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_3",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_4",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_5",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_6",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_7",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_8",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_9",
+        "DEIN_PRIVATER_SCHLUESSEL_WALLET_10"
+    ]
+}
