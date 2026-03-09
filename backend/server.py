@@ -6127,12 +6127,12 @@ async def refresh_wallet_balances():
         if not multi_wallet_manager.is_initialized:
             await multi_wallet_manager.initialize()
         
-        # Nutze bestehenden WalletSyncManager für RPC-Calls
+        # Nutze bestehende get_wallet_balance Funktion für RPC-Calls
         results = {"updated": 0, "errors": 0, "balances": {}}
         
         for wallet_id, wallet in multi_wallet_manager.wallets.items():
             try:
-                balance_result = await native_wallet.get_balance(wallet.public_key)
+                balance_result = await get_wallet_balance(wallet.public_key)
                 if balance_result.get("success"):
                     wallet.balance_sol = balance_result.get("balance_sol", 0)
                     results["updated"] += 1
