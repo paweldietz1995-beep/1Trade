@@ -3378,22 +3378,27 @@ HELIUS_API_KEY = os.environ.get('HELIUS_API_KEY', '')
 HELIUS_RPC_URL = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else None
 
 # RPC Configuration with failover
-# Priority: 1. Helius (if key provided), 2. Ankr, 3. Solana Public
-RPC_ENDPOINTS = []
+# Priority: 1. Ankr (most reliable), 2. Solana Public, 3. Extrnode, 4. Helius (if key)
+RPC_ENDPOINTS = [
+    "https://rpc.ankr.com/solana",           # Primary - reliable free RPC
+    "https://solana.public-rpc.com",         # Backup 1
+    "https://api.mainnet-beta.solana.com",   # Backup 2 - official but rate limited
+    "https://solana-mainnet.rpc.extrnode.com" # Backup 3
+]
+
+# Add Helius at front if API key provided (premium)
 if HELIUS_RPC_URL and HELIUS_API_KEY:
-    RPC_ENDPOINTS.append(HELIUS_RPC_URL)
-RPC_ENDPOINTS.extend([
-    "https://rpc.ankr.com/solana",
-    "https://api.mainnet-beta.solana.com",
-    "https://solana-mainnet.rpc.extrnode.com"
-])
+    RPC_ENDPOINTS.insert(0, HELIUS_RPC_URL)
 
 RPC_CONFIG = {
     "primary": RPC_ENDPOINTS[0],
     "endpoints": RPC_ENDPOINTS,
-    "timeout": 10,
+    "timeout": 15,                    # Increased from 10 to 15 seconds
     "retry_interval": 5,
-    "max_retries": 3
+    "max_retries": 3,
+    "health_check_interval": 30,     # Check RPC health every 30 seconds
+    "rate_limit_backoff": 2,         # Seconds to wait after rate limit
+    "confirm_timeout": 60000         # Transaction confirmation timeout (ms)
 }
 
 # RPC State Manager
@@ -3406,7 +3411,18 @@ rpc_state = {
     "last_slot": None,
     "consecutive_failures": 0,
     "total_requests": 0,
-    "failed_requests": 0
+    "failed_requests": 0,
+    "network_available": True,
+    "last_network_check": None,
+    "rate_limited_until": None,
+    "provider_status": {}  # Track status of each provider
+}
+
+# Network diagnostic results
+network_diagnostic = {
+    "outbound_available": None,
+    "last_check": None,
+    "error": None
 }
 
 # Wallet State Manager - synced with actual wallet balance
@@ -4029,8 +4045,100 @@ class RPCStatus(BaseModel):
     consecutive_failures: int = 0
     success_rate: float = 100.0
 
-async def test_rpc_endpoint(endpoint: str, timeout: int = 10) -> dict:
-    """Test a single RPC endpoint and return status"""
+async def test_network_connectivity() -> dict:
+    """
+    Test if server can make outbound requests.
+    This diagnoses network-level issues before RPC testing.
+    """
+    global network_diagnostic
+    
+    test_urls = [
+        "https://rpc.ankr.com/solana",
+        "https://api.mainnet-beta.solana.com",
+        "https://1.1.1.1"  # Cloudflare DNS as simple connectivity test
+    ]
+    
+    logger.info("🔍 NETWORK_DIAGNOSTIC: Testing outbound connectivity...")
+    
+    for url in test_urls:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Just try to connect, don't need valid response
+                response = await client.get(url if "1.1.1.1" in url else url, 
+                                           follow_redirects=True)
+                
+                network_diagnostic["outbound_available"] = True
+                network_diagnostic["last_check"] = datetime.now(timezone.utc).isoformat()
+                network_diagnostic["error"] = None
+                
+                logger.info(f"✅ NETWORK_AVAILABLE: Outbound requests working (tested {url[:30]}...)")
+                return {"success": True, "message": "Network available"}
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Network test failed for {url[:30]}...: {e}")
+            continue
+    
+    # All tests failed
+    network_diagnostic["outbound_available"] = False
+    network_diagnostic["last_check"] = datetime.now(timezone.utc).isoformat()
+    network_diagnostic["error"] = "All outbound requests failed"
+    
+    logger.error("❌ NETWORK_BLOCKED: Server cannot make outbound requests")
+    return {"success": False, "error": "NETWORK_BLOCKED"}
+
+
+async def test_rpc_health(endpoint: str, timeout: int = 15) -> dict:
+    """
+    Test RPC endpoint using getHealth method.
+    More reliable than getSlot for health checking.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=float(timeout)) as client:
+            start_time = datetime.now()
+            
+            # First try getHealth
+            response = await client.post(
+                endpoint,
+                json={"jsonrpc": "2.0", "id": 1, "method": "getHealth"},
+                headers={"Content-Type": "application/json"}
+            )
+            latency = (datetime.now() - start_time).total_seconds() * 1000
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "result" in data and data["result"] == "ok":
+                    return {
+                        "success": True,
+                        "healthy": True,
+                        "latency_ms": round(latency, 1),
+                        "endpoint": endpoint
+                    }
+                elif "error" in data:
+                    # Some RPCs don't support getHealth, fall back to getSlot
+                    return await test_rpc_endpoint(endpoint, timeout)
+            
+            # Rate limited
+            if response.status_code == 429:
+                return {
+                    "success": False, 
+                    "error": "RPC_RATE_LIMITED",
+                    "rate_limited": True
+                }
+            
+            return {"success": False, "error": f"HTTP {response.status_code}"}
+            
+    except httpx.TimeoutException:
+        return {"success": False, "error": "RPC_TIMEOUT"}
+    except httpx.ConnectError:
+        return {"success": False, "error": "RPC_CONNECTION_REFUSED"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+async def test_rpc_endpoint(endpoint: str, timeout: int = 15) -> dict:
+    """Test a single RPC endpoint using getSlot and return status"""
+    global rpc_state
+    
     try:
         async with httpx.AsyncClient(timeout=float(timeout)) as client:
             start_time = datetime.now()
@@ -4041,9 +4149,29 @@ async def test_rpc_endpoint(endpoint: str, timeout: int = 10) -> dict:
             )
             latency = (datetime.now() - start_time).total_seconds() * 1000
             
+            # Handle rate limiting
+            if response.status_code == 429:
+                logger.warning(f"⚠️ RPC_RATE_LIMITED: {endpoint[:30]}...")
+                # Set backoff time
+                rpc_state["rate_limited_until"] = (
+                    datetime.now(timezone.utc) + 
+                    timedelta(seconds=RPC_CONFIG["rate_limit_backoff"])
+                ).isoformat()
+                return {
+                    "success": False, 
+                    "error": "RPC_RATE_LIMITED",
+                    "rate_limited": True
+                }
+            
             if response.status_code == 200:
                 data = response.json()
                 if "result" in data:
+                    # Update provider status
+                    rpc_state["provider_status"][endpoint[:30]] = {
+                        "healthy": True,
+                        "latency_ms": round(latency, 1),
+                        "last_check": datetime.now(timezone.utc).isoformat()
+                    }
                     return {
                         "success": True,
                         "latency_ms": round(latency, 1),
@@ -4051,23 +4179,77 @@ async def test_rpc_endpoint(endpoint: str, timeout: int = 10) -> dict:
                         "endpoint": endpoint
                     }
                 elif "error" in data:
-                    return {"success": False, "error": data["error"].get("message", "RPC error")}
+                    error_msg = data["error"].get("message", "RPC error")
+                    rpc_state["provider_status"][endpoint[:30]] = {
+                        "healthy": False,
+                        "error": error_msg,
+                        "last_check": datetime.now(timezone.utc).isoformat()
+                    }
+                    return {"success": False, "error": error_msg}
             
             return {"success": False, "error": f"HTTP {response.status_code}"}
             
     except httpx.TimeoutException:
-        return {"success": False, "error": "Timeout"}
+        logger.warning(f"⚠️ RPC_TIMEOUT: {endpoint[:30]}... (>{timeout}s)")
+        rpc_state["provider_status"][endpoint[:30]] = {
+            "healthy": False,
+            "error": "TIMEOUT",
+            "last_check": datetime.now(timezone.utc).isoformat()
+        }
+        return {"success": False, "error": "RPC_TIMEOUT"}
+    except httpx.ConnectError as e:
+        logger.warning(f"⚠️ RPC_CONNECTION_REFUSED: {endpoint[:30]}...")
+        return {"success": False, "error": "RPC_CONNECTION_REFUSED"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 async def get_working_rpc() -> dict:
-    """Find a working RPC endpoint with automatic failover"""
-    global rpc_state
+    """
+    Find a working RPC endpoint with automatic failover.
     
-    # Try endpoints in order, starting from current
+    Process:
+    1. Test network connectivity first
+    2. Try each RPC endpoint in order
+    3. Select first working endpoint
+    4. Log RPC_PROVIDER_SELECTED or RPC_ALL_PROVIDERS_FAILED
+    """
+    global rpc_state, network_diagnostic
+    
+    logger.info("🔍 RPC_TEST: Finding working RPC provider...")
+    
+    # Step 1: Test network connectivity first
+    if not network_diagnostic.get("outbound_available"):
+        network_result = await test_network_connectivity()
+        if not network_result["success"]:
+            logger.error("❌ RPC_ALL_PROVIDERS_FAILED: Network unavailable")
+            rpc_state["connected"] = False
+            rpc_state["network_available"] = False
+            return {
+                "success": False, 
+                "error": "NETWORK_UNAVAILABLE",
+                "message": "Failed to sync wallet. Network unavailable."
+            }
+    
+    rpc_state["network_available"] = True
+    
+    # Step 2: Try endpoints in order, starting from current
+    tested_count = 0
     for i in range(len(RPC_CONFIG["endpoints"])):
         idx = (rpc_state["current_endpoint_index"] + i) % len(RPC_CONFIG["endpoints"])
         endpoint = RPC_CONFIG["endpoints"][idx]
+        
+        tested_count += 1
+        logger.info(f"   Testing RPC {tested_count}/{len(RPC_CONFIG['endpoints'])}: {endpoint[:40]}...")
+        
+        # Check if rate limited
+        if rpc_state.get("rate_limited_until"):
+            try:
+                limit_time = datetime.fromisoformat(rpc_state["rate_limited_until"].replace('Z', '+00:00'))
+                if datetime.now(timezone.utc) < limit_time:
+                    logger.info(f"   ⏳ Skipping (rate limited until {rpc_state['rate_limited_until']})")
+                    continue
+            except:
+                pass
         
         result = await test_rpc_endpoint(endpoint, RPC_CONFIG["timeout"])
         rpc_state["total_requests"] += 1
@@ -4081,20 +4263,39 @@ async def get_working_rpc() -> dict:
             rpc_state["last_slot"] = result["slot"]
             rpc_state["last_check"] = datetime.now(timezone.utc).isoformat()
             rpc_state["consecutive_failures"] = 0
+            rpc_state["rate_limited_until"] = None
             
-            logger.info(f"✅ RPC connected: {endpoint[:40]}... ({result['latency_ms']}ms, slot {result['slot']})")
+            logger.info(f"✅ RPC_PROVIDER_SELECTED: {endpoint[:40]}...")
+            logger.info(f"   RPC_CONNECTION_SUCCESS | Latency: {result['latency_ms']}ms | Slot: {result['slot']}")
             return result
         else:
             rpc_state["failed_requests"] += 1
-            logger.warning(f"⚠️ RPC endpoint {idx+1} failed: {result['error']}")
+            error_type = result.get("error", "Unknown")
+            
+            # Log specific error type
+            if "RATE_LIMITED" in str(error_type):
+                logger.warning(f"   ⚠️ Provider {idx+1} rate limited - trying next")
+            elif "TIMEOUT" in str(error_type):
+                logger.warning(f"   ⚠️ Provider {idx+1} timeout - trying next")
+            else:
+                logger.warning(f"   ⚠️ Provider {idx+1} failed: {error_type}")
     
     # All endpoints failed
     rpc_state["connected"] = False
     rpc_state["consecutive_failures"] += 1
     rpc_state["last_check"] = datetime.now(timezone.utc).isoformat()
     
-    logger.error("❌ All RPC endpoints failed")
-    return {"success": False, "error": "All RPC endpoints unavailable"}
+    logger.error("=" * 50)
+    logger.error("❌ RPC_ALL_PROVIDERS_FAILED")
+    logger.error(f"   Tested {tested_count} providers, all failed")
+    logger.error("   Error: NETWORK_UNAVAILABLE")
+    logger.error("=" * 50)
+    
+    return {
+        "success": False, 
+        "error": "RPC_ALL_PROVIDERS_FAILED",
+        "message": "Failed to sync wallet. Network unavailable."
+    }
 
 async def make_rpc_call(method: str, params: list = None, retries: int = 3) -> dict:
     """Make an RPC call with automatic retry and failover"""
@@ -4271,6 +4472,135 @@ async def test_all_endpoints():
         "endpoints": results,
         "primary": RPC_CONFIG["primary"][:50] + "...",
         "working_count": sum(1 for r in results if r["success"])
+    }
+
+
+@api_router.get("/rpc/network-diagnostic")
+async def run_network_diagnostic():
+    """
+    Run comprehensive network diagnostic to identify RPC connection issues.
+    
+    Checks:
+    1. Outbound network connectivity
+    2. Each RPC provider status
+    3. Rate limiting status
+    4. Overall network health
+    """
+    global network_diagnostic, rpc_state
+    
+    logger.info("=" * 50)
+    logger.info("🔍 NETWORK DIAGNOSTIC STARTED")
+    logger.info("=" * 50)
+    
+    diagnostic_result = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "network_available": False,
+        "rpc_connected": False,
+        "providers_tested": 0,
+        "providers_working": 0,
+        "selected_provider": None,
+        "provider_results": [],
+        "error": None,
+        "recommendation": None
+    }
+    
+    # Step 1: Test network connectivity
+    logger.info("Step 1: Testing outbound network connectivity...")
+    network_result = await test_network_connectivity()
+    diagnostic_result["network_available"] = network_result["success"]
+    
+    if not network_result["success"]:
+        diagnostic_result["error"] = "NETWORK_BLOCKED"
+        diagnostic_result["recommendation"] = "Server cannot make outbound requests. Check firewall/proxy settings."
+        logger.error("❌ NETWORK_BLOCKED: Cannot proceed with RPC testing")
+        return diagnostic_result
+    
+    logger.info("✅ Network connectivity confirmed")
+    
+    # Step 2: Test each RPC provider
+    logger.info("Step 2: Testing RPC providers...")
+    
+    for i, endpoint in enumerate(RPC_CONFIG["endpoints"]):
+        logger.info(f"   Testing provider {i+1}/{len(RPC_CONFIG['endpoints'])}: {endpoint[:40]}...")
+        
+        # Test with getHealth first (more reliable)
+        result = await test_rpc_health(endpoint, RPC_CONFIG["timeout"])
+        
+        provider_status = {
+            "endpoint": endpoint[:50] + "...",
+            "index": i,
+            "success": result["success"],
+            "latency_ms": result.get("latency_ms"),
+            "error": result.get("error"),
+            "rate_limited": result.get("rate_limited", False)
+        }
+        
+        diagnostic_result["provider_results"].append(provider_status)
+        diagnostic_result["providers_tested"] += 1
+        
+        if result["success"]:
+            diagnostic_result["providers_working"] += 1
+            if not diagnostic_result["selected_provider"]:
+                diagnostic_result["selected_provider"] = endpoint[:50]
+                diagnostic_result["rpc_connected"] = True
+                logger.info(f"   ✅ Provider {i+1} working: {result.get('latency_ms')}ms")
+        else:
+            error_type = result.get("error", "Unknown")
+            if "RATE_LIMITED" in str(error_type):
+                logger.warning(f"   ⚠️ Provider {i+1} rate limited")
+            elif "TIMEOUT" in str(error_type):
+                logger.warning(f"   ⚠️ Provider {i+1} timeout (>{RPC_CONFIG['timeout']}s)")
+            else:
+                logger.warning(f"   ❌ Provider {i+1} failed: {error_type}")
+    
+    # Step 3: Generate recommendation
+    if diagnostic_result["providers_working"] == 0:
+        diagnostic_result["error"] = "RPC_ALL_PROVIDERS_FAILED"
+        diagnostic_result["recommendation"] = (
+            "All RPC providers failed. Possible causes:\n"
+            "1. All providers rate limiting - wait and retry\n"
+            "2. Network issues - check internet connection\n"
+            "3. All providers down - check Solana network status"
+        )
+        logger.error("❌ RPC_ALL_PROVIDERS_FAILED")
+    elif diagnostic_result["providers_working"] < len(RPC_CONFIG["endpoints"]) // 2:
+        diagnostic_result["recommendation"] = (
+            f"Only {diagnostic_result['providers_working']}/{diagnostic_result['providers_tested']} "
+            "providers working. Consider adding more RPC endpoints or using a premium provider."
+        )
+    else:
+        diagnostic_result["recommendation"] = "RPC connection healthy"
+    
+    logger.info("=" * 50)
+    logger.info(f"DIAGNOSTIC COMPLETE: {diagnostic_result['providers_working']}/{diagnostic_result['providers_tested']} providers working")
+    logger.info("=" * 50)
+    
+    return diagnostic_result
+
+
+@api_router.post("/rpc/force-reconnect")
+async def force_rpc_reconnect():
+    """Force reconnection to RPC with fresh network diagnostic"""
+    global rpc_state, network_diagnostic
+    
+    # Reset state
+    rpc_state["connected"] = False
+    rpc_state["consecutive_failures"] = 0
+    rpc_state["rate_limited_until"] = None
+    network_diagnostic["outbound_available"] = None
+    
+    logger.info("🔄 Forcing RPC reconnection...")
+    
+    # Run fresh connection attempt
+    result = await get_working_rpc()
+    
+    return {
+        "success": result.get("success", False),
+        "connected": rpc_state.get("connected", False),
+        "endpoint": rpc_state.get("current_endpoint", "none")[:50] if rpc_state.get("current_endpoint") else None,
+        "latency_ms": rpc_state.get("latency_ms"),
+        "slot": rpc_state.get("last_slot"),
+        "error": result.get("error") if not result.get("success") else None
     }
 
 # ============== WALLET BALANCE ENDPOINT (Backend RPC) ==============
