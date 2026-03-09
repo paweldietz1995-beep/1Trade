@@ -1,57 +1,81 @@
-# Pump.fun Trading Bot - PRD v29
+# Pump.fun Trading Bot - PRD v30
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
-**High Capacity V3: 50-100 gleichzeitige Trades mit dynamischer Positionsgröße.**
+**Stable Profitability V4: 3-6 Trades/Minute mit Anti-Rug-Schutz.**
 
-## System Status: HIGH CAPACITY V3 AKTIV ✅
+## System Status: STABLE PROFITABILITY V4 AKTIV ✅
 
 Letztes Update: 2026-03-09
 
 ---
 
-## High Capacity Scaling V3
+## Stable Profitability V4 Strategie
 
-### Trade-Kapazität
+### Trade-Frequenz Kontrolle
 | Parameter | Wert |
 |-----------|------|
-| Min Trades | 50 |
-| **Max Trades** | **100** |
-| Target | 75 |
-| Per Token | 1 max |
+| Target Min | 3 Trades/Minute |
+| Target Max | 6 Trades/Minute |
+| Priorisierung | Beste Signale bei Überschuss |
 
-### Dynamische Trade-Größe
+### Dynamische Trade-Skalierung
+| Wallet | Trades | Trade-Größe |
+|--------|--------|-------------|
+| 1 SOL | ~35 | 0.025 SOL |
+| 3 SOL | ~80 | 0.035 SOL |
+| 10 SOL | ~150 | 0.06 SOL |
+
+### Position Sizing
 ```
-trade_size = available_balance / target_active_trades
+trade_size = wallet_balance / target_active_trades
 
-Beispiel:
-Wallet = 3 SOL, Target = 100 Trades
-→ Trade-Größe = 0.03 SOL
+Beispiel: 3 SOL / 80 = 0.0375 SOL
 ```
 
 | Parameter | Wert |
 |-----------|------|
 | Min Trade | 0.02 SOL |
-| Max Trade | 0.08 SOL |
-| Target | 0.03 SOL |
+| Max Trade | 0.06 SOL |
+| Target | 0.035 SOL |
 
-### Kapital-Management
-| Parameter | Wert |
+### Scanner Filter (Grundfilter)
+| Filter | Wert |
+|--------|------|
+| Liquidität | ≥ $30,000 |
+| Volume 5m | ≥ $8,000 |
+| Holders | ≥ 80 |
+| Token Age | 2min - 12h |
+
+### Momentum Entry
+| Kriterium | Wert |
 |-----------|------|
-| Max in Trades | **80%** |
-| Reserve | 20% |
-| Warn Level | 10% |
+| Price Change 1m | ≥ 5% |
+| Volume Spike | ≥ 2x |
+| Buy/Sell Ratio | > 1.2 |
+| Upward Trend | Required |
 
-### API Endpoints (NEU)
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `GET /api/capital/status` | Kapital-Status & Trade-Kapazität |
-| `GET /api/capital/metrics` | Erweiterte Metriken |
-| `GET /api/strategy/config` | High Capacity V3 Config |
+### Anti-Rug Filter (ERWEITERT)
+| Filter | Wert |
+|--------|------|
+| Max Single Wallet | 15% |
+| Max Dev Wallet | 10% |
+| Min Unique Wallets | 60 |
+| Max Top 10 | 60% |
 
----
+### Scam & Low-Quality Filter
+| Filter | Wert |
+|--------|------|
+| Min Name Length | 3 |
+| Random Ticker | Detect |
+| Min Liquidity Entry | $25,000 |
+| Min Volume 1m | $2,000 |
 
-## Big Wins Strategie
+### Stop-Loss Strategie
+| Typ | Wert |
+|-----|------|
+| Hard Stop | -12% |
+| Emergency | -18% |
 
 ### Take-Profit Levels
 | Level | Trigger | Aktion |
@@ -61,43 +85,46 @@ Wallet = 3 SOL, Target = 100 Trades
 | TP3 | +120% | 20% verkaufen |
 | Runner | - | 20% laufen |
 
-### Stop-Loss
-- **Hard Stop:** -12%
-- **Max Loss:** -15%
-
-### Entry Quality
-| Filter | Wert |
-|--------|------|
-| Liquidity | ≥ $25,000 |
-| Volume 5m | ≥ $5,000 |
-| Holders | ≥ 60 |
-| Token Age | 90s - 12h |
-| Price Change | ≥ 4% |
+### Trailing Profit
+- Start: +35%
+- Stop: 15% unter Peak
 
 ---
 
-## Skalierung
+## API Endpoints
 
-### Mit 3 SOL Wallet
-```
-3 SOL × 80% = 2.4 SOL verfügbar
-2.4 SOL / 0.03 SOL = ~80 Trades möglich
-```
+### Trade Rate
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/trade-rate/stats` | Aktuelle Trade-Rate Statistiken |
+| `POST /api/token/check-antirug` | Anti-Rug Check für Token |
 
-### Auto-Scaling
-- Mehr Kapital → Mehr oder größere Trades
-- Weniger Kapital → Kleinere Trades
-- Dynamische Anpassung pro Scan
+### Capital
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/capital/status` | Kapital-Status |
+| `GET /api/capital/metrics` | Erweiterte Metriken |
+
+### Strategy
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/strategy/config` | V4 Konfiguration |
+| `GET /api/strategy/stats` | Performance Stats |
+
+---
+
+## Zielwerte
+
+| Metrik | Ziel |
+|--------|------|
+| Aktive Trades | 50-100 |
+| Trades/Minute | 3-6 |
+| Win Rate | 30-45% |
+| Avg Win | +30% bis +80% |
+| Avg Loss | -10% bis -12% |
 
 ---
 
 ## Credentials
 
 - **PIN:** 1234
-
----
-
-## Nächste Schritte
-
-🟠 **P1:** Dashboard UI für Kapital-Metriken
-🟡 **P2:** Telegram Benachrichtigungen
