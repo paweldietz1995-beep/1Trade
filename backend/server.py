@@ -4536,65 +4536,130 @@ async def get_working_rpc() -> dict:
     }
 
 async def make_rpc_call(method: str, params: list = None, retries: int = 3) -> dict:
-    """Make an RPC call with automatic retry and failover"""
+    """
+    Make a Solana JSON-RPC call with automatic failover.
+    
+    Returns the raw Solana RPC response format:
+    {
+        "jsonrpc": "2.0",
+        "result": {...},
+        "id": 1
+    }
+    
+    Also includes "success": True for backward compatibility.
+    """
     global rpc_state
     
-    for attempt in range(retries):
-        # Ensure we have a working endpoint
-        if not rpc_state["connected"] or rpc_state["current_endpoint"] is None:
-            await get_working_rpc()
-        
-        if not rpc_state["connected"]:
-            if attempt < retries - 1:
-                await asyncio.sleep(RPC_CONFIG["retry_interval"])
-                continue
-            return {"success": False, "error": "No RPC connection available"}
-        
-        try:
-            async with httpx.AsyncClient(timeout=float(RPC_CONFIG["timeout"])) as client:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": method
-                }
-                if params:
-                    payload["params"] = params
-                
-                start_time = datetime.now()
-                response = await client.post(
-                    rpc_state["current_endpoint"],
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                latency = (datetime.now() - start_time).total_seconds() * 1000
-                
-                rpc_state["total_requests"] += 1
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data:
-                        rpc_state["latency_ms"] = round(latency, 1)
-                        rpc_state["consecutive_failures"] = 0
-                        return {"success": True, "result": data["result"], "latency_ms": latency}
-                    elif "error" in data:
-                        raise Exception(data["error"].get("message", "RPC error"))
-                
-                raise Exception(f"HTTP {response.status_code}")
-                
-        except Exception as e:
-            rpc_state["failed_requests"] += 1
-            rpc_state["consecutive_failures"] += 1
-            logger.warning(f"RPC call failed (attempt {attempt+1}/{retries}): {e}")
-            
-            # Try next endpoint on failure
-            if rpc_state["consecutive_failures"] >= 2:
-                rpc_state["connected"] = False
-                await get_working_rpc()
+    # RPC endpoints with failover
+    rpc_endpoints = [
+        "https://api.mainnet-beta.solana.com",  # Official - most reliable
+        "https://rpc.ankr.com/solana",
+        "https://solana.public-rpc.com",
+        "https://solana-mainnet.rpc.extrnode.com"
+    ]
+    
+    # Use current connected endpoint first if available
+    if rpc_state.get("connected") and rpc_state.get("current_endpoint"):
+        # Move current endpoint to front
+        current = rpc_state["current_endpoint"]
+        if current in rpc_endpoints:
+            rpc_endpoints.remove(current)
+        rpc_endpoints.insert(0, current)
+    
+    last_error = None
+    
+    for endpoint in rpc_endpoints:
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": method
+                    }
+                    if params:
+                        payload["params"] = params
+                    
+                    start_time = datetime.now()
+                    response = await client.post(
+                        endpoint,
+                        json=payload,
+                        headers={"Content-Type": "application/json"}
+                    )
+                    latency = (datetime.now() - start_time).total_seconds() * 1000
+                    
+                    # Track stats
+                    rpc_state["total_requests"] = rpc_state.get("total_requests", 0) + 1
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        
+                        # Check for valid result
+                        if "result" in data:
+                            # Update RPC state on success
+                            rpc_state["connected"] = True
+                            rpc_state["current_endpoint"] = endpoint
+                            rpc_state["latency_ms"] = round(latency, 1)
+                            rpc_state["consecutive_failures"] = 0
+                            rpc_state["last_check"] = datetime.now(timezone.utc).isoformat()
+                            
+                            logger.info(f"✅ RPC call successful: {method} ({latency:.0f}ms)")
+                            
+                            # Return with both raw format and success flag
+                            return {
+                                "success": True,
+                                "result": data["result"],
+                                "jsonrpc": data.get("jsonrpc"),
+                                "id": data.get("id"),
+                                "latency_ms": latency
+                            }
+                        
+                        # Handle RPC error response
+                        if "error" in data:
+                            error_msg = data["error"].get("message", str(data["error"]))
+                            logger.warning(f"RPC error from {endpoint[:30]}...: {error_msg}")
+                            last_error = error_msg
+                            break  # Try next endpoint
+                    
+                    elif response.status_code == 429:
+                        logger.warning(f"Rate limited at {endpoint[:30]}... (attempt {attempt+1})")
+                        last_error = "Rate limited"
+                        await asyncio.sleep(2)  # Wait before retry
+                        continue
+                    
+                    else:
+                        last_error = f"HTTP {response.status_code}"
+                        logger.warning(f"HTTP error at {endpoint[:30]}...: {response.status_code}")
+                        break  # Try next endpoint
+                        
+            except httpx.TimeoutException:
+                last_error = "Timeout"
+                logger.warning(f"Timeout at {endpoint[:30]}... (attempt {attempt+1})")
+            except httpx.ConnectError:
+                last_error = "Connection refused"
+                logger.warning(f"Connection refused at {endpoint[:30]}...")
+                break  # Try next endpoint immediately
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"RPC exception at {endpoint[:30]}...: {e}")
             
             if attempt < retries - 1:
                 await asyncio.sleep(1)
+        
+        # If we get here, this endpoint failed - try next
     
-    return {"success": False, "error": "RPC call failed after retries"}
+    # All endpoints failed
+    rpc_state["connected"] = False
+    rpc_state["consecutive_failures"] = rpc_state.get("consecutive_failures", 0) + 1
+    rpc_state["failed_requests"] = rpc_state.get("failed_requests", 0) + 1
+    
+    logger.error(f"❌ RPC call failed: {method} - {last_error}")
+    
+    return {
+        "success": False,
+        "error": last_error or "Network unavailable",
+        "result": None
+    }
 
 # Background task for RPC health monitoring
 rpc_monitor_task = None
