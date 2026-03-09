@@ -30,6 +30,9 @@ from solders.system_program import TransferParams, transfer
 # Multi-Source Scanner V4 - Hochverfügbar mit Rate-Limit Schutz
 from scanner import scanner_instance, scanner_health
 
+# Big Wins Trading Strategy
+from trading import BigWinsStrategy, STRATEGY_CONFIG
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -75,45 +78,89 @@ class AuthResponse(BaseModel):
 class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    # ULTRA-MICRO TRADE CAPITAL MANAGEMENT (120 trades)
+    
+    # ===== BIG WINS CAPITAL MANAGEMENT =====
     total_budget_sol: float = 3.0
-    max_trade_percent: float = 0.25     # Max 0.25% of budget per trade (reduced)
-    min_trade_sol: float = 0.002        # Min 0.002 SOL per trade
-    max_parallel_trades: int = 120      # 120 simultaneous trades
-    max_trade_amount_sol: float = 0.008 # Max 0.008 SOL per trade (reduced)
-    max_capital_in_trades_percent: float = 70.0  # Max 70% of wallet
-    # QUICK EXIT RISK MANAGEMENT
-    take_profit_percent: float = 8.0    # 6-10% take profit (faster exits)
-    stop_loss_percent: float = 6.0      # 5-7% stop loss (tighter)
-    trailing_stop_enabled: bool = True
-    trailing_stop_percent: float = 4.0
-    max_daily_loss_percent: float = 25.0 # 25% max daily loss
-    max_daily_loss_sol: float = 0.75    # Max daily loss
-    max_loss_streak: int = 15           # Max consecutive losses (more room)
-    # Live Trading Safety
-    require_confirmation: bool = True
-    first_live_trade_done: bool = False
-    slippage_bps: int = 150             # 1.5% slippage for speed
-    # ULTRA-RELAXED TOKEN FILTERS FOR MAXIMUM SIGNALS
-    min_liquidity_usd: float = 150.0    # $150 minimum (ultra-low)
-    min_volume_usd: float = 100.0       # $100 minimum (ultra-low)
-    max_dev_wallet_percent: float = 35.0 # 35% allowed (relaxed)
-    max_top10_wallet_percent: float = 85.0 # 85% allowed (relaxed)
-    min_token_age_seconds: int = 5      # Min 5 seconds old (ultra-low)
-    max_token_age_hours: int = 12       # Max 12 hours old (expanded)
-    min_buy_sell_ratio: float = 0.95    # Allow slight sell pressure
-    # RELAXED MOMENTUM THRESHOLDS
-    min_momentum_score: int = 10        # Score threshold 10 (ultra-low)
-    min_volume_surge_percent: float = 1.0 # 1% (ultra-low)
-    min_buyers_1m: int = 1              # 1 buyer in 1 minute (ultra-low)
-    # Automation
+    max_trade_percent: float = 2.0        # 2% of budget per trade (larger positions)
+    min_trade_sol: float = 0.01           # Min 0.01 SOL per trade
+    max_parallel_trades: int = 30         # 30 focused trades (not 120 micro)
+    max_trade_amount_sol: float = 0.1     # Max 0.1 SOL per trade
+    max_capital_in_trades_percent: float = 60.0  # Max 60% of wallet
+    
+    # ===== BIG WINS PROFIT TARGETS =====
+    # Mehrstufige Take-Profit Levels
+    tp1_percent: float = 25.0             # TP1: +25% → sell 30%
+    tp1_sell_percent: float = 30.0
+    tp2_percent: float = 60.0             # TP2: +60% → sell 30%
+    tp2_sell_percent: float = 30.0
+    tp3_percent: float = 120.0            # TP3: +120% → sell 20%
+    tp3_sell_percent: float = 20.0
+    runner_percent: float = 20.0          # Runner: 20% laufen lassen
+    
+    # ===== TRAILING PROFIT SYSTEM =====
+    trailing_profit_enabled: bool = True
+    trailing_start_percent: float = 35.0  # Trailing ab +35%
+    trailing_stop_percent: float = 15.0   # 15% unter Peak verkaufen
+    
+    # ===== MINIMUM PROFIT RULE =====
+    minimum_profit_before_sell: float = 15.0  # Kein Verkauf unter +15%
+    
+    # ===== STOP LOSS =====
+    stop_loss_percent: float = 15.0       # -15% Stop Loss
+    
+    # ===== WINNER PROTECTION =====
+    protect_winners_enabled: bool = True
+    protect_at_percent: float = 100.0     # Bei +100%
+    protected_stop_percent: float = 40.0  # SL auf +40%
+    
+    # ===== LEGACY COMPATIBILITY =====
+    take_profit_percent: float = 25.0     # Legacy: First TP level
+    trailing_stop_enabled: bool = True    # Legacy: Alias for trailing_profit_enabled
+    
+    # ===== RISK MANAGEMENT =====
+    max_daily_loss_percent: float = 20.0  # 20% max daily loss
+    max_daily_loss_sol: float = 0.6       # Max daily loss
+    max_loss_streak: int = 8              # Max 8 consecutive losses
+    
+    # ===== ENTRY QUALITY FILTERS (STRICT) =====
+    min_liquidity_usd: float = 40000.0    # $40k minimum (strict)
+    min_volume_usd: float = 5000.0        # $5k minimum
+    min_market_cap_usd: float = 80000.0   # $80k min market cap
+    max_market_cap_usd: float = 3000000.0 # $3M max market cap
+    min_volume_spike: float = 2.0         # 2x volume spike required
+    max_dev_wallet_percent: float = 20.0  # Max 20% dev wallet
+    max_top10_wallet_percent: float = 70.0 # Max 70% top 10 wallets
+    min_token_age_seconds: int = 30       # Min 30 seconds old
+    max_token_age_hours: int = 12         # Max 12 hours old
+    min_buy_sell_ratio: float = 1.5       # Strong buy pressure required
+    min_holders: int = 50                 # Min 50 holders
+    
+    # ===== PUMP DETECTION =====
+    pump_volume_multiplier: float = 1.8   # volume_1m > volume_5m_avg × 1.8
+    pump_price_change_min: float = 3.0    # Min 3% price change
+    pump_buyers_ratio: float = 1.5        # Buyers > Sellers × 1.5
+    
+    # ===== SLIPPAGE CONTROL =====
+    max_slippage_percent: float = 8.0     # Max 8% slippage
+    slippage_warning_percent: float = 5.0 # Warning at 5%
+    slippage_bps: int = 300               # 3% slippage in basis points
+    
+    # ===== MOMENTUM THRESHOLDS =====
+    min_momentum_score: int = 50          # Higher threshold for quality
+    min_volume_surge_percent: float = 80.0 # 80% volume surge
+    min_buyers_1m: int = 3                # 3 buyers in 1 minute
+    
+    # ===== AUTOMATION =====
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: float = 0.8  # 0.8 second scanning (faster)
-    # Advanced
+    scan_interval_seconds: float = 5.0    # 5 second scanning (less aggressive)
+    
+    # ===== ADVANCED =====
     smart_wallet_tracking: bool = True
     migration_detection: bool = True
     sniper_mode: bool = True
+    require_confirmation: bool = True
+    first_live_trade_done: bool = False
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class TokenRiskAnalysis(BaseModel):
@@ -180,9 +227,19 @@ class Trade(BaseModel):
     price_current: float
     price_peak: float = 0.0  # For trailing stop
     price_exit: Optional[float] = None
-    take_profit: float
+    
+    # BIG WINS: Multi-level Take Profits
+    take_profit: float              # TP1 price (legacy)
+    tp1_price: Optional[float] = None
+    tp2_price: Optional[float] = None
+    tp3_price: Optional[float] = None
+    levels_hit: List[str] = []     # ["TP1", "TP2", etc]
+    remaining_percent: float = 100.0  # Remaining position
+    
     stop_loss: float
     trailing_stop: Optional[float] = None
+    protected: bool = False         # Winner protection active
+    
     status: str = "PENDING"  # PENDING, OPEN, CLOSED, CANCELLED, FAILED
     pnl: float = 0.0
     pnl_percent: float = 0.0
@@ -190,7 +247,8 @@ class Trade(BaseModel):
     auto_trade: bool = False
     wallet_address: Optional[str] = None
     tx_signature: Optional[str] = None
-    close_reason: Optional[str] = None  # TP_HIT, SL_HIT, TRAILING_STOP, MANUAL, AUTO_CLOSE
+    close_reason: Optional[str] = None  # TP1_HIT, TP2_HIT, TP3_HIT, TRAILING_STOP, STOP_LOSS, PROTECTED_STOP, MANUAL
+    partial_sells: List[Dict] = []  # History of partial sells
     opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     closed_at: Optional[datetime] = None
 
@@ -284,74 +342,112 @@ auto_trading_state = {
     "last_reset_date": None
 }
 
-# Engine Configuration - High Capacity
-# ============== MAXIMUM SIGNAL GENERATION CONFIG ==============
+# Engine Configuration - BIG WINS STRATEGY
+# ============== OPTIMIZED FOR LARGE PROFITS ==============
 ENGINE_CONFIG = {
-    # SCANNING WITH RATE-LIMIT PROTECTION
-    "scan_interval_seconds": 3.0,       # 3 seconds between scans (rate limit protection)
-    "max_tokens_per_scan": 2000,        # Process up to 2000 tokens
-    "max_signals_per_scan": 1000,       # Analyze top 1000 signals
-    "max_open_trades": 120,             # 120 simultaneous micro-trades
-    "max_trades_per_token": 4,          # Allow 4 trades per token
-    "signal_cooldown_seconds": 10,      # 10 second cooldown
-    "min_signal_score": 10,             # Lowered to 10 for maximum signals
+    # ===== SCANNING (RATE-LIMIT PROTECTED) =====
+    "scan_interval_seconds": 5.0,         # 5 seconds between scans (less aggressive)
+    "max_tokens_per_scan": 2000,          # Process up to 2000 tokens
+    "max_signals_per_scan": 500,          # Focus on top 500 signals
+    "max_open_trades": 30,                # 30 focused trades (not 120 micro)
+    "max_trades_per_token": 2,            # Max 2 trades per token
+    "signal_cooldown_seconds": 60,        # 60 second cooldown
+    "min_signal_score": 50,               # Higher threshold for quality
     
-    # QUICK EXIT PROFIT TARGETS
-    "take_profit_percent": 8,           # 8% take profit
-    "stop_loss_percent": 6,             # 6% stop loss
-    "trailing_stop_enabled": True,
-    "trailing_stop_percent": 4,         # 4% trailing stop
-    "trailing_stop_activation": 4,      # Activate after 4% profit
-    "daily_loss_limit_percent": 25,     # 25% max daily loss
-    "loss_streak_limit": 15,            # 15 consecutive losses max
+    # ===== BIG WINS PROFIT TARGETS =====
+    # Mehrstufige Take-Profit: 25% → 60% → 120% → Runner
+    "take_profit_enabled": True,
+    "take_profit_levels": [
+        {"level": "TP1", "percent": 25, "sell_percent": 30},
+        {"level": "TP2", "percent": 60, "sell_percent": 30},
+        {"level": "TP3", "percent": 120, "sell_percent": 20},
+    ],
+    "take_profit_percent": 25,            # Legacy: First TP level
     
-    # MAXIMUM SIGNAL GENERATION FILTERS (very permissive)
-    "min_liquidity_usd": 200,           # $200 minimum liquidity (lowered)
-    "min_volume_usd": 100,              # $100 minimum volume (lowered)
-    "min_volume_5m": 50,                # $50 5-minute volume (lowered)
-    "min_volume_surge_percent": 1,      # 1% volume surge (lowered)
-    "min_buy_sell_ratio": 0.95,         # 0.95 ratio (allow slight sell pressure)
-    "min_buyers_1m": 1,                 # 1 buyer in 1 minute (lowered from 2)
-    "min_momentum_score": 10,           # Score threshold 10 (lowered from 20)
-    "min_price_change_1m": 0.8,         # 0.8% price change (lowered from 1.2%)
-    "max_token_age_hours": 12,          # Tokens < 12 hours old (expanded)
-    "min_token_age_seconds": 5,         # 5 seconds old (lowered from 15)
-    "price_update_interval": 1,         # Update prices every 1 second
+    # ===== TRAILING PROFIT SYSTEM =====
+    "trailing_profit_enabled": True,
+    "trailing_start_percent": 35,         # Aktivieren ab +35%
+    "trailing_stop_percent": 15,          # 15% unter Peak verkaufen
+    "trailing_stop_enabled": True,        # Legacy
+    "trailing_stop_activation": 35,       # Legacy: Same as trailing_start
     
-    # PERMISSIVE MOMENTUM ENTRY SIGNAL
-    "momentum_volume_multiplier": 1.1,  # 1.1x baseline volume (lowered from 1.2)
-    "momentum_price_change_min": 0.8,   # 0.8% price change (lowered from 1.2%)
+    # ===== MINIMUM PROFIT RULE =====
+    "minimum_profit_before_sell": 15,     # Kein Verkauf unter +15%
     
-    # NEW TOKEN PRIORITY BONUS (expanded)
-    "new_token_age_seconds": 300,       # Tokens < 5 minutes old get bonus
-    "new_token_priority_bonus": 25,     # +25 priority score
-    "ultra_new_token_seconds": 120,     # Tokens < 2 minutes old
-    "ultra_new_token_bonus": 40,        # +40 priority for ultra-new
+    # ===== STOP LOSS =====
+    "stop_loss_percent": 15,              # -15% Stop Loss
     
-    # EARLY PUMP DETECTION (more permissive)
-    "early_pump_volume_surge": 50,      # 50% volume surge (lowered from 80)
-    "early_pump_price_change_1m": 1.0,  # 1.0% price change (lowered)
-    "early_pump_min_liquidity": 300,    # $300 min liquidity (lowered)
+    # ===== WINNER PROTECTION =====
+    "protect_winners_enabled": True,
+    "protect_at_percent": 100,            # Bei +100% Gewinn
+    "protected_stop_percent": 40,         # SL auf +40%
     
-    # ULTRA-MICRO POSITION SIZING FOR 120 TRADES
-    "micro_trade_percent": 0.20,        # 0.20% of wallet per trade
-    "max_micro_trade_sol": 0.008,       # Max 0.008 SOL per micro-trade
-    "min_micro_trade_sol": 0.002,       # Min 0.002 SOL per micro-trade
+    # ===== RISK MANAGEMENT =====
+    "daily_loss_limit_percent": 20,       # 20% max daily loss
+    "loss_streak_limit": 8,               # Max 8 consecutive losses
     
-    # CAPITAL CONTROL (max 70% of wallet in active trades)
-    "max_capital_in_trades_percent": 70, # Max 70% of wallet in trades
-    "capital_reserve_percent": 30,       # Keep 30% as reserve
+    # ===== ENTRY QUALITY FILTERS (STRICT) =====
+    "min_liquidity_usd": 40000,           # $40k minimum (strict)
+    "min_volume_usd": 5000,               # $5k minimum
+    "min_market_cap_usd": 80000,          # $80k min market cap
+    "max_market_cap_usd": 3000000,        # $3M max market cap
+    "min_volume_5m": 2000,                # $2k 5-minute volume
+    "min_volume_spike": 2.0,              # 2x volume spike required
+    "min_volume_surge_percent": 80,       # 80% volume surge
+    "min_buy_sell_ratio": 1.5,            # Strong buy pressure
+    "min_buyers_1m": 3,                   # 3 buyers in 1 minute
+    "min_momentum_score": 50,             # Higher threshold
+    "min_price_change_1m": 3.0,           # 3% price change
+    "max_token_age_hours": 12,            # Max 12 hours old
+    "min_token_age_seconds": 30,          # Min 30 seconds
+    "price_update_interval": 3,           # Update every 3 seconds
     
-    # Smart Wallet Tracking
-    "smart_wallet_min_profit": 25,      # 25% min profit to track wallet
-    "smart_wallet_min_trades": 3,       # 3 min trades to qualify
-    "copy_trade_delay_ms": 100,         # 100ms delay for copy trades
+    # ===== PUMP DETECTION =====
+    "pump_volume_multiplier": 1.8,        # volume_1m > volume_5m_avg × 1.8
+    "pump_price_change_min": 3.0,         # Min 3% price change
+    "pump_buyers_ratio": 1.5,             # Buyers > Sellers × 1.5
     
-    # Risk Management
-    "max_daily_trades": 1000,           # Max trades per day (increased to 1000)
-    "max_portfolio_risk": 0.70,         # 70% max portfolio at risk
+    # ===== MOMENTUM ENTRY SIGNAL =====
+    "momentum_volume_multiplier": 1.8,    # 1.8x baseline volume
+    "momentum_price_change_min": 3.0,     # 3% price change
     
-    # SCANNER SOURCES (all parallel)
+    # ===== NEW TOKEN PRIORITY =====
+    "new_token_age_seconds": 300,         # < 5 minutes = bonus
+    "new_token_priority_bonus": 30,       # +30 priority
+    "ultra_new_token_seconds": 120,       # < 2 minutes
+    "ultra_new_token_bonus": 50,          # +50 priority
+    
+    # ===== EARLY PUMP DETECTION =====
+    "early_pump_volume_surge": 100,       # 100% volume surge (stricter)
+    "early_pump_price_change_1m": 3.0,    # 3.0% price change
+    "early_pump_min_liquidity": 20000,    # $20k min liquidity
+    
+    # ===== POSITION SIZING =====
+    "trade_percent": 2.0,                 # 2% of wallet per trade
+    "micro_trade_percent": 2.0,           # Legacy alias
+    "max_trade_sol": 0.1,                 # Max 0.1 SOL per trade
+    "max_micro_trade_sol": 0.1,           # Legacy alias
+    "min_trade_sol": 0.01,                # Min 0.01 SOL
+    "min_micro_trade_sol": 0.01,          # Legacy alias
+    
+    # ===== CAPITAL CONTROL =====
+    "max_capital_in_trades_percent": 60,  # Max 60% in trades
+    "capital_reserve_percent": 40,        # Keep 40% reserve
+    
+    # ===== SLIPPAGE CONTROL =====
+    "max_slippage_percent": 8,            # Max 8% slippage
+    "slippage_warning_percent": 5,        # Warning at 5%
+    
+    # ===== SMART WALLET TRACKING =====
+    "smart_wallet_min_profit": 50,        # 50% min profit (higher)
+    "smart_wallet_min_trades": 5,         # 5 min trades
+    "copy_trade_delay_ms": 200,           # 200ms delay
+    
+    # ===== DAILY LIMITS =====
+    "max_daily_trades": 100,              # Max 100 trades/day (focused)
+    "max_portfolio_risk": 0.60,           # 60% max portfolio risk
+    
+    # ===== SCANNER SOURCES =====
     "scanner_sources": [
         "dexscreener",
         "birdeye", 
@@ -4439,19 +4535,22 @@ async def update_trade_price(trade_id: str, current_price: float):
 @api_router.post("/trades/update-all-prices")
 async def update_all_trade_prices():
     """
-    Bulk update current prices for all open trades.
-    Fetches live prices from DEX Screener and updates each trade.
-    Also checks TP/SL conditions and auto-closes if triggered.
+    BIG WINS: Bulk update prices with multi-level take profits.
+    
+    Features:
+    - Mehrstufige Take-Profit (25% / 60% / 120%)
+    - Trailing Profit ab +35%
+    - Minimum Profit Rule (kein Verkauf unter +15%)
+    - Winner Protection (bei +100% → SL auf +40%)
     """
-    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(200)  # Increased for 100+ trades
+    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(100)
     
     if not open_trades:
-        return {"updated": 0, "closed": 0, "trades": []}
+        return {"updated": 0, "closed": 0, "partial_sells": 0, "trades": []}
     
-    # Collect unique token addresses - prefer base token address over pair address
+    # Collect unique token addresses
     token_addresses = []
     for t in open_trades:
-        # Try token_address first (base token), then pair_address
         addr = t.get("token_address") or t.get("pair_address")
         if addr and addr not in token_addresses:
             token_addresses.append(addr)
@@ -4459,18 +4558,14 @@ async def update_all_trade_prices():
     # Fetch all prices in batch
     price_map = {}
     if token_addresses:
-        # Filter out None values
         valid_addresses = [addr for addr in token_addresses if addr]
         
         if valid_addresses:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client_http:
-                    # Batch request to DEX Screener (max 30 addresses per request)
                     for i in range(0, len(valid_addresses), 30):
                         batch = valid_addresses[i:i+30]
                         addresses_str = ",".join(batch)
-                        
-                        logger.info(f"📊 Fetching prices for {len(batch)} tokens: {batch}")
                         
                         response = await client_http.get(
                             f"https://api.dexscreener.com/latest/dex/tokens/{addresses_str}"
@@ -4485,23 +4580,29 @@ async def update_all_trade_prices():
                                 price = float(pair.get("priceUsd", 0) or 0)
                                 
                                 if price > 0:
-                                    # Map both pair address and base token address
                                     if pair_addr:
                                         price_map[pair_addr] = price
                                     if base_addr:
                                         price_map[base_addr] = price
                             
                             logger.info(f"📊 Got {len(pairs)} pairs, mapped {len(price_map)} prices")
-                        else:
-                            logger.warning(f"DEX Screener returned {response.status_code}")
             except Exception as e:
                 logger.error(f"Error fetching bulk prices: {e}")
     
-    # Update each trade
+    # Update each trade with BIG WINS logic
     updated_count = 0
     closed_count = 0
+    partial_sells_count = 0
     trade_updates = []
     settings = await get_bot_settings()
+    
+    # Get Big Wins config
+    min_profit = ENGINE_CONFIG.get("minimum_profit_before_sell", 15)
+    trailing_start = ENGINE_CONFIG.get("trailing_start_percent", 35)
+    trailing_stop_pct = ENGINE_CONFIG.get("trailing_stop_percent", 15)
+    protect_at = ENGINE_CONFIG.get("protect_at_percent", 100)
+    protected_stop = ENGINE_CONFIG.get("protected_stop_percent", 40)
+    tp_levels = ENGINE_CONFIG.get("take_profit_levels", [])
     
     for trade in open_trades:
         try:
@@ -4516,43 +4617,103 @@ async def update_all_trade_prices():
             # Calculate P&L
             entry_price = trade.get("price_entry", current_price)
             pnl_percent = ((current_price / entry_price) - 1) * 100 if entry_price > 0 else 0
-            pnl_sol = trade.get("amount_sol", 0) * (pnl_percent / 100)
+            remaining_percent = trade.get("remaining_percent", 100)
+            amount_sol = trade.get("amount_sol", 0) * (remaining_percent / 100)
+            pnl_sol = amount_sol * (pnl_percent / 100)
             
-            # Check TP/SL - ensure None values are handled
-            should_close = False
-            close_reason = None
-            
-            tp_price = trade.get("take_profit") or 0
-            sl_price = trade.get("stop_loss") or 0
-            trailing = trade.get("trailing_stop") or 0
-            
-            if tp_price > 0 and current_price >= tp_price:
-                should_close = True
-                close_reason = "TP_HIT"
-            elif sl_price > 0 and current_price <= sl_price:
-                should_close = True
-                close_reason = "SL_HIT"
-            elif trailing > 0 and current_price <= trailing:
-                should_close = True
-                close_reason = "TRAILING_STOP"
-            
-            # Update trade
+            # Initialize update data
             update_data = {
                 "price_current": current_price,
                 "pnl": round(pnl_sol, 6),
                 "pnl_percent": round(pnl_percent, 2)
             }
             
-            # Update peak price for trailing stop
-            peak = trade.get("price_peak") or entry_price
-            if peak is not None and current_price > peak:
-                update_data["price_peak"] = current_price
-                # Activate trailing stop after 6% profit
-                if pnl_percent >= ENGINE_CONFIG.get("trailing_stop_activation", 6):
-                    new_trailing = current_price * (1 - settings.trailing_stop_percent / 100)
-                    if new_trailing > (trailing or 0):
-                        update_data["trailing_stop"] = new_trailing
+            should_close = False
+            should_partial = False
+            close_reason = None
+            partial_reason = None
+            sell_percent = 0
             
+            # Get trade state
+            peak = trade.get("price_peak") or entry_price
+            levels_hit = trade.get("levels_hit", [])
+            protected = trade.get("protected", False)
+            sl_price = trade.get("stop_loss") or 0
+            trailing = trade.get("trailing_stop") or 0
+            
+            # ===== UPDATE PEAK PRICE =====
+            if current_price > peak:
+                update_data["price_peak"] = current_price
+                peak = current_price
+            
+            # ===== CHECK STOP LOSS =====
+            if sl_price > 0 and current_price <= sl_price:
+                should_close = True
+                close_reason = "PROTECTED_STOP" if protected else "STOP_LOSS"
+            
+            # ===== CHECK TRAILING STOP (if active) =====
+            elif trailing > 0 and current_price <= trailing:
+                should_close = True
+                close_reason = "TRAILING_STOP"
+            
+            # ===== BIG WINS LOGIC (only if not closing) =====
+            elif pnl_percent > 0:
+                
+                # --- MINIMUM PROFIT RULE ---
+                if pnl_percent < min_profit:
+                    # Don't sell below minimum profit
+                    pass
+                
+                else:
+                    # --- CHECK TAKE PROFIT LEVELS ---
+                    for tp in tp_levels:
+                        level = tp["level"]
+                        target = tp["percent"]
+                        sell_pct = tp["sell_percent"]
+                        
+                        if level not in levels_hit and pnl_percent >= target:
+                            should_partial = True
+                            partial_reason = f"{level}_HIT"
+                            sell_percent = sell_pct
+                            levels_hit.append(level)
+                            update_data["levels_hit"] = levels_hit
+                            
+                            # Calculate new remaining
+                            new_remaining = remaining_percent - sell_pct
+                            update_data["remaining_percent"] = max(0, new_remaining)
+                            
+                            # If remaining is very small, close completely
+                            if new_remaining <= 5:
+                                should_close = True
+                                close_reason = partial_reason
+                                should_partial = False
+                            
+                            logger.info(f"🎯 BIG WIN: {trade.get('token_symbol')} {level} hit at +{pnl_percent:.1f}%! Selling {sell_pct}%")
+                            break
+                    
+                    # --- WINNER PROTECTION ---
+                    if not protected and pnl_percent >= protect_at:
+                        protected = True
+                        new_sl = entry_price * (1 + protected_stop / 100)
+                        update_data["protected"] = True
+                        update_data["stop_loss"] = new_sl
+                        logger.info(f"🛡️ WINNER PROTECTED: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! SL → +{protected_stop}%")
+                    
+                    # --- ACTIVATE TRAILING PROFIT ---
+                    if pnl_percent >= trailing_start:
+                        # Calculate trailing stop based on peak
+                        new_trailing = peak * (1 - trailing_stop_pct / 100)
+                        if new_trailing > (trailing or 0):
+                            update_data["trailing_stop"] = new_trailing
+                        
+                        # Check if we've dropped enough from peak
+                        distance_from_peak = ((current_price / peak) - 1) * 100 if peak > 0 else 0
+                        if distance_from_peak <= -trailing_stop_pct:
+                            should_close = True
+                            close_reason = "TRAILING_STOP"
+                            logger.info(f"📉 TRAILING: {trade.get('token_symbol')} stopped at +{pnl_percent:.1f}% (peak was +{((peak/entry_price)-1)*100:.1f}%)")
+            
+            # Update trade in database
             await db.trades.update_one({"id": trade["id"]}, {"$set": update_data})
             updated_count += 1
             
@@ -4562,27 +4723,55 @@ async def update_all_trade_prices():
                 "price_current": current_price,
                 "pnl": round(pnl_sol, 6),
                 "pnl_percent": round(pnl_percent, 2),
-                "should_close": should_close
+                "remaining_percent": update_data.get("remaining_percent", remaining_percent),
+                "levels_hit": levels_hit,
+                "protected": update_data.get("protected", protected),
+                "should_close": should_close,
+                "should_partial": should_partial
             }
             trade_updates.append(trade_update)
             
-            # Auto-close if TP/SL hit
+            # Handle partial sells
+            if should_partial and not should_close:
+                partial_sells_count += 1
+                # Record partial sell
+                partial_sell = {
+                    "level": partial_reason,
+                    "sell_percent": sell_percent,
+                    "price": current_price,
+                    "pnl_percent": pnl_percent,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                await db.trades.update_one(
+                    {"id": trade["id"]},
+                    {"$push": {"partial_sells": partial_sell}}
+                )
+                
+                activity_feed.add_event("PARTIAL_SELL", trade.get("token_symbol", "???"), {
+                    "level": partial_reason,
+                    "sell_percent": sell_percent,
+                    "pnl_percent": round(pnl_percent, 2),
+                    "remaining": update_data.get("remaining_percent", remaining_percent)
+                })
+            
+            # Auto-close if needed
             if should_close:
                 try:
                     await close_trade(trade["id"], current_price, close_reason)
                     closed_count += 1
-                    logger.info(f"📈 Auto-closed {trade.get('token_symbol')}: {close_reason} at {pnl_percent:.2f}%")
+                    logger.info(f"📈 BIG WIN CLOSE: {trade.get('token_symbol')}: {close_reason} at {pnl_percent:.2f}%")
                 except Exception as e:
                     logger.error(f"Error auto-closing trade: {e}")
                     
         except Exception as e:
             logger.error(f"Error updating trade {trade.get('id', '?')}: {e}")
     
-    logger.info(f"💹 Price update: {updated_count} trades updated, {closed_count} auto-closed")
+    logger.info(f"💹 BIG WINS Update: {updated_count} updated, {closed_count} closed, {partial_sells_count} partial sells")
     
     return {
         "updated": updated_count,
         "closed": closed_count,
+        "partial_sells": partial_sells_count,
         "trades": trade_updates
     }
 
@@ -4693,6 +4882,179 @@ async def get_portfolio_summary():
         is_paused=is_paused,
         pause_reason=pause_reason
     )
+
+# ============== BIG WINS STRATEGY ENDPOINTS ==============
+
+@api_router.get("/strategy/config")
+async def get_strategy_config():
+    """
+    Get current Big Wins strategy configuration.
+    
+    Shows:
+    - Take Profit Levels (25% / 60% / 120%)
+    - Trailing Profit Settings
+    - Entry Quality Filters
+    - Stop Loss Configuration
+    - Winner Protection Settings
+    """
+    return {
+        "strategy_name": "Big Wins",
+        "description": "Optimiert für große Gewinne pro Trade statt viele kleine",
+        "take_profit": {
+            "enabled": ENGINE_CONFIG.get("take_profit_enabled", True),
+            "levels": ENGINE_CONFIG.get("take_profit_levels", []),
+            "description": "Mehrstufiger Verkauf: 25% → 60% → 120%"
+        },
+        "trailing_profit": {
+            "enabled": ENGINE_CONFIG.get("trailing_profit_enabled", True),
+            "start_percent": ENGINE_CONFIG.get("trailing_start_percent", 35),
+            "stop_percent": ENGINE_CONFIG.get("trailing_stop_percent", 15),
+            "description": f"Ab +{ENGINE_CONFIG.get('trailing_start_percent', 35)}% aktiv, {ENGINE_CONFIG.get('trailing_stop_percent', 15)}% unter Peak verkaufen"
+        },
+        "minimum_profit": {
+            "percent": ENGINE_CONFIG.get("minimum_profit_before_sell", 15),
+            "description": f"Kein Verkauf unter +{ENGINE_CONFIG.get('minimum_profit_before_sell', 15)}%"
+        },
+        "stop_loss": {
+            "percent": ENGINE_CONFIG.get("stop_loss_percent", 15),
+            "description": f"-{ENGINE_CONFIG.get('stop_loss_percent', 15)}% Stop Loss"
+        },
+        "winner_protection": {
+            "enabled": ENGINE_CONFIG.get("protect_winners_enabled", True),
+            "at_percent": ENGINE_CONFIG.get("protect_at_percent", 100),
+            "stop_at_percent": ENGINE_CONFIG.get("protected_stop_percent", 40),
+            "description": f"Bei +{ENGINE_CONFIG.get('protect_at_percent', 100)}% → SL auf +{ENGINE_CONFIG.get('protected_stop_percent', 40)}%"
+        },
+        "entry_quality": {
+            "min_liquidity_usd": ENGINE_CONFIG.get("min_liquidity_usd", 40000),
+            "min_market_cap_usd": ENGINE_CONFIG.get("min_market_cap_usd", 80000),
+            "max_market_cap_usd": ENGINE_CONFIG.get("max_market_cap_usd", 3000000),
+            "min_volume_spike": ENGINE_CONFIG.get("min_volume_spike", 2.0),
+            "max_token_age_hours": ENGINE_CONFIG.get("max_token_age_hours", 12)
+        },
+        "pump_detection": {
+            "volume_multiplier": ENGINE_CONFIG.get("pump_volume_multiplier", 1.8),
+            "price_change_min": ENGINE_CONFIG.get("pump_price_change_min", 3.0),
+            "buyers_ratio": ENGINE_CONFIG.get("pump_buyers_ratio", 1.5),
+            "description": "volume_1m > volume_5m_avg × 1.8"
+        },
+        "slippage": {
+            "max_percent": ENGINE_CONFIG.get("max_slippage_percent", 8),
+            "warning_percent": ENGINE_CONFIG.get("slippage_warning_percent", 5)
+        },
+        "position_sizing": {
+            "trade_percent": ENGINE_CONFIG.get("trade_percent", 2.0),
+            "max_trade_sol": ENGINE_CONFIG.get("max_trade_sol", 0.1),
+            "max_parallel_trades": ENGINE_CONFIG.get("max_open_trades", 30)
+        },
+        "target_performance": {
+            "avg_win": "+35% bis +80%",
+            "avg_loss": "-10% bis -15%",
+            "winrate": "30-45%"
+        }
+    }
+
+
+@api_router.get("/strategy/stats")
+async def get_strategy_stats():
+    """
+    Get Big Wins strategy performance statistics.
+    
+    Shows TP1/TP2/TP3 hit counts, trailing stops, winner protections etc.
+    """
+    # Get all closed trades
+    closed_trades = await db.trades.find({"status": "CLOSED"}, {"_id": 0}).to_list(1000)
+    
+    if not closed_trades:
+        return {
+            "total_trades": 0,
+            "message": "Keine geschlossenen Trades"
+        }
+    
+    # Analyze close reasons
+    stats = {
+        "total_closed": len(closed_trades),
+        "tp_hits": {
+            "TP1": 0,
+            "TP2": 0,
+            "TP3": 0,
+            "RUNNER": 0
+        },
+        "exits": {
+            "trailing_stop": 0,
+            "stop_loss": 0,
+            "protected_stop": 0,
+            "manual": 0
+        },
+        "performance": {
+            "total_pnl_percent": 0,
+            "avg_win_percent": 0,
+            "avg_loss_percent": 0,
+            "biggest_win": 0,
+            "biggest_loss": 0,
+            "wins": 0,
+            "losses": 0
+        }
+    }
+    
+    winning_pnls = []
+    losing_pnls = []
+    
+    for trade in closed_trades:
+        pnl = trade.get("pnl_percent", 0)
+        reason = trade.get("close_reason", "").upper()
+        
+        # Count TP hits
+        if "TP1" in reason:
+            stats["tp_hits"]["TP1"] += 1
+        elif "TP2" in reason:
+            stats["tp_hits"]["TP2"] += 1
+        elif "TP3" in reason:
+            stats["tp_hits"]["TP3"] += 1
+        elif "RUNNER" in reason:
+            stats["tp_hits"]["RUNNER"] += 1
+        
+        # Count exit types
+        if "TRAILING" in reason:
+            stats["exits"]["trailing_stop"] += 1
+        elif "PROTECTED" in reason:
+            stats["exits"]["protected_stop"] += 1
+        elif "STOP_LOSS" in reason or "SL" in reason:
+            stats["exits"]["stop_loss"] += 1
+        elif "MANUAL" in reason:
+            stats["exits"]["manual"] += 1
+        
+        # Performance
+        stats["performance"]["total_pnl_percent"] += pnl
+        
+        if pnl > 0:
+            stats["performance"]["wins"] += 1
+            winning_pnls.append(pnl)
+            if pnl > stats["performance"]["biggest_win"]:
+                stats["performance"]["biggest_win"] = pnl
+        elif pnl < 0:
+            stats["performance"]["losses"] += 1
+            losing_pnls.append(pnl)
+            if pnl < stats["performance"]["biggest_loss"]:
+                stats["performance"]["biggest_loss"] = pnl
+    
+    # Calculate averages
+    if winning_pnls:
+        stats["performance"]["avg_win_percent"] = round(sum(winning_pnls) / len(winning_pnls), 2)
+    if losing_pnls:
+        stats["performance"]["avg_loss_percent"] = round(sum(losing_pnls) / len(losing_pnls), 2)
+    
+    # Win rate
+    total = stats["performance"]["wins"] + stats["performance"]["losses"]
+    stats["performance"]["win_rate"] = round((stats["performance"]["wins"] / max(total, 1)) * 100, 1)
+    
+    # Round values
+    stats["performance"]["total_pnl_percent"] = round(stats["performance"]["total_pnl_percent"], 2)
+    stats["performance"]["biggest_win"] = round(stats["performance"]["biggest_win"], 2)
+    stats["performance"]["biggest_loss"] = round(stats["performance"]["biggest_loss"], 2)
+    
+    return stats
+
 
 # ============== SMART WALLET TRACKING ==============
 

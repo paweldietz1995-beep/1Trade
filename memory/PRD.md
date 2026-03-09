@@ -1,9 +1,10 @@
-# Pump.fun Trading Bot - PRD v26
+# Pump.fun Trading Bot - PRD v27
 
 ## Problem Statement
-Automatisiertes Ultra-High-Frequency Trading-System für Pump.fun Tokens auf der Solana Blockchain mit Realtime Launch Sniper und 100+ simultanen Micro-Trades.
+Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
+**Optimiert für große Gewinne pro Trade statt viele kleine Micro-Trades.**
 
-## System Status: MULTI-SOURCE SCANNER V4 AKTIV
+## System Status: BIG WINS STRATEGY AKTIV ✅
 
 Letztes Update: 2026-03-09
 
@@ -11,56 +12,93 @@ Letztes Update: 2026-03-09
 
 ## Changelog
 
-### 2026-03-09 - Multi-Source Scanner V4 Implementation
+### 2026-03-09 - Big Wins Strategy Implementation
 
-**P0 Fix - Kritischer Scanner-Fehler behoben:**
+**Komplette Strategieumstellung von "Micro-Trades" auf "Big Wins":**
 
-Der Scanner war vorher blockiert durch DexScreener API Rate-Limiting (HTTP 429 Fehler). 
-Jetzt implementiert: **Hochverfügbare Multi-Source Scanner Architektur V4**
+#### Take-Profit Levels (Mehrstufig)
+| Level | Trigger | Aktion |
+|-------|---------|--------|
+| TP1 | +25% | 30% Position verkaufen |
+| TP2 | +60% | weitere 30% verkaufen |
+| TP3 | +120% | weitere 20% verkaufen |
+| Runner | - | 20% laufen lassen |
 
-**Neue Features:**
-- **Exponential Backoff**: Bei HTTP 429 automatisch 1s -> 2s -> 4s -> 8s Verzögerung (max 5 Retries)
-- **Request Throttling**: Max 8-10 Requests/Sekunde pro API
-- **7 unabhängige Datenquellen**: DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun
-- **Automatisches Failover**: Wenn eine Quelle blockiert wird, laufen die anderen weiter
-- **2-Sekunden Cache**: Reduziert API-Anfragen massiv
-- **Health Monitoring**: Echtzeit-Status aller Quellen
+#### Trailing Profit System
+- **Start:** +35% Gewinn aktiviert Trailing
+- **Stop:** 15% unter Peak wird verkauft
+- Beispiel: Peak +80% → fällt auf +68% → SELL
 
-**Scanner Performance:**
-| Metrik | Vorher | Nachher |
-|--------|--------|---------|
-| Tokens pro Scan | 0 (blockiert) | 1800-2000 |
-| Gesunde Quellen | 0/7 | 7/7 |
-| 429 Fehler | Konstant | 0 |
-| Scan-Zeit | N/A | ~10s |
+#### Minimum Profit Rule
+- Kein Verkauf unter **+15%** Gewinn
+- Verhindert Micro-Exits bei kleinen Bewegungen
 
-**Neue API Endpoints:**
-- `GET /api/scanner/health` - Detaillierter Health-Status aller Quellen
-- `POST /api/scanner/reset-health` - Health-Status zurücksetzen
-- `POST /api/scanner/clear-cache` - Scanner-Cache leeren
+#### Winner Protection
+- Bei **+100%** Gewinn: Stop-Loss auf **+40%** setzen
+- Schützt große Gewinne automatisch
 
-**SCANNER HEALTH Log Format:**
+#### Stop Loss
+- Standard: **-15%** (statt -6%)
+- Akzeptiert kleine Verluste für große Gewinner
+
+#### Entry Quality Filter (STRIKT)
+| Filter | Wert |
+|--------|------|
+| Liquidität | ≥ $40,000 |
+| Market Cap | $80k - $3M |
+| Volume Spike | ≥ 2x |
+| Token Age | ≤ 12 Stunden |
+| Holders | ≥ 50 |
+
+#### Pump Detection
 ```
-📊 SCANNER HEALTH
-   dexscreener_status: ✅ OK (39 tokens)
-   birdeye_status: ✅ OK (39 tokens)
-   raydium_status: ✅ OK (411 tokens)
-   orca_status: ✅ OK (124 tokens)
-   meteora_status: ✅ OK (473 tokens)
-   jupiter_status: ✅ OK (800 tokens)
-   pumpfun_status: ✅ OK (48 tokens)
-   ─────────────────
-   tokens_total: 1825
-   scan_time: 9.60s
+volume_1m > volume_5m_average × 1.8
 ```
 
-### 2026-03-09 - Realtime Launch Sniper Implementation
+#### Slippage Kontrolle
+- Max: **8%** (Trade abbrechen)
+- Warnung: **5%**
 
-**Neue Features:**
-- **RealtimeLaunchSniper Klasse** - Erkennt neue Token-Launches in < 30 Sekunden
-- **Priority-Scoring System** - 0-200 Punkte basierend auf Alter, Liquidität, Aktivität
-- **Snipe Queue** - Priorisierte Warteschlange für neue Token-Targets
-- **2-Phasen Trade Execution** - Snipe-Targets werden vor normalen Opportunities ausgeführt
+#### Zielwerte
+| Metrik | Ziel |
+|--------|------|
+| Avg Win | +35% bis +80% |
+| Avg Loss | -10% bis -15% |
+| Win Rate | 30-45% |
+
+---
+
+### 2026-03-09 - Multi-Source Scanner V4
+
+**Hochverfügbare Scanner-Architektur:**
+- 7 Datenquellen (DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun)
+- Exponential Backoff bei Rate-Limiting
+- 1800+ Tokens pro Scan
+- Automatisches Failover
+
+---
+
+## API Endpoints
+
+### Strategy Endpoints
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/strategy/config` | Big Wins Konfiguration |
+| `GET /api/strategy/stats` | Performance-Statistiken |
+
+### Scanner Endpoints
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/scanner/stats` | Scanner V4 Statistiken |
+| `GET /api/scanner/health` | Health-Status aller Quellen |
+| `POST /api/scanner/reset-health` | Health zurücksetzen |
+
+### Trading Endpoints
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `POST /api/trades/update-all-prices` | Big Wins Preis-Update mit TP Levels |
+| `GET /api/auto-trading/status` | Bot-Status |
+| `POST /api/auto-trading/start/stop` | Bot starten/stoppen |
 
 ---
 
@@ -68,122 +106,34 @@ Jetzt implementiert: **Hochverfügbare Multi-Source Scanner Architektur V4**
 
 ```
 /app/backend/
-├── server.py           # Haupt-API Server (~7300 Zeilen)
-├── scanner/            # NEU: Multi-Source Scanner Modul
+├── server.py           # Haupt-API (Big Wins integriert)
+├── scanner/            # Multi-Source Scanner V4
+│   ├── multi_source_scanner.py
+│   ├── rate_limiter.py
+│   └── health_monitor.py
+├── trading/            # NEU: Trading Strategie Module
 │   ├── __init__.py
-│   ├── multi_source_scanner.py  # MultiSourceScannerV4
-│   ├── rate_limiter.py          # Rate-Limiting & Backoff
-│   └── health_monitor.py        # Health Monitoring
-├── requirements.txt
+│   └── big_wins_strategy.py
 └── tests/
 
 /app/frontend/
-├── src/
-│   ├── App.js
-│   ├── components/
-│   └── pages/
-│       └── Dashboard.jsx
-└── package.json
+└── src/
+    └── pages/
+        └── Dashboard.jsx
 ```
-
----
-
-## Scanner V4 Architecture
-
-### Rate-Limiting Schutz
-
-```python
-# Exponential Backoff (1s -> 2s -> 4s -> 8s -> 16s)
-if status_code == 429:
-    delay = base_delay * (2 ** retry_count)
-    await asyncio.sleep(delay)
-
-# Request Throttling (max 8/s pro API)
-rate_limiter = RateLimiter(requests_per_second=8.0)
-await rate_limiter.acquire(api_name)
-```
-
-### Multi-Source Integration
-
-| Quelle | API Endpoint | Typ |
-|--------|--------------|-----|
-| DexScreener | api.dexscreener.com | Search API |
-| Birdeye | public-api.birdeye.so (mit API-Key) | Token List |
-| Jupiter | cache.jup.ag/tokens | Verifizierte Tokens |
-| Raydium | api.raydium.io/v2/main/pairs | Pool Data |
-| Orca | api.mainnet.orca.so/v1/whirlpool/list | Whirlpool Data |
-| Meteora | dlmm-api.meteora.ag/pair/all | DLMM Pools |
-| Pump.fun | via DexScreener | Bonding Curve |
-
-### Failover System
-
-```
-1. API Request fehlgeschlagen?
-   ├── Ja → Backoff aktivieren
-   │        └── Nach 5 Fehlern: API als unhealthy markieren
-   └── Nein → Backoff zurücksetzen
-
-2. API unhealthy?
-   ├── Ja → Überspringe diese Quelle
-   │        └── Andere Quellen laufen weiter
-   └── Nein → Normal scannen
-```
-
----
-
-## API Endpoints
-
-### Scanner V4
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `GET /api/scanner/stats` | Scanner V4 Statistiken & Health |
-| `GET /api/scanner/health` | Detaillierter Health-Status aller Quellen |
-| `POST /api/scanner/reset-health` | Health-Status zurücksetzen |
-| `POST /api/scanner/clear-cache` | Scanner-Cache leeren |
-
-### Sniper
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `GET /api/sniper/status` | Sniper-Statistiken & Konfiguration |
-| `GET /api/sniper/targets` | Aktuelle Snipe-Targets mit Details |
-| `POST /api/sniper/scan` | Manuellen Sniper-Scan triggern |
-| `POST /api/sniper/clear` | Queue und Detektionen leeren |
-
-### Auto-Trading
-| Endpoint | Beschreibung |
-|----------|--------------|
-| `GET /api/auto-trading/status` | Status mit Capital-Metriken |
-| `POST /api/auto-trading/start` | Bot starten |
-| `POST /api/auto-trading/stop` | Bot stoppen |
-
----
-
-## Test-Ergebnisse
-
-- **Scanner V4:** 1800+ Tokens pro Scan ✅
-- **Alle 7 Quellen:** Gesund und funktionierend ✅
-- **Rate-Limiting Schutz:** Aktiv, keine 429 Fehler ✅
-- **Backoff System:** Funktioniert korrekt ✅
-- **Health Monitoring:** Logs werden generiert ✅
-- **Backend API:** Alle Endpoints funktionieren ✅
 
 ---
 
 ## Credentials
 
 - **PIN:** 1234
-- **Birdeye API Key:** Optional (in BIRDEYE_API_KEY env var)
+- **Birdeye API Key:** Optional (BIRDEYE_API_KEY)
 
 ---
 
-## Nächste Schritte (P1)
+## Nächste Schritte
 
-1. **Refactoring:** server.py in Module aufteilen
-2. **Performance Dashboard:** Top profitable Tokens, Profit/Tag
-3. **UI für Scanner Health:** Dashboard-Integration
-
-## Zukünftige Features (P2)
-
-1. **MEV Protection:** Sandwich-Attack Schutz
-2. **Telegram Notifications**
-3. **Jupiter Swap Integration**
+🟠 **P1:** Dashboard UI für Big Wins (TP Levels, Partial Sells anzeigen)
+🟠 **P1:** Refactoring server.py in Module
+🟡 **P2:** Telegram Benachrichtigungen
+🟡 **P2:** MEV Protection
