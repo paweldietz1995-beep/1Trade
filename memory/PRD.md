@@ -1,9 +1,9 @@
-# Pump.fun Trading Bot - PRD v19
+# Pump.fun Trading Bot - PRD v20
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
-## System Status: ✅ VOLLSTÄNDIG FUNKTIONSFÄHIG - MOMENTUM SCALPING
+## System Status: ✅ VOLLSTÄNDIG FUNKTIONSFÄHIG - HIGH-CAPACITY SCANNER
 
 Letztes Update: 2026-03-09
 
@@ -11,40 +11,27 @@ Letztes Update: 2026-03-09
 
 ## Changelog (2026-03-09)
 
-### Multi-Source Momentum Scanner (Latest)
-- **Neues Feature:** Aggregiert Tokens von 7 DEX-Quellen:
-  - DexScreener, Birdeye, Jupiter
-  - Raydium, Orca, Meteora, Pump.fun
-- **Ergebnis:** 83 Tokens → 53 nach Dedup → 6 Opportunities
-- **Logging:**
+### Scanner Scale-Up (Latest)
+- **Kapazität erhöht:** 500-1000 Tokens pro Scan-Zyklus
+- **Ergebnis:** 
   ```
-  SCANNER SUMMARY | sources_scanned: 7 | tokens_found: 83 | tokens_after_dedup: 53 | opportunities: 6
-  TOP MOMENTUM TOKENS | 1. BOME score=75 | 2. RAY score=50 | 3. MEMECORE score=41
+  SCANNER DEBUG | raw_tokens: 341 | after_dedup: 147 | opportunities: 32
+  Sources: dexscreener=171 | raydium=26 | orca=26 | meteora=61 | pumpfun=57
   ```
+- **Frontend Pagination:** "Zeige 1-50 von 125 Tokens" mit Seiten-Navigation
+- **Parallel API-Calls:** asyncio.gather() für alle 7 Quellen
+
+### Multi-Source Momentum Scanner
+- **7 DEX-Quellen:** DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun
+- **Deduplication:** Tokens nach Adresse zusammengeführt
 
 ### Momentum Scoring System v2
-- **Neue Formel:** `score = volume_growth * 0.4 + buyers * 0.3 + price_change * 0.3`
-- **Momentum Signal Trigger:**
-  - `price_change_5m >= 5%`
-  - `volume_5m >= 2x baseline`
-  - `buyers_5m > sellers_5m`
+- **Formel:** `score = volume_growth * 0.4 + buyers * 0.3 + price_change * 0.3`
 
 ### Aggressive Scalping Strategy
 - **take_profit_percent:** 10%
 - **stop_loss_percent:** 6%
-- **trailing_stop:** 4% (aktiviert bei 5% Profit)
-- **min_liquidity_usd:** $800
-- **signal_cooldown:** 30 Sekunden
-
-### Scanner Filter Fix
-- **Problem gelöst:** Scanner produzierte 0 Opportunities
-- **Änderungen:** Relaxierte Filter für Memecoin Trading
-
-### Multi-Trade Fix
-- **Problem gelöst:** Bot öffnete nur einen Trade pro Scan-Zyklus
-
-### Wallet Synchronization Fix
-- **Problem gelöst:** "Unable to sync wallet" Fehler
+- **trailing_stop:** 4%
 
 ---
 

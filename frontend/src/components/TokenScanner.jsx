@@ -14,7 +14,9 @@ import {
   Filter,
   Check,
   X,
-  Radio
+  Radio,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -23,6 +25,8 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Progress } from './ui/progress';
 import TradeModal from './TradeModal';
+
+const PAGE_SIZE = 50;
 
 const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
   const { t } = useTranslation();
@@ -33,14 +37,17 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
   const [selectedToken, setSelectedToken] = useState(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
   const [filterPassed, setFilterPassed] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
 
   const fetchTokens = useCallback(async () => {
     setLoading(true);
     try {
+      // Request 500 tokens - NO LIMIT
       const response = await axios.get(`${API_URL}/tokens/scan`, {
-        params: { limit: 50 }
+        params: { limit: 500 }
       });
       setTokens(response.data);
+      setCurrentPage(0); // Reset to first page on refresh
     } catch (error) {
       console.error('Error fetching tokens:', error);
     }
@@ -62,6 +69,25 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
     
     return matchesSearch && matchesFilter;
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredTokens.length / PAGE_SIZE);
+  const paginatedTokens = filteredTokens.slice(
+    currentPage * PAGE_SIZE,
+    (currentPage + 1) * PAGE_SIZE
+  );
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages - 1) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const goToPrevPage = () => {
+    if (currentPage > 0) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
 
   const formatNumber = (num) => {
     if (num >= 1000000) return `$${(num / 1000000).toFixed(2)}M`;
@@ -111,7 +137,7 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
             <Radio className="w-5 h-5 text-neon-cyan animate-pulse" />
             <CardTitle className="font-heading">{t('scanner.tokenScanner')}</CardTitle>
             <Badge variant="outline" className="border-neon-cyan/30 text-neon-cyan">
-              {tokens.length} {t('scanner.tokens')}
+              {filteredTokens.length} / {tokens.length} {t('scanner.tokens')}
             </Badge>
           </div>
           <div className="flex items-center gap-2">
@@ -120,7 +146,10 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
               <Input
                 placeholder={t('scanner.searchTokens')}
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(0); // Reset to first page on search
+                }}
                 className="pl-9 w-64 bg-[#0F172A] border-[#1E293B]"
                 data-testid="token-search"
               />
@@ -128,7 +157,10 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
             <Button 
               variant={filterPassed ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setFilterPassed(!filterPassed)}
+              onClick={() => {
+                setFilterPassed(!filterPassed);
+                setCurrentPage(0);
+              }}
               className={filterPassed ? 'bg-neon-green text-black' : ''}
             >
               <Filter className="w-4 h-4 mr-1" />
@@ -145,6 +177,38 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
             </Button>
           </div>
         </div>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#1E293B]">
+            <div className="text-sm text-muted-foreground">
+              Zeige {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, filteredTokens.length)} von {filteredTokens.length} Tokens
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToPrevPage}
+                disabled={currentPage === 0}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Zurück
+              </Button>
+              <span className="text-sm px-3 py-1 bg-[#1E293B] rounded">
+                Seite {currentPage + 1} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToNextPage}
+                disabled={currentPage >= totalPages - 1}
+              >
+                Weiter
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         <ScrollArea className="h-[600px]">
@@ -166,13 +230,13 @@ const TokenScanner = ({ onSelectToken, showTradeButton = true }) => {
               <div className="flex items-center justify-center h-40">
                 <RefreshCw className="w-6 h-6 animate-spin text-neon-cyan" />
               </div>
-            ) : filteredTokens.length === 0 ? (
+            ) : paginatedTokens.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                 <Search className="w-8 h-8 mb-2" />
                 <p>No tokens found</p>
               </div>
             ) : (
-              filteredTokens.map((token, index) => (
+              paginatedTokens.map((token, index) => (
                 <div
                   key={token.address}
                   className={`grid grid-cols-12 gap-2 px-4 py-3 hover:bg-white/5 cursor-pointer transition-colors group ${

@@ -282,8 +282,8 @@ auto_trading_state = {
 # Engine Configuration - AGGRESSIVE MOMENTUM SCALPING STRATEGY
 ENGINE_CONFIG = {
     "scan_interval_seconds": 2,        # 2 second scans
-    "max_tokens_per_scan": 500,        # Process up to 500 tokens
-    "max_signals_per_scan": 300,       # Analyze top 300 signals
+    "max_tokens_per_scan": 1000,       # Process up to 1000 tokens
+    "max_signals_per_scan": 500,       # Analyze top 500 signals
     "max_open_trades": 20,             # Allow up to 20 simultaneous trades
     "max_trades_per_token": 1,         # Only 1 trade per token
     "signal_cooldown_seconds": 30,     # 30 second cooldown per token (faster re-entry)
@@ -2261,37 +2261,44 @@ class MultiSourceScanner:
         self.source_status = {}
         
     async def scan_all_sources(self) -> List[Dict]:
-        """Scan all configured sources and merge results"""
+        """Scan all configured sources and merge results - PARALLEL EXECUTION"""
         all_tokens = []
         source_results = {}
         
-        # Run scans in parallel where possible
-        tasks = [
-            ("dexscreener", self.scan_dexscreener()),
-            ("birdeye", self.scan_birdeye()),
-            ("jupiter", self.scan_jupiter()),
-            ("raydium", self.scan_raydium_pools()),
-            ("orca", self.scan_orca_pools()),
-            ("meteora", self.scan_meteora_pools()),
-            ("pumpfun", self.scan_pumpfun_pairs()),
-        ]
+        # Run ALL scans in PARALLEL using asyncio.gather
+        logger.info("🔍 MULTI-SOURCE SCAN: Starting parallel scans across 7 DEX sources...")
         
-        # Execute scans with timeout
-        for source_name, coro in tasks:
-            try:
-                result = await asyncio.wait_for(coro, timeout=10.0)
-                source_results[source_name] = len(result)
-                all_tokens.extend(result)
-                self.source_status[source_name] = {"healthy": True, "count": len(result)}
-            except asyncio.TimeoutError:
-                logger.warning(f"⚠️ Scanner timeout: {source_name}")
-                self.source_status[source_name] = {"healthy": False, "count": 0}
-            except Exception as e:
-                logger.warning(f"⚠️ Scanner error {source_name}: {str(e)[:50]}")
-                self.source_status[source_name] = {"healthy": False, "count": 0}
+        try:
+            results = await asyncio.gather(
+                self.scan_dexscreener(),
+                self.scan_birdeye(),
+                self.scan_jupiter(),
+                self.scan_raydium_pools(),
+                self.scan_orca_pools(),
+                self.scan_meteora_pools(),
+                self.scan_pumpfun_pairs(),
+                return_exceptions=True
+            )
+            
+            source_names = ["dexscreener", "birdeye", "jupiter", "raydium", "orca", "meteora", "pumpfun"]
+            
+            for i, result in enumerate(results):
+                source_name = source_names[i]
+                if isinstance(result, Exception):
+                    logger.warning(f"⚠️ Scanner error {source_name}: {str(result)[:50]}")
+                    self.source_status[source_name] = {"healthy": False, "count": 0}
+                elif isinstance(result, list):
+                    source_results[source_name] = len(result)
+                    all_tokens.extend(result)
+                    self.source_status[source_name] = {"healthy": True, "count": len(result)}
+                else:
+                    self.source_status[source_name] = {"healthy": False, "count": 0}
+                    
+        except Exception as e:
+            logger.error(f"Multi-source scan error: {e}")
         
         # Update stats
-        self.scan_stats["total_sources_scanned"] = len([s for s in self.source_status.values() if s["healthy"]])
+        self.scan_stats["total_sources_scanned"] = len([s for s in self.source_status.values() if s.get("healthy")])
         self.scan_stats["tokens_found"] = len(all_tokens)
         
         # Deduplicate by token address
@@ -2299,8 +2306,9 @@ class MultiSourceScanner:
         self.scan_stats["tokens_after_dedup"] = len(unique_tokens)
         self.scan_stats["last_scan"] = datetime.now(timezone.utc).isoformat()
         
-        # Log scanner summary
-        logger.info(f"📊 SCANNER SUMMARY | sources_scanned: {self.scan_stats['total_sources_scanned']} | tokens_found: {self.scan_stats['tokens_found']} | tokens_after_dedup: {self.scan_stats['tokens_after_dedup']}")
+        # Log detailed scanner debug info
+        source_breakdown = " | ".join([f"{k}={v}" for k, v in source_results.items()])
+        logger.info(f"📊 SCANNER DEBUG | raw_tokens: {len(all_tokens)} | after_dedup: {len(unique_tokens)} | sources: {source_breakdown}")
         
         return unique_tokens
     
@@ -2326,14 +2334,17 @@ class MultiSourceScanner:
         return list(unique_tokens.values())
     
     async def scan_dexscreener(self) -> List[Dict]:
-        """Scan DexScreener for trending Solana tokens"""
+        """Scan DexScreener for trending Solana tokens - EXPANDED"""
         pairs = []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Multiple search queries for diverse coverage
-                queries = ["solana trending", "sol meme", "pump.fun", "raydium sol"]
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # Multiple search queries for maximum coverage
+                queries = [
+                    "solana trending", "sol meme", "pump.fun", "raydium sol",
+                    "solana new", "sol degen", "bonk", "wif", "jup sol"
+                ]
                 
-                for query in queries[:2]:  # Limit to avoid rate limits
+                for query in queries:  # Scan ALL queries
                     try:
                         resp = await client.get(
                             "https://api.dexscreener.com/latest/dex/search",
@@ -2345,15 +2356,31 @@ class MultiSourceScanner:
                                 if p.get("chainId") == "solana":
                                     liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
                                     if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                        p["source"] = "dexscreener"
                                         pairs.append(p)
                         elif resp.status_code == 429:
+                            await asyncio.sleep(0.5)  # Brief pause on rate limit
                             break
                     except:
                         continue
+                
+                # Also fetch top gainers
+                try:
+                    resp = await client.get("https://api.dexscreener.com/latest/dex/tokens/solana")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        for p in data.get("pairs", []):
+                            if p.get("chainId") == "solana":
+                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                    p["source"] = "dexscreener"
+                                    pairs.append(p)
+                except:
+                    pass
                         
         except Exception as e:
             logger.debug(f"DexScreener scan error: {e}")
-        return pairs[:100]
+        return pairs  # NO LIMIT - return all pairs
     
     async def scan_birdeye(self) -> List[Dict]:
         """Scan Birdeye API for trending tokens"""
@@ -2390,22 +2417,20 @@ class MultiSourceScanner:
                             pairs.append(pair)
         except Exception as e:
             logger.debug(f"Birdeye scan error: {e}")
-        return pairs[:50]
+        return pairs  # NO LIMIT
     
     async def scan_jupiter(self) -> List[Dict]:
-        """Scan Jupiter token list for tradeable tokens"""
+        """Scan Jupiter token list for tradeable tokens - EXPANDED"""
         pairs = []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 # Jupiter strict token list
                 resp = await client.get("https://token.jup.ag/strict")
                 if resp.status_code == 200:
                     tokens = resp.json()
                     
-                    # Get price data for tokens
-                    token_addresses = [t["address"] for t in tokens[:100]]
-                    
-                    for t in tokens[:50]:
+                    # Process ALL tokens, not just first 50
+                    for t in tokens[:200]:  # Top 200 Jupiter tokens
                         pair = {
                             "chainId": "solana",
                             "baseToken": {
@@ -2423,95 +2448,117 @@ class MultiSourceScanner:
                         pairs.append(pair)
         except Exception as e:
             logger.debug(f"Jupiter scan error: {e}")
-        return pairs[:30]
+        return pairs  # NO LIMIT
     
     async def scan_raydium_pools(self) -> List[Dict]:
-        """Scan Raydium AMM pools via DexScreener"""
+        """Scan Raydium AMM pools via DexScreener - EXPANDED"""
         pairs = []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    "https://api.dexscreener.com/latest/dex/search",
-                    params={"q": "raydium sol"}
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    for p in data.get("pairs", []):
-                        if p.get("chainId") == "solana" and "raydium" in p.get("dexId", "").lower():
-                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                            if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
-                                p["source"] = "raydium"
-                                pairs.append(p)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # Multiple Raydium queries
+                queries = ["raydium sol", "raydium meme", "raydium new"]
+                
+                for query in queries:
+                    try:
+                        resp = await client.get(
+                            "https://api.dexscreener.com/latest/dex/search",
+                            params={"q": query}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            for p in data.get("pairs", []):
+                                if p.get("chainId") == "solana" and "raydium" in p.get("dexId", "").lower():
+                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                    if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                        p["source"] = "raydium"
+                                        pairs.append(p)
+                    except:
+                        continue
         except Exception as e:
             logger.debug(f"Raydium scan error: {e}")
-        return pairs[:50]
+        return pairs  # NO LIMIT
     
     async def scan_orca_pools(self) -> List[Dict]:
-        """Scan Orca whirlpools via DexScreener"""
+        """Scan Orca whirlpools via DexScreener - EXPANDED"""
         pairs = []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    "https://api.dexscreener.com/latest/dex/search",
-                    params={"q": "orca sol"}
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    for p in data.get("pairs", []):
-                        if p.get("chainId") == "solana" and "orca" in p.get("dexId", "").lower():
-                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                            if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
-                                p["source"] = "orca"
-                                pairs.append(p)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                queries = ["orca sol", "orca whirlpool", "orca meme"]
+                
+                for query in queries:
+                    try:
+                        resp = await client.get(
+                            "https://api.dexscreener.com/latest/dex/search",
+                            params={"q": query}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            for p in data.get("pairs", []):
+                                if p.get("chainId") == "solana" and "orca" in p.get("dexId", "").lower():
+                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                    if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                        p["source"] = "orca"
+                                        pairs.append(p)
+                    except:
+                        continue
         except Exception as e:
             logger.debug(f"Orca scan error: {e}")
-        return pairs[:50]
+        return pairs  # NO LIMIT
     
     async def scan_meteora_pools(self) -> List[Dict]:
-        """Scan Meteora DLMM pools via DexScreener"""
+        """Scan Meteora DLMM pools via DexScreener - EXPANDED"""
         pairs = []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    "https://api.dexscreener.com/latest/dex/search",
-                    params={"q": "meteora sol"}
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    for p in data.get("pairs", []):
-                        if p.get("chainId") == "solana" and "meteora" in p.get("dexId", "").lower():
-                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                            if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
-                                p["source"] = "meteora"
-                                pairs.append(p)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                queries = ["meteora sol", "meteora dlmm", "meteora new"]
+                
+                for query in queries:
+                    try:
+                        resp = await client.get(
+                            "https://api.dexscreener.com/latest/dex/search",
+                            params={"q": query}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            for p in data.get("pairs", []):
+                                if p.get("chainId") == "solana" and "meteora" in p.get("dexId", "").lower():
+                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                    if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                        p["source"] = "meteora"
+                                        pairs.append(p)
+                    except:
+                        continue
         except Exception as e:
             logger.debug(f"Meteora scan error: {e}")
-        return pairs[:50]
+        return pairs  # NO LIMIT
     
     async def scan_pumpfun_pairs(self) -> List[Dict]:
-        """Scan Pump.fun new token launches"""
+        """Scan Pump.fun new token launches - EXPANDED"""
         pairs = []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Search for pump.fun tokens
-                queries = ["pump.fun", "pumpfun", "bonding curve"]
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # Multiple queries for pump.fun tokens
+                queries = ["pump.fun", "pumpfun", "bonding curve", "pump sol", "pump meme"]
                 
-                for query in queries[:1]:
-                    resp = await client.get(
-                        "https://api.dexscreener.com/latest/dex/search",
-                        params={"q": query}
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for p in data.get("pairs", []):
-                            if p.get("chainId") == "solana":
-                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
-                                    p["source"] = "pumpfun"
-                                    pairs.append(p)
+                for query in queries:
+                    try:
+                        resp = await client.get(
+                            "https://api.dexscreener.com/latest/dex/search",
+                            params={"q": query}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            for p in data.get("pairs", []):
+                                if p.get("chainId") == "solana":
+                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                    if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                        p["source"] = "pumpfun"
+                                        pairs.append(p)
+                    except:
+                        continue
         except Exception as e:
             logger.debug(f"Pump.fun scan error: {e}")
-        return pairs[:50]
+        return pairs  # NO LIMIT
 
 
 # Global scanner instance
@@ -2863,40 +2910,57 @@ async def update_bot_settings(settings: BotSettings):
 # ============== TOKEN DISCOVERY ENGINE ==============
 
 @api_router.get("/tokens/scan", response_model=List[TokenData])
-async def scan_tokens(limit: int = 30):
-    """Scan for new and trending tokens with full analysis"""
+async def scan_tokens(limit: int = 500):
+    """Scan for new and trending tokens with full analysis - EXPANDED to 500 tokens"""
     settings = await get_bot_settings()
     
     # Get filter config at the start
-    min_liq = ENGINE_CONFIG.get("min_liquidity_usd", 3000)
-    min_vol = ENGINE_CONFIG.get("min_volume_usd", 5000)
+    min_liq = ENGINE_CONFIG.get("min_liquidity_usd", 800)
+    min_vol = ENGINE_CONFIG.get("min_volume_usd", 800)
     
-    # Fetch from multiple sources
+    # Use multi-source scanner for maximum coverage
+    all_pairs_list = await multi_source_scanner.scan_all_sources()
+    
+    # Also get legacy sources as backup
     pump_pairs = await fetch_pump_fun_tokens()
-    dex_pairs = await fetch_dex_screener_tokens(limit)
+    dex_pairs = await fetch_dex_screener_tokens(200)
     
-    # Combine and dedupe with relaxed filtering
+    # Combine all sources
     all_pairs = {}
-    for pair in dex_pairs + pump_pairs:  # DEX pairs first (better quality)
+    
+    # Multi-source scanner results first (already deduplicated)
+    for pair in all_pairs_list:
+        address = pair.get("baseToken", {}).get("address", "")
+        if not address:
+            continue
+        
+        liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+        vol_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+        
+        # Skip unrealistic liquidity (>$100M for memecoins)
+        if liq > 100000000:
+            continue
+        
+        # RELAXED FILTER: Minimum liquidity $800 OR volume $800
+        if liq >= min_liq or vol_24h >= min_vol:
+            all_pairs[address] = pair
+    
+    # Add legacy sources
+    for pair in dex_pairs + pump_pairs:
         address = pair.get("baseToken", {}).get("address", "")
         if not address or address in all_pairs:
             continue
         
-        # Apply filters
         liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
         vol_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
         
-        # FILTER: Skip unrealistic liquidity (>$100M for memecoins)
         if liq > 100000000:
             continue
         
-        # RELAXED FILTER: Minimum liquidity $3k OR volume $5k
-        if liq < min_liq and vol_24h < min_vol:
-            continue
-        
-        all_pairs[address] = pair
+        if liq >= min_liq or vol_24h >= min_vol:
+            all_pairs[address] = pair
     
-    logger.info(f"📊 Scanner: {len(all_pairs)} tokens after filtering (min liq: ${min_liq}, min vol: ${min_vol})")
+    logger.info(f"📊 Scanner API: {len(all_pairs)} tokens after filtering (min liq: ${min_liq}, min vol: ${min_vol})")
     
     tokens = []
     for address, pair in list(all_pairs.items())[:limit]:
