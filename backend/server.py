@@ -1639,7 +1639,16 @@ async def auto_trading_loop():
 
 @api_router.post("/auto-trading/start")
 async def start_auto_trading(background_tasks: BackgroundTasks):
-    """Start the high-capacity multi-trade engine"""
+    """
+    Start the high-capacity multi-trade engine.
+    
+    INITIALIZATION ORDER:
+    1. Check if already running
+    2. Reset daily metrics
+    3. Verify RPC connection
+    4. Verify wallet sync status (if connected)
+    5. Start trading engine
+    """
     global auto_trading_state, auto_trading_task
     
     if auto_trading_state["is_running"]:
@@ -1651,6 +1660,38 @@ async def start_auto_trading(background_tasks: BackgroundTasks):
         auto_trading_state["trades_today"] = 0
         auto_trading_state["daily_pnl"] = 0.0
         auto_trading_state["last_reset_date"] = today
+    
+    # Step 1: Verify RPC Connection
+    logger.info("🔌 Verifying RPC connection before start...")
+    if not rpc_state.get("connected"):
+        rpc_result = await get_working_rpc()
+        if not rpc_state.get("connected"):
+            logger.warning("⚠️ RPC not connected, attempting failover...")
+            # RPC failover is handled automatically
+    
+    if rpc_state.get("connected"):
+        logger.info(f"RPC_CONNECTED: {rpc_state.get('current_endpoint', 'unknown')[:30]}...")
+    else:
+        logger.warning("⚠️ Starting in degraded mode - RPC not available")
+    
+    # Step 2: Check wallet sync status
+    wallet_synced = wallet_state.get("sync_status") == "synced"
+    wallet_address = wallet_state.get("address")
+    
+    if wallet_synced:
+        logger.info(f"WALLET_SYNCED: {wallet_address[:12]}... = {wallet_state.get('balance_sol', 0):.4f} SOL")
+    else:
+        logger.info("ℹ️ No wallet connected - using paper trading budget")
+    
+    # Step 3: Get bot settings to check test mode
+    settings = await get_bot_settings()
+    test_mode = settings.paper_mode
+    
+    if test_mode:
+        logger.info("TEST_MODE_ACTIVE: Transactions will be simulated")
+        activity_feed.add_event("INFO", "SYSTEM", {
+            "message": "🧪 Test mode active - no real transactions"
+        })
     
     # Reset state
     auto_trading_state["is_running"] = True
@@ -1667,9 +1708,21 @@ async def start_auto_trading(background_tasks: BackgroundTasks):
     auto_trading_task = asyncio.create_task(auto_trading_loop())
     
     logger.info("🚀 HIGH-CAPACITY TRADING ENGINE STARTED")
+    logger.info("TRADING_ENGINE_INITIALIZED")
+    
     return {
         "success": True, 
         "message": "High-capacity trading engine started",
+        "wallet_status": {
+            "synced": wallet_synced,
+            "address": wallet_address[:12] + "..." if wallet_address else None,
+            "balance": wallet_state.get("balance_sol", 0) if wallet_synced else None
+        },
+        "rpc_status": {
+            "connected": rpc_state.get("connected", False),
+            "endpoint": rpc_state.get("current_endpoint", "none")[:30] + "..." if rpc_state.get("current_endpoint") else None
+        },
+        "test_mode": test_mode,
         "config": {
             "scan_interval_seconds": ENGINE_CONFIG["scan_interval_seconds"],
             "max_tokens_per_scan": ENGINE_CONFIG["max_tokens_per_scan"],
@@ -3343,8 +3396,241 @@ rpc_state = {
 wallet_state = {
     "address": None,
     "balance_sol": 0.0,
-    "last_update": None
+    "last_update": None,
+    "sync_status": "disconnected",  # disconnected, syncing, synced, error
+    "sync_error": None,
+    "validation_passed": False,
+    "retry_count": 0,
+    "last_sync_attempt": None
 }
+
+# Wallet sync configuration
+WALLET_SYNC_CONFIG = {
+    "max_retries": 3,
+    "retry_delay_seconds": 2,
+    "min_balance_sol": 0.001,  # Minimum SOL for trading
+    "sync_timeout_seconds": 30
+}
+
+
+class WalletSyncManager:
+    """
+    Manages wallet synchronization with the trading engine.
+    Ensures proper initialization order:
+    1. Load environment variables
+    2. Initialize Solana RPC connection
+    3. Load/validate wallet address
+    4. Fetch wallet balance
+    5. Initialize trading engine sync
+    """
+    
+    def __init__(self):
+        self.sync_in_progress = False
+        self.last_successful_sync = None
+    
+    async def sync_wallet_with_engine(self, address: str, force: bool = False) -> dict:
+        """
+        Full wallet sync with retry logic and validation.
+        Returns sync result with status and details.
+        """
+        global wallet_state
+        
+        if self.sync_in_progress and not force:
+            return {
+                "success": False,
+                "error": "Sync already in progress",
+                "status": "syncing"
+            }
+        
+        self.sync_in_progress = True
+        wallet_state["sync_status"] = "syncing"
+        wallet_state["last_sync_attempt"] = datetime.now(timezone.utc).isoformat()
+        
+        # Log sync start
+        activity_feed.add_event("INFO", "WALLET", {
+            "message": f"🔄 Starting wallet sync for {address[:12]}..."
+        })
+        logger.info(f"WALLET_SYNC_STARTED: {address[:12]}...")
+        
+        try:
+            # Step 1: Validate wallet address format
+            validation_result = await self._validate_wallet_address(address)
+            if not validation_result["valid"]:
+                raise Exception(f"Invalid wallet address: {validation_result['error']}")
+            
+            logger.info("WALLET_VALIDATION_SUCCESS")
+            wallet_state["validation_passed"] = True
+            
+            # Step 2: Verify RPC connection with failover
+            rpc_result = await self._ensure_rpc_connection()
+            if not rpc_result["connected"]:
+                raise Exception(f"RPC connection failed: {rpc_result['error']}")
+            
+            logger.info(f"RPC_CONNECTED: {rpc_result['endpoint'][:30]}...")
+            
+            # Step 3: Fetch balance with retry
+            balance_result = await self._fetch_balance_with_retry(address)
+            if not balance_result["success"]:
+                raise Exception(f"Balance fetch failed: {balance_result['error']}")
+            
+            balance_sol = balance_result["balance"]
+            logger.info(f"BALANCE_FETCHED: {balance_sol:.6f} SOL")
+            
+            # Step 4: Check minimum balance
+            if balance_sol < WALLET_SYNC_CONFIG["min_balance_sol"]:
+                logger.warning(f"LOW_BALANCE_WARNING: {balance_sol:.6f} SOL < {WALLET_SYNC_CONFIG['min_balance_sol']} SOL minimum")
+                activity_feed.add_event("WARNING", "WALLET", {
+                    "message": f"⚠️ Low balance warning: {balance_sol:.6f} SOL"
+                })
+            
+            # Step 5: Update wallet state
+            wallet_state.update({
+                "address": address,
+                "balance_sol": balance_sol,
+                "last_update": datetime.now(timezone.utc).isoformat(),
+                "sync_status": "synced",
+                "sync_error": None,
+                "retry_count": 0
+            })
+            
+            self.last_successful_sync = datetime.now(timezone.utc)
+            
+            # Log success
+            logger.info(f"TRADING_ENGINE_SYNCED: Wallet {address[:12]}... with {balance_sol:.6f} SOL")
+            activity_feed.add_event("INFO", "WALLET", {
+                "message": f"✅ Wallet synced: {balance_sol:.6f} SOL"
+            })
+            
+            return {
+                "success": True,
+                "address": address,
+                "balance": balance_sol,
+                "status": "synced",
+                "rpc_endpoint": rpc_result["endpoint"],
+                "synced_at": wallet_state["last_update"],
+                "message": "Wallet successfully synced with trading engine"
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            wallet_state["sync_status"] = "error"
+            wallet_state["sync_error"] = error_msg
+            
+            logger.error(f"WALLET_SYNC_FAILED: {error_msg}")
+            activity_feed.add_event("ERROR", "WALLET", {
+                "message": f"❌ Wallet sync failed: {error_msg}"
+            })
+            
+            return {
+                "success": False,
+                "error": error_msg,
+                "status": "error",
+                "message": "Unable to sync wallet with trading engine"
+            }
+        
+        finally:
+            self.sync_in_progress = False
+    
+    async def _validate_wallet_address(self, address: str) -> dict:
+        """Validate Solana wallet address format"""
+        if not address:
+            return {"valid": False, "error": "No address provided"}
+        
+        # Basic validation: Solana addresses are base58, 32-44 chars
+        if len(address) < 32 or len(address) > 44:
+            return {"valid": False, "error": "Invalid address length"}
+        
+        # Check for valid base58 characters
+        import re
+        base58_pattern = re.compile(r'^[1-9A-HJ-NP-Za-km-z]+$')
+        if not base58_pattern.match(address):
+            return {"valid": False, "error": "Invalid address characters"}
+        
+        return {"valid": True}
+    
+    async def _ensure_rpc_connection(self) -> dict:
+        """Ensure RPC is connected with automatic failover"""
+        global rpc_state
+        
+        # Try to get working RPC
+        rpc_result = await get_working_rpc()
+        
+        if rpc_state["connected"]:
+            return {
+                "connected": True,
+                "endpoint": rpc_state["current_endpoint"]
+            }
+        
+        # If primary fails, try all endpoints
+        for endpoint in RPC_ENDPOINTS:
+            test_result = await test_rpc_endpoint(endpoint)
+            if test_result.get("success"):
+                rpc_state["connected"] = True
+                rpc_state["current_endpoint"] = endpoint
+                logger.info(f"RPC_FAILOVER_ACTIVATED: Switched to {endpoint[:30]}...")
+                return {
+                    "connected": True,
+                    "endpoint": endpoint
+                }
+        
+        return {
+            "connected": False,
+            "error": "All RPC endpoints failed"
+        }
+    
+    async def _fetch_balance_with_retry(self, address: str) -> dict:
+        """Fetch wallet balance with retry logic"""
+        global wallet_state
+        
+        max_retries = WALLET_SYNC_CONFIG["max_retries"]
+        retry_delay = WALLET_SYNC_CONFIG["retry_delay_seconds"]
+        
+        for attempt in range(1, max_retries + 1):
+            wallet_state["retry_count"] = attempt
+            
+            try:
+                logger.info(f"Balance fetch attempt {attempt}/{max_retries}")
+                
+                result = await make_rpc_call("getBalance", [address])
+                
+                if result.get("success"):
+                    lamports = result["result"].get("value", 0)
+                    sol_balance = lamports / 1e9
+                    return {
+                        "success": True,
+                        "balance": sol_balance,
+                        "lamports": lamports
+                    }
+                
+                error = result.get("error", "Unknown error")
+                logger.warning(f"Balance fetch failed (attempt {attempt}): {error}")
+                
+            except Exception as e:
+                logger.warning(f"Balance fetch exception (attempt {attempt}): {e}")
+            
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay)
+        
+        return {
+            "success": False,
+            "error": f"Failed after {max_retries} attempts"
+        }
+    
+    def get_sync_status(self) -> dict:
+        """Get current wallet sync status"""
+        return {
+            "address": wallet_state.get("address"),
+            "balance_sol": wallet_state.get("balance_sol", 0.0),
+            "sync_status": wallet_state.get("sync_status", "disconnected"),
+            "sync_error": wallet_state.get("sync_error"),
+            "validation_passed": wallet_state.get("validation_passed", False),
+            "last_update": wallet_state.get("last_update"),
+            "synced": wallet_state.get("sync_status") == "synced"
+        }
+
+
+# Initialize wallet sync manager
+wallet_sync_manager = WalletSyncManager()
 
 class RPCStatus(BaseModel):
     connected: bool
@@ -3671,34 +3957,33 @@ async def get_wallet_tokens(address: str):
     return {"success": False, "tokens": [], "error": result.get("error")}
 
 @api_router.post("/wallet/sync")
-async def sync_wallet(address: str):
+async def sync_wallet(address: str, force: bool = False):
     """
-    Sync wallet address and fetch balance - call this when wallet connects
-    This ensures the trading engine has the current wallet balance
-    """
-    global wallet_state
+    Sync wallet address and fetch balance - call this when wallet connects.
+    This ensures the trading engine has the current wallet balance.
     
+    Uses WalletSyncManager with:
+    - Wallet validation
+    - RPC connection verification with failover
+    - Balance fetch with retry logic
+    - Activity logging
+    
+    Args:
+        address: Solana wallet address
+        force: Force sync even if already syncing
+    """
     if not address:
-        return {"success": False, "error": "No address provided"}
-    
-    # Fetch balance (this will update wallet_state)
-    balance_result = await get_wallet_balance(address)
-    
-    if balance_result.get("success"):
-        logger.info(f"✅ Wallet synced: {address[:8]}... = {balance_result['balance']} SOL")
         return {
-            "success": True,
-            "address": address,
-            "balance": balance_result["balance"],
-            "synced_at": wallet_state.get("last_update"),
-            "message": "Wallet balance synced with trading engine"
+            "success": False, 
+            "error": "No address provided",
+            "message": "Unable to sync wallet with trading engine"
         }
     
-    return {
-        "success": False,
-        "error": balance_result.get("error", "Failed to sync wallet"),
-        "message": "Trading engine will use budget-based calculation"
-    }
+    # Use the new wallet sync manager
+    result = await wallet_sync_manager.sync_wallet_with_engine(address, force=force)
+    
+    return result
+
 
 @api_router.post("/wallet/disconnect")
 async def disconnect_wallet():
@@ -3706,23 +3991,39 @@ async def disconnect_wallet():
     global wallet_state
     
     old_address = wallet_state.get("address")
-    wallet_state = {
+    wallet_state.update({
         "address": None,
         "balance_sol": 0.0,
-        "last_update": None
-    }
+        "last_update": None,
+        "sync_status": "disconnected",
+        "sync_error": None,
+        "validation_passed": False,
+        "retry_count": 0
+    })
     
-    logger.info(f"🔌 Wallet disconnected: {old_address[:8] if old_address else 'none'}...")
-    return {"success": True, "message": "Wallet state cleared"}
+    if old_address:
+        logger.info(f"🔌 Wallet disconnected: {old_address[:8]}...")
+        activity_feed.add_event("INFO", "WALLET", {
+            "message": f"🔌 Wallet disconnected"
+        })
+    
+    return {"success": True, "message": "Wallet state cleared", "status": "disconnected"}
+
 
 @api_router.get("/wallet/state")
 async def get_wallet_state():
     """Get current wallet state synced with trading engine"""
+    return wallet_sync_manager.get_sync_status()
+
+
+@api_router.get("/wallet/sync-status")
+async def get_wallet_sync_status():
+    """Get detailed wallet sync status for debugging"""
     return {
-        "address": wallet_state.get("address"),
-        "balance_sol": wallet_state.get("balance_sol", 0.0),
-        "last_update": wallet_state.get("last_update"),
-        "synced": wallet_state.get("address") is not None
+        **wallet_sync_manager.get_sync_status(),
+        "sync_config": WALLET_SYNC_CONFIG,
+        "rpc_connected": rpc_state.get("connected", False),
+        "rpc_endpoint": rpc_state.get("current_endpoint", "none")[:30] + "..." if rpc_state.get("current_endpoint") else "none"
     }
 
 # ============== SYSTEM DIAGNOSTICS ==============
