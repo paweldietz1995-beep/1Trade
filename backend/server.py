@@ -4102,7 +4102,10 @@ class WalletSyncManager:
         return {"conflict": False}
     
     async def _fetch_balance_with_retry(self, address: str) -> dict:
-        """Fetch wallet balance with retry logic"""
+        """
+        Fetch wallet balance with retry logic.
+        Uses native Solana client for reliable balance fetching.
+        """
         global wallet_state
         
         max_retries = WALLET_SYNC_CONFIG["max_retries"]
@@ -4114,21 +4117,54 @@ class WalletSyncManager:
             wallet_state["retry_count"] = attempt
             
             try:
-                logger.info(f"Balance fetch attempt {attempt}/{max_retries}")
+                logger.info(f"Balance fetch attempt {attempt}/{max_retries} for {address[:12]}...")
                 
-                result = await make_rpc_call("getBalance", [address])
+                # Try native Solana client first (most reliable)
+                if solana_client.initialized or await solana_client.initialize():
+                    native_result = await solana_client.get_balance(address)
+                    if native_result.get("success"):
+                        sol_balance = native_result["balance_sol"]
+                        lamports = native_result["balance_lamports"]
+                        logger.info(f"✅ Wallet balance fetched successfully: {sol_balance:.6f} SOL ({lamports:,} lamports)")
+                        return {
+                            "success": True,
+                            "balance": sol_balance,
+                            "lamports": lamports,
+                            "attempts": attempt,
+                            "method": "native_client"
+                        }
                 
-                if result.get("success"):
-                    lamports = result["result"].get("value", 0)
+                # Fallback to httpx RPC call
+                result = await make_rpc_call(
+                    "getBalance",
+                    [address, {"commitment": "confirmed"}]
+                )
+                
+                # Check for valid RPC response
+                if result and result.get("result") is not None:
+                    # Handle both direct value and nested structure
+                    result_data = result["result"]
+                    if isinstance(result_data, dict):
+                        lamports = result_data.get("value", 0)
+                    else:
+                        lamports = result_data
+                    
                     sol_balance = lamports / 1e9
+                    logger.info(f"✅ Wallet balance fetched successfully: {sol_balance:.6f} SOL ({lamports:,} lamports)")
                     return {
                         "success": True,
                         "balance": sol_balance,
                         "lamports": lamports,
-                        "attempts": attempt
+                        "attempts": attempt,
+                        "method": "rpc_call"
                     }
                 
-                last_error = result.get("error", "Unknown RPC error")
+                # Check if result indicates failure
+                if result and result.get("success") == False:
+                    last_error = result.get("error", "RPC returned failure")
+                else:
+                    last_error = "Invalid RPC response structure"
+                
                 logger.warning(f"Balance fetch failed (attempt {attempt}): {last_error}")
                 
             except asyncio.TimeoutError:
@@ -4139,8 +4175,10 @@ class WalletSyncManager:
                 logger.warning(f"Balance fetch exception (attempt {attempt}): {e}")
             
             if attempt < max_retries:
+                logger.info(f"Retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
         
+        logger.error(f"❌ Balance fetch failed after {max_retries} attempts: {last_error}")
         return {
             "success": False,
             "error": f"Balance fetch failed after {max_retries} attempts: {last_error}",
