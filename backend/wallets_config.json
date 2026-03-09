@@ -1,5 +1,5 @@
 {
-    "distribution_strategy": "free_capital",
+    "distribution_strategy": "round_robin",
     "max_trades_per_wallet": 120,
     "loss_streak_limit": 50,
     "wallets": [

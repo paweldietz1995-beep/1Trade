@@ -413,6 +413,41 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
     }
   };
 
+  // Take All Profit - Schließt alle profitablen Trades
+  const [takingProfit, setTakingProfit] = useState(false);
+  
+  const takeAllProfit = async (includeAll = false) => {
+    const confirmMessage = includeAll 
+      ? 'Wirklich ALLE offenen Trades schließen (auch Verlusttrades)?'
+      : 'Alle profitablen Trades schließen?';
+    
+    if (!window.confirm(confirmMessage)) return;
+    
+    setTakingProfit(true);
+    try {
+      const endpoint = includeAll ? `${API_URL}/trades/close-all` : `${API_URL}/trades/take-profit-all`;
+      const response = await axios.post(endpoint);
+      const data = response.data;
+      
+      if (data.success) {
+        const profitText = data.total_profit_sol >= 0 
+          ? `+${data.total_profit_sol.toFixed(6)}` 
+          : data.total_profit_sol.toFixed(6);
+        
+        toast.success(`💰 ${data.closed} Trades geschlossen`, {
+          description: `Gesamt: ${profitText} SOL`
+        });
+        
+        fetchTrades();
+      }
+    } catch (error) {
+      console.error('Take profit error:', error);
+      toast.error('Fehler beim Schließen der Trades');
+    } finally {
+      setTakingProfit(false);
+    }
+  };
+
   const formatPrice = (price) => {
     if (!price) return '$0.00';
     if (price < 0.0001) return `$${price.toExponential(2)}`;
@@ -606,6 +641,38 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
             <TabsTrigger value="closed" className="data-[state=active]:bg-[#1E293B]">
               {t('trades.closedTrades')} ({closedTrades.length})
             </TabsTrigger>
+            
+            {/* Take Profit Buttons */}
+            {openTrades.length > 0 && (
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => takeAllProfit(false)}
+                  disabled={takingProfit || openTrades.filter(t => (t.pnl_percent || ((t.price_current / t.price_entry) - 1) * 100) > 0).length === 0}
+                  className="border-neon-green/30 text-neon-green hover:bg-neon-green/10"
+                  data-testid="take-all-profit-btn"
+                >
+                  {takingProfit ? (
+                    <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                  ) : (
+                    <DollarSign className="w-3 h-3 mr-1" />
+                  )}
+                  Take All Profit
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => takeAllProfit(true)}
+                  disabled={takingProfit}
+                  className="border-neon-red/30 text-neon-red hover:bg-neon-red/10"
+                  data-testid="close-all-trades-btn"
+                >
+                  <X className="w-3 h-3 mr-1" />
+                  Close All
+                </Button>
+              </div>
+            )}
           </TabsList>
 
           {/* Active Trades Tab */}

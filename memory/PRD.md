@@ -1,16 +1,50 @@
-# Pump.fun Trading Bot - PRD v36
+# Pump.fun Trading Bot - PRD v37
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **MULTI-WALLET HIGH-CAPACITY ENGINE: Bis zu 1200 parallele Trades (10 Wallets x 120 Trades)**
 
-## System Status: MULTI-WALLET ENGINE V1.1 - PRO-WALLET LOSS-STREAK ✅
+## System Status: MULTI-WALLET ENGINE V1.2 - TAKE ALL PROFIT ✅
 
-Letztes Update: 2026-03-09 20:45
+Letztes Update: 2026-03-09 20:55
 
 ---
 
-## NEU: Pro-Wallet Loss-Streak Management (v1.1)
+## NEU: Take All Profit Button (v1.2)
+
+### Features
+- **Take All Profit**: Schließt alle Trades mit Gewinn auf Knopfdruck
+- **Close All**: Notfall-Funktion zum Schließen aller Trades
+- **Detaillierte Statistiken**: Zeigt geschlossene Trades und Gesamtgewinn
+
+### Neue API Endpoints
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `POST /api/trades/take-profit-all` | Alle profitablen Trades schließen |
+| `POST /api/trades/close-all` | ALLE Trades schließen (Notfall) |
+
+### Frontend
+- Zwei neue Buttons im LiveTradesPanel
+- Bestätigungsdialog vor Ausführung
+- Echtzeit-Feedback mit Toast-Benachrichtigungen
+
+---
+
+## NEU: Verbessertes Wallet-Logging (v1.2)
+
+### Features
+- **Detailliertes Logging** bei Wallet-Auswahl
+- Zeigt Status jedes Wallets: Balance, offene Trades, Loss-Streak
+- Erklärt warum ein Wallet ausgewählt/übersprungen wurde
+- Hilft bei Diagnose wenn Wallets nicht handeln
+
+### Strategie geändert
+- Von `free_capital` auf `round_robin` geändert
+- Damit handeln alle Wallets gleichmäßig, nicht nur das mit dem meisten Kapital
+
+---
+
+## Pro-Wallet Loss-Streak Management (v1.1)
 
 ### Problem gelöst
 Der Bot pausierte global wegen "Loss streak limit reached" auf einem Wallet, was **alle** Wallets am Handeln hinderte.

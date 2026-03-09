@@ -262,12 +262,42 @@ class MultiWalletManager:
         
         Returns: WalletState oder None wenn kein Wallet verfügbar
         """
+        # Log Auswahl-Prozess
+        logger.info(f"🔍 WALLET-AUSWAHL START | Token: {token_mint[:12] if token_mint else 'N/A'}...")
+        
         # Prüfe Token-Sperre (strikte Doppelkauf-Verhinderung)
         if token_mint and token_mint in self.active_tokens:
-            logger.debug(f"🔒 Token {token_mint[:8]}... bereits von Wallet {self.active_tokens[token_mint]} gehalten")
+            holding_wallet = self.active_tokens[token_mint]
+            logger.info(f"   🔒 Token bereits von Wallet {holding_wallet} gehalten → SKIP")
             return None
         
         # Filtere verfügbare Wallets (inkl. Loss-Streak-Prüfung)
+        all_wallets_status = []
+        for w in self.wallets.values():
+            status = {
+                "id": w.wallet_id,
+                "can_trade": w.can_trade,
+                "balance": w.available_capital,
+                "open_trades": w.open_trades_count,
+                "max_trades": w.max_trades,
+                "loss_streak": w.consecutive_losses,
+                "reason": []
+            }
+            if not w.is_active:
+                status["reason"].append("INACTIVE")
+            if w.open_trades_count >= w.max_trades:
+                status["reason"].append(f"MAX_TRADES({w.max_trades})")
+            if w.available_capital <= 0.005:
+                status["reason"].append(f"LOW_CAPITAL({w.available_capital:.4f})")
+            if w.consecutive_losses >= self.loss_streak_limit:
+                status["reason"].append(f"LOSS_STREAK({w.consecutive_losses}/{self.loss_streak_limit})")
+            all_wallets_status.append(status)
+        
+        # Log Status aller Wallets
+        for ws in all_wallets_status:
+            reasons = ", ".join(ws["reason"]) if ws["reason"] else "OK"
+            logger.info(f"   📊 Wallet {ws['id']}: {ws['balance']:.4f} SOL | Trades: {ws['open_trades']}/{ws['max_trades']} | LossStreak: {ws['loss_streak']} | {reasons}")
+        
         available_wallets = [
             w for w in self.wallets.values() 
             if w.can_trade and w.consecutive_losses < self.loss_streak_limit
@@ -284,10 +314,12 @@ class MultiWalletManager:
         
         if not available_wallets:
             if excluded_by_loss_streak:
-                logger.warning(f"⚠️ Alle Wallets haben Loss-Streak-Limit erreicht – keine neuen Trades")
+                logger.warning("⚠️ Alle Wallets haben Loss-Streak-Limit erreicht – keine neuen Trades")
             else:
                 logger.warning("⚠️ Keine Wallets verfügbar für neuen Trade")
             return None
+        
+        logger.info(f"   ✅ {len(available_wallets)} Wallet(s) verfügbar: {[w.wallet_id for w in available_wallets]}")
         
         if self.distribution_strategy == "free_capital":
             # Wallet mit meistem freien Kapital
@@ -303,7 +335,7 @@ class MultiWalletManager:
             # Default: Free Capital
             selected = max(available_wallets, key=lambda w: w.available_capital)
         
-        logger.debug(f"📍 Wallet {selected.wallet_id} ausgewählt (Strategy: {self.distribution_strategy}, Capital: {selected.available_capital:.4f} SOL, LossStreak: {selected.consecutive_losses}/{self.loss_streak_limit})")
+        logger.info(f"   🎯 AUSGEWÄHLT: Wallet {selected.wallet_id} | Strategy: {self.distribution_strategy} | Capital: {selected.available_capital:.4f} SOL | Trades: {selected.open_trades_count}/{selected.max_trades}")
         return selected
     
     def lock_token(self, token_mint: str, wallet_id: int):

@@ -8712,6 +8712,87 @@ async def reset_wallet_loss_streak(wallet_id: int):
             "message": f"Wallet {wallet_id} nicht gefunden"
         }
 
+@api_router.post("/trades/take-profit-all")
+async def take_profit_all(min_profit_percent: float = 0.0, include_losses: bool = False):
+    """
+    💰 Take All Profit - Schließt alle profitablen Trades sofort
+    
+    Params:
+    - min_profit_percent: Mindestgewinn in % um Trade zu schließen (default: 0 = alle Gewinne)
+    - include_losses: Wenn True, werden ALLE Trades geschlossen (auch Verlusttrades)
+    """
+    # Hole alle offenen Trades
+    open_trades = await db.trades.find(
+        {"status": "OPEN"},
+        {"_id": 0}
+    ).to_list(500)
+    
+    if not open_trades:
+        return {
+            "success": True,
+            "closed": 0,
+            "total_profit_sol": 0,
+            "message": "Keine offenen Trades vorhanden"
+        }
+    
+    closed_count = 0
+    total_profit_sol = 0.0
+    closed_trades = []
+    errors = []
+    
+    for trade in open_trades:
+        trade_id = trade.get("id")
+        pnl_percent = trade.get("pnl_percent", 0) or 0
+        pnl_sol = trade.get("pnl", 0) or 0
+        
+        # Filter: Nur profitable Trades oder alle wenn include_losses=True
+        should_close = False
+        if include_losses:
+            should_close = True
+        elif pnl_percent >= min_profit_percent:
+            should_close = True
+        
+        if should_close:
+            try:
+                # Trade schließen mit aktueller Preis
+                result = await close_trade_auto(trade_id, reason="MANUAL_TAKE_PROFIT_ALL")
+                closed_count += 1
+                total_profit_sol += result.get("pnl", 0)
+                closed_trades.append({
+                    "id": trade_id,
+                    "symbol": trade.get("token_symbol"),
+                    "pnl_percent": result.get("pnl_percent", pnl_percent),
+                    "pnl_sol": result.get("pnl", pnl_sol),
+                    "wallet_id": trade.get("wallet_id", 0)
+                })
+                logger.info(f"💰 Take Profit All: {trade.get('token_symbol')} geschlossen - {result.get('pnl_percent', 0):.2f}%")
+            except Exception as e:
+                errors.append({"id": trade_id, "error": str(e)})
+                logger.error(f"❌ Take Profit All Fehler für {trade_id}: {e}")
+    
+    message = f"{closed_count} Trades geschlossen"
+    if not include_losses:
+        message += f" (min. {min_profit_percent}% Gewinn)"
+    
+    logger.info(f"💰 TAKE PROFIT ALL: {closed_count} Trades geschlossen, {total_profit_sol:.6f} SOL realisiert")
+    
+    return {
+        "success": True,
+        "closed": closed_count,
+        "total_profit_sol": round(total_profit_sol, 6),
+        "closed_trades": closed_trades,
+        "errors": errors,
+        "message": message
+    }
+
+@api_router.post("/trades/close-all")
+async def close_all_trades():
+    """
+    🛑 NOTFALL: Schließt ALLE offenen Trades sofort (auch Verlusttrades)
+    Nur für Notfälle gedacht!
+    """
+    return await take_profit_all(min_profit_percent=-100, include_losses=True)
+
 async def calculate_current_loss_streak() -> int:
     """Calculate current loss streak, respecting reset markers"""
     # Check for reset marker
