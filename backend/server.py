@@ -279,41 +279,58 @@ auto_trading_state = {
 }
 
 # Engine Configuration - High Capacity
-# Engine Configuration - Optimized for Memecoin Trading
+# Engine Configuration - AGGRESSIVE MOMENTUM SCALPING STRATEGY
 ENGINE_CONFIG = {
     "scan_interval_seconds": 2,        # 2 second scans
-    "max_tokens_per_scan": 200,        # Process up to 200 tokens
-    "max_signals_per_scan": 150,       # Analyze top 150 signals
+    "max_tokens_per_scan": 500,        # Process up to 500 tokens
+    "max_signals_per_scan": 300,       # Analyze top 300 signals
     "max_open_trades": 20,             # Allow up to 20 simultaneous trades
     "max_trades_per_token": 1,         # Only 1 trade per token
-    "signal_cooldown_seconds": 60,     # 60 second cooldown per token
-    "min_signal_score": 30,            # Lowered for more opportunities
-    "take_profit_percent": 10,         # 8-12% take profit (scalping)
-    "stop_loss_percent": 6,            # 5-7% stop loss
+    "signal_cooldown_seconds": 30,     # 30 second cooldown per token (faster re-entry)
+    "min_signal_score": 25,            # Lower threshold for more opportunities
+    # SCALPING PROFIT TARGETS
+    "take_profit_percent": 10,         # 10% take profit
+    "stop_loss_percent": 6,            # 6% stop loss
     "trailing_stop_enabled": True,
-    "trailing_stop_percent": 5,        # 5% trailing stop
-    "trailing_stop_activation": 6,     # Activate after 6% profit
-    "daily_loss_limit_percent": 15,    # 15% max daily loss
-    "loss_streak_limit": 5,            # 5 consecutive losses
-    # RELAXED FILTERS FOR MEMECOIN TRADING
-    "min_liquidity_usd": 1000,         # $1k minimum liquidity
-    "min_volume_usd": 1000,            # $1k minimum volume
-    "min_volume_surge_percent": 10,    # 10% volume surge
-    "min_buy_sell_ratio": 0.3,         # Allow heavy selling (dip buying)
-    "min_buyers_5m": 2,                # Only 2 buyers in 5 minutes
+    "trailing_stop_percent": 4,        # 4% trailing stop
+    "trailing_stop_activation": 5,     # Activate after 5% profit
+    "daily_loss_limit_percent": 20,    # 20% max daily loss
+    "loss_streak_limit": 8,            # 8 consecutive losses
+    # AGGRESSIVE MOMENTUM FILTERS
+    "min_liquidity_usd": 800,          # $800 minimum liquidity
+    "min_volume_usd": 800,             # $800 minimum volume
+    "min_volume_surge_percent": 5,     # 5% volume surge
+    "min_buy_sell_ratio": 0.8,         # Slight buy pressure preferred
+    "min_buyers_5m": 5,                # 5 buyers in 5 minutes
     "min_momentum_score": 25,          # Lower momentum threshold
-    "price_update_interval": 3,        # Update prices every 3 seconds
+    "min_price_change_5m": 3,          # 3% price change in 5m (momentum signal)
+    "max_token_age_hours": 6,          # Only tokens < 6 hours old
+    "min_token_age_minutes": 1,        # At least 1 minute old
+    "price_update_interval": 2,        # Update prices every 2 seconds
+    # MOMENTUM SIGNAL THRESHOLDS
+    "momentum_volume_multiplier": 2.0,  # 2x baseline volume required
+    "momentum_price_change_min": 5,     # 5% price change for momentum
     # Early Pump Detection
-    "early_pump_volume_surge": 200,    # 200% volume surge for early pump
+    "early_pump_volume_surge": 150,    # 150% volume surge for early pump
     "early_pump_price_change_1m": 2,   # 2% price change in 1 minute
-    "early_pump_min_liquidity": 5000,  # $5k min liquidity for early pumps
+    "early_pump_min_liquidity": 2000,  # $2k min liquidity for early pumps
     # Smart Wallet Tracking
-    "smart_wallet_min_profit": 50,     # 50% min profit to track wallet
-    "smart_wallet_min_trades": 5,      # 5 min trades to qualify
-    "copy_trade_delay_ms": 500,        # 500ms delay for copy trades
+    "smart_wallet_min_profit": 30,     # 30% min profit to track wallet
+    "smart_wallet_min_trades": 3,      # 3 min trades to qualify
+    "copy_trade_delay_ms": 200,        # 200ms delay for copy trades
     # Risk Management
-    "max_daily_trades": 100,           # Max trades per day
-    "max_portfolio_risk": 0.20,        # 20% max portfolio at risk
+    "max_daily_trades": 200,           # Max trades per day
+    "max_portfolio_risk": 0.30,        # 30% max portfolio at risk
+    # SCANNER SOURCES
+    "scanner_sources": [
+        "dexscreener",
+        "birdeye", 
+        "jupiter",
+        "raydium",
+        "orca",
+        "meteora",
+        "pumpfun"
+    ],
 }
 
 
@@ -1447,31 +1464,30 @@ async def check_risk_limits(portfolio, settings) -> tuple:
 
 async def auto_trading_loop():
     """
-    High-Frequency Multi-Trade Engine Loop
+    AGGRESSIVE MOMENTUM SCALPING ENGINE
+    - Multi-source token scanner (DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun)
     - 2 second scan interval
-    - Processes up to 200 tokens per scan
-    - Manages up to 30 simultaneous trades
-    - Signal queue for overflow
-    - Dynamic capital allocation
-    - Early pump detection
-    - Smart wallet tracking
-    - Crash recovery state saving
+    - Processes up to 500 tokens per scan
+    - Manages up to 20 simultaneous trades
+    - Momentum-based scoring: volume_growth * 0.4 + buyers * 0.3 + price_change * 0.3
+    - Target: 10% profit, 6% stop loss
     """
     global auto_trading_state
     
-    logger.info("🚀 HIGH-CAPACITY TRADING ENGINE STARTED")
+    logger.info("🚀 AGGRESSIVE MOMENTUM SCALPING ENGINE STARTED")
     logger.info(f"   - Scan interval: {ENGINE_CONFIG['scan_interval_seconds']}s")
     logger.info(f"   - Max tokens/scan: {ENGINE_CONFIG['max_tokens_per_scan']}")
     logger.info(f"   - Max open trades: {ENGINE_CONFIG['max_open_trades']}")
     logger.info(f"   - Take profit: {ENGINE_CONFIG['take_profit_percent']}%")
     logger.info(f"   - Stop loss: {ENGINE_CONFIG['stop_loss_percent']}%")
+    logger.info(f"   - Scanner sources: {', '.join(ENGINE_CONFIG['scanner_sources'])}")
     
     scan_start_time = datetime.now(timezone.utc)
     last_state_save = datetime.now(timezone.utc)
     
     # Log bot start to activity feed
     activity_feed.add_event("INFO", "SYSTEM", {
-        "message": "🚀 Auto-Trading Engine gestartet"
+        "message": "🚀 Momentum Scalping Engine gestartet"
     })
     
     while auto_trading_state["is_running"]:
@@ -1500,24 +1516,15 @@ async def auto_trading_loop():
             open_trades = await db.trades.count_documents({"status": "OPEN"})
             available_slots = ENGINE_CONFIG["max_open_trades"] - open_trades
             
-            # Scan market for new opportunities
+            # Scan market for new opportunities using MULTI-SOURCE SCANNER
             logger.info(f"🔍 SCAN #{auto_trading_state['scan_count']+1} | Open: {open_trades}/{ENGINE_CONFIG['max_open_trades']} | Queue: {len(auto_trading_state['signal_queue'])}")
             
-            # Parallel fetch from multiple sources
-            pump_task = asyncio.create_task(fetch_pump_fun_tokens())
-            dex_task = asyncio.create_task(fetch_dex_screener_tokens(100))  # Get 100 tokens
+            # Use multi-source scanner to get tokens from all DEX sources
+            all_pairs_list = await multi_source_scanner.scan_all_sources()
             
-            try:
-                pump_pairs, dex_pairs = await asyncio.gather(pump_task, dex_task, return_exceptions=True)
-                pump_pairs = pump_pairs if isinstance(pump_pairs, list) else []
-                dex_pairs = dex_pairs if isinstance(dex_pairs, list) else []
-            except Exception as e:
-                logger.error(f"Fetch error: {e}")
-                pump_pairs, dex_pairs = [], []
-            
-            # Combine and dedupe - limit to max_tokens_per_scan
+            # Convert to dict for deduplication
             all_pairs = {}
-            for pair in pump_pairs + dex_pairs:
+            for pair in all_pairs_list:
                 if len(all_pairs) >= ENGINE_CONFIG["max_tokens_per_scan"]:
                     break
                     
@@ -1528,26 +1535,32 @@ async def auto_trading_loop():
                 liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
                 volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
                 
-                # Pre-filter: liquidity >= $2k OR volume >= $3k
+                # Pre-filter: liquidity OR volume threshold
                 if liquidity >= ENGINE_CONFIG["min_liquidity_usd"] or volume_24h >= ENGINE_CONFIG["min_volume_usd"]:
                     all_pairs[address] = pair
             
-            # Parallel signal analysis with DEBUG TRACKING
+            # MOMENTUM SIGNAL ANALYSIS
             opportunities = []
             signals_processed = 0
             
-            # Debug counters for scanner logging
+            # Debug counters
             rejected_risk = 0
             rejected_signal_score = 0
-            rejected_no_buy_signal = 0
+            rejected_no_momentum = 0
+            
+            # Top momentum tokens for logging
+            top_momentum = []
             
             for address, pair in all_pairs.items():
                 try:
                     signals_processed += 1
                     
-                    # Calculate momentum
+                    # Calculate momentum score using new v2 scoring
+                    momentum_data = calculate_momentum_score_v2(pair)
+                    
+                    # Also calculate legacy momentum for compatibility
                     (
-                        momentum_score, signal_strength, signals, signal_reasons,
+                        legacy_score, signal_strength, signals, signal_reasons,
                         buy_signal, buys_5m, sells_5m, volume_5m, price_5m, price_1h
                     ) = calculate_enhanced_momentum(pair, settings)
                     
@@ -1557,77 +1570,57 @@ async def auto_trading_loop():
                         rejected_risk += 1
                         continue
                     
-                    # Buy/sell ratio - Used for scoring, NOT for filtering
-                    buy_sell_ratio = buys_5m / max(sells_5m, 1)
+                    # Use new momentum score
+                    signal_score = momentum_data["score"]
                     
-                    # REMOVED: Hard filter on buy_sell_ratio
-                    # Low ratios will just get lower scores instead of being rejected
-                    
-                    # Calculate SIGNAL SCORE (0-100)
-                    signal_score = 0
-                    liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
-                    
-                    # Momentum (0-30)
-                    signal_score += min(30, momentum_score * 0.3)
-                    
-                    # Liquidity (0-25) - RELAXED THRESHOLDS
-                    if liq >= 50000: signal_score += 25
-                    elif liq >= 20000: signal_score += 20
-                    elif liq >= 10000: signal_score += 15
-                    elif liq >= 5000: signal_score += 12
-                    elif liq >= 1000: signal_score += 8
-                    
-                    # Volume surge (0-25) - RELAXED THRESHOLDS
-                    if volume_5m > 10000: signal_score += 25
-                    elif volume_5m > 5000: signal_score += 20
-                    elif volume_5m > 2000: signal_score += 15
-                    elif volume_5m > 500: signal_score += 10
-                    elif volume_5m > 100: signal_score += 5
-                    
-                    # Buy pressure (0-20) - RELAXED THRESHOLDS
-                    if buy_sell_ratio >= 2.5: signal_score += 20
-                    elif buy_sell_ratio >= 2.0: signal_score += 16
-                    elif buy_sell_ratio >= 1.5: signal_score += 12
-                    elif buy_sell_ratio >= 1.2: signal_score += 8
-                    elif buy_sell_ratio >= 1.0: signal_score += 4
-                    
-                    # Check buy signal
-                    if not buy_signal:
-                        rejected_no_buy_signal += 1
+                    # Check if momentum signal triggers
+                    if not momentum_data["is_momentum"] and signal_score < ENGINE_CONFIG["min_signal_score"]:
+                        rejected_no_momentum += 1
                         continue
                     
-                    # Check signal score threshold
-                    if signal_score < ENGINE_CONFIG["min_signal_score"]:
-                        rejected_signal_score += 1
-                        continue
-                    
-                    # Token passed all filters - add to opportunities
+                    # Build opportunity
                     base_token = pair.get("baseToken", {})
+                    liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
                     
                     opportunity = {
                         "address": address,
                         "symbol": base_token.get("symbol", "???"),
                         "name": base_token.get("name", "Unknown"),
                         "price_usd": float(pair.get("priceUsd", 0) or 0),
-                        "momentum_score": momentum_score,
+                        "momentum_score": signal_score,
                         "signal_score": signal_score,
+                        "momentum_data": momentum_data,
                         "signal_strength": signal_strength,
-                        "signal_reasons": signal_reasons,
+                        "signal_reasons": momentum_data.get("signal_reasons", []),
                         "risk_score": risk_analysis.risk_score,
                         "liquidity": liq,
                         "volume_5m": volume_5m,
+                        "volume_growth": momentum_data["volume_growth"],
+                        "price_change_5m": momentum_data["price_change_5m"],
+                        "buy_sell_ratio": momentum_data["buy_sell_ratio"],
+                        "buys_5m": momentum_data["buys_5m"],
+                        "sells_5m": momentum_data["sells_5m"],
                         "pair_address": pair.get("pairAddress"),
-                        "buy_sell_ratio": buy_sell_ratio,
-                        "price_change_5m": price_5m,
+                        "source": pair.get("source", "unknown"),
+                        "is_momentum": momentum_data["is_momentum"],
                         "queued_at": datetime.now(timezone.utc).isoformat()
                     }
                     opportunities.append(opportunity)
+                    
+                    # Track top momentum for logging
+                    top_momentum.append({
+                        "symbol": opportunity["symbol"],
+                        "score": signal_score,
+                        "price_change": momentum_data["price_change_5m"],
+                        "volume_growth": momentum_data["volume_growth"]
+                    })
                         
                 except Exception as e:
                     continue
             
-            # Sort by signal score
+            # Sort by momentum score (highest first)
             opportunities.sort(key=lambda x: x["signal_score"], reverse=True)
+            top_momentum.sort(key=lambda x: x["score"], reverse=True)
             
             # Update state
             auto_trading_state["last_scan"] = datetime.now(timezone.utc).isoformat()
@@ -1640,8 +1633,13 @@ async def auto_trading_loop():
             if elapsed_minutes > 0:
                 auto_trading_state["signals_per_minute"] = auto_trading_state["signals_processed"] / elapsed_minutes
             
-            # DEBUG SCANNER LOGGING
-            logger.info(f"📊 SCANNER RESULT | tokens_scanned: {len(all_pairs)} | tokens_filtered: {len(opportunities)} | rejected_risk: {rejected_risk} | rejected_signal_score: {rejected_signal_score} | rejected_no_buy_signal: {rejected_no_buy_signal}")
+            # LOG SCANNER SUMMARY
+            logger.info(f"📊 SCANNER SUMMARY | sources_scanned: {multi_source_scanner.scan_stats['total_sources_scanned']} | tokens_found: {multi_source_scanner.scan_stats['tokens_found']} | tokens_after_dedup: {len(all_pairs)} | opportunities: {len(opportunities)}")
+            
+            # LOG TOP MOMENTUM TOKENS
+            if top_momentum[:3]:
+                top_3 = " | ".join([f"{i+1}. {t['symbol']} score={t['score']:.0f}" for i, t in enumerate(top_momentum[:3])])
+                logger.info(f"🔥 TOP MOMENTUM TOKENS | {top_3}")
             
             # Execute trades for available slots
             # Use user's max_parallel_trades setting (respecting system max)
@@ -1754,9 +1752,10 @@ async def auto_trading_loop():
                         reasons=opp.get('signal_reasons', [])
                     )
                     
-                    # Log with active trades count
+                    # Log TRADE EXECUTED with momentum details
                     current_open = open_trades + trades_executed_this_cycle
-                    logger.info(f"✅ AUTO TRADE EXECUTED | token: {opp['symbol']} | {trade_amount:.4f} SOL | Score: {opp['signal_score']:.0f} | active_trades: {current_open}/{max_parallel}")
+                    momentum_info = f"vol_growth={opp.get('volume_growth', 0):.1f}x | price_5m={opp.get('price_change_5m', 0):.1f}%"
+                    logger.info(f"✅ TRADE EXECUTED | token: {opp['symbol']} | {trade_amount:.4f} SOL | score={opp['signal_score']:.0f} | {momentum_info} | target_profit: {ENGINE_CONFIG['take_profit_percent']}% | active_trades: {current_open}/{max_parallel}")
                     
                 except Exception as e:
                     logger.error(f"Trade execution error for {opp.get('symbol', '???')}: {e}")
@@ -2241,6 +2240,376 @@ async def fetch_pump_fun_tokens() -> List[Dict]:
     except Exception as e:
         logger.error(f"Error fetching Pump.fun data: {e}")
     return []
+
+
+# ============== MULTI-SOURCE MOMENTUM SCANNER ==============
+
+class MultiSourceScanner:
+    """
+    Aggregates token data from multiple DEX sources across the Solana ecosystem.
+    Sources: DexScreener, Birdeye, Jupiter, Raydium, Orca, Meteora, Pump.fun
+    """
+    
+    def __init__(self):
+        self.scan_stats = {
+            "total_sources_scanned": 0,
+            "tokens_found": 0,
+            "tokens_after_dedup": 0,
+            "opportunities": 0,
+            "last_scan": None
+        }
+        self.source_status = {}
+        
+    async def scan_all_sources(self) -> List[Dict]:
+        """Scan all configured sources and merge results"""
+        all_tokens = []
+        source_results = {}
+        
+        # Run scans in parallel where possible
+        tasks = [
+            ("dexscreener", self.scan_dexscreener()),
+            ("birdeye", self.scan_birdeye()),
+            ("jupiter", self.scan_jupiter()),
+            ("raydium", self.scan_raydium_pools()),
+            ("orca", self.scan_orca_pools()),
+            ("meteora", self.scan_meteora_pools()),
+            ("pumpfun", self.scan_pumpfun_pairs()),
+        ]
+        
+        # Execute scans with timeout
+        for source_name, coro in tasks:
+            try:
+                result = await asyncio.wait_for(coro, timeout=10.0)
+                source_results[source_name] = len(result)
+                all_tokens.extend(result)
+                self.source_status[source_name] = {"healthy": True, "count": len(result)}
+            except asyncio.TimeoutError:
+                logger.warning(f"⚠️ Scanner timeout: {source_name}")
+                self.source_status[source_name] = {"healthy": False, "count": 0}
+            except Exception as e:
+                logger.warning(f"⚠️ Scanner error {source_name}: {str(e)[:50]}")
+                self.source_status[source_name] = {"healthy": False, "count": 0}
+        
+        # Update stats
+        self.scan_stats["total_sources_scanned"] = len([s for s in self.source_status.values() if s["healthy"]])
+        self.scan_stats["tokens_found"] = len(all_tokens)
+        
+        # Deduplicate by token address
+        unique_tokens = self.deduplicate_tokens(all_tokens)
+        self.scan_stats["tokens_after_dedup"] = len(unique_tokens)
+        self.scan_stats["last_scan"] = datetime.now(timezone.utc).isoformat()
+        
+        # Log scanner summary
+        logger.info(f"📊 SCANNER SUMMARY | sources_scanned: {self.scan_stats['total_sources_scanned']} | tokens_found: {self.scan_stats['tokens_found']} | tokens_after_dedup: {self.scan_stats['tokens_after_dedup']}")
+        
+        return unique_tokens
+    
+    def deduplicate_tokens(self, tokens: List[Dict]) -> List[Dict]:
+        """Remove duplicate tokens by address, keeping the one with most data"""
+        unique_tokens = {}
+        
+        for token in tokens:
+            address = token.get("baseToken", {}).get("address", "")
+            if not address:
+                continue
+                
+            if address not in unique_tokens:
+                unique_tokens[address] = token
+            else:
+                # Keep the token with higher volume or more complete data
+                existing = unique_tokens[address]
+                existing_vol = float(existing.get("volume", {}).get("h24", 0) or 0)
+                new_vol = float(token.get("volume", {}).get("h24", 0) or 0)
+                if new_vol > existing_vol:
+                    unique_tokens[address] = token
+        
+        return list(unique_tokens.values())
+    
+    async def scan_dexscreener(self) -> List[Dict]:
+        """Scan DexScreener for trending Solana tokens"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Multiple search queries for diverse coverage
+                queries = ["solana trending", "sol meme", "pump.fun", "raydium sol"]
+                
+                for query in queries[:2]:  # Limit to avoid rate limits
+                    try:
+                        resp = await client.get(
+                            "https://api.dexscreener.com/latest/dex/search",
+                            params={"q": query}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            for p in data.get("pairs", []):
+                                if p.get("chainId") == "solana":
+                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                    if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                        pairs.append(p)
+                        elif resp.status_code == 429:
+                            break
+                    except:
+                        continue
+                        
+        except Exception as e:
+            logger.debug(f"DexScreener scan error: {e}")
+        return pairs[:100]
+    
+    async def scan_birdeye(self) -> List[Dict]:
+        """Scan Birdeye API for trending tokens"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Birdeye public API (limited without API key)
+                resp = await client.get(
+                    "https://public-api.birdeye.so/defi/tokenlist",
+                    params={"sort_by": "v24hUSD", "sort_type": "desc", "limit": 50},
+                    headers={"accept": "application/json"}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    tokens = data.get("data", {}).get("tokens", [])
+                    
+                    for t in tokens:
+                        # Convert Birdeye format to DexScreener-like format
+                        pair = {
+                            "chainId": "solana",
+                            "baseToken": {
+                                "address": t.get("address", ""),
+                                "symbol": t.get("symbol", ""),
+                                "name": t.get("name", "")
+                            },
+                            "priceUsd": str(t.get("price", 0)),
+                            "liquidity": {"usd": t.get("liquidity", 0)},
+                            "volume": {"h24": t.get("v24hUSD", 0), "m5": 0, "h1": 0},
+                            "priceChange": {"h24": t.get("priceChange24h", 0), "m5": 0, "h1": 0},
+                            "txns": {"m5": {"buys": 0, "sells": 0}, "h1": {"buys": 0, "sells": 0}},
+                            "source": "birdeye"
+                        }
+                        if float(pair["liquidity"]["usd"] or 0) >= ENGINE_CONFIG["min_liquidity_usd"]:
+                            pairs.append(pair)
+        except Exception as e:
+            logger.debug(f"Birdeye scan error: {e}")
+        return pairs[:50]
+    
+    async def scan_jupiter(self) -> List[Dict]:
+        """Scan Jupiter token list for tradeable tokens"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Jupiter strict token list
+                resp = await client.get("https://token.jup.ag/strict")
+                if resp.status_code == 200:
+                    tokens = resp.json()
+                    
+                    # Get price data for tokens
+                    token_addresses = [t["address"] for t in tokens[:100]]
+                    
+                    for t in tokens[:50]:
+                        pair = {
+                            "chainId": "solana",
+                            "baseToken": {
+                                "address": t.get("address", ""),
+                                "symbol": t.get("symbol", ""),
+                                "name": t.get("name", "")
+                            },
+                            "priceUsd": "0",
+                            "liquidity": {"usd": 10000},  # Jupiter tokens typically have liquidity
+                            "volume": {"h24": 0, "m5": 0, "h1": 0},
+                            "priceChange": {"h24": 0, "m5": 0, "h1": 0},
+                            "txns": {"m5": {"buys": 0, "sells": 0}, "h1": {"buys": 0, "sells": 0}},
+                            "source": "jupiter"
+                        }
+                        pairs.append(pair)
+        except Exception as e:
+            logger.debug(f"Jupiter scan error: {e}")
+        return pairs[:30]
+    
+    async def scan_raydium_pools(self) -> List[Dict]:
+        """Scan Raydium AMM pools via DexScreener"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": "raydium sol"}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for p in data.get("pairs", []):
+                        if p.get("chainId") == "solana" and "raydium" in p.get("dexId", "").lower():
+                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                            if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                p["source"] = "raydium"
+                                pairs.append(p)
+        except Exception as e:
+            logger.debug(f"Raydium scan error: {e}")
+        return pairs[:50]
+    
+    async def scan_orca_pools(self) -> List[Dict]:
+        """Scan Orca whirlpools via DexScreener"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": "orca sol"}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for p in data.get("pairs", []):
+                        if p.get("chainId") == "solana" and "orca" in p.get("dexId", "").lower():
+                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                            if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                p["source"] = "orca"
+                                pairs.append(p)
+        except Exception as e:
+            logger.debug(f"Orca scan error: {e}")
+        return pairs[:50]
+    
+    async def scan_meteora_pools(self) -> List[Dict]:
+        """Scan Meteora DLMM pools via DexScreener"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": "meteora sol"}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for p in data.get("pairs", []):
+                        if p.get("chainId") == "solana" and "meteora" in p.get("dexId", "").lower():
+                            liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                            if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                p["source"] = "meteora"
+                                pairs.append(p)
+        except Exception as e:
+            logger.debug(f"Meteora scan error: {e}")
+        return pairs[:50]
+    
+    async def scan_pumpfun_pairs(self) -> List[Dict]:
+        """Scan Pump.fun new token launches"""
+        pairs = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Search for pump.fun tokens
+                queries = ["pump.fun", "pumpfun", "bonding curve"]
+                
+                for query in queries[:1]:
+                    resp = await client.get(
+                        "https://api.dexscreener.com/latest/dex/search",
+                        params={"q": query}
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        for p in data.get("pairs", []):
+                            if p.get("chainId") == "solana":
+                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                if liq >= ENGINE_CONFIG["min_liquidity_usd"]:
+                                    p["source"] = "pumpfun"
+                                    pairs.append(p)
+        except Exception as e:
+            logger.debug(f"Pump.fun scan error: {e}")
+        return pairs[:50]
+
+
+# Global scanner instance
+multi_source_scanner = MultiSourceScanner()
+
+
+def calculate_momentum_score_v2(pair: Dict) -> dict:
+    """
+    Calculate aggressive momentum score for scalping strategy.
+    
+    Score formula:
+    score = (volume_growth * 0.4) + (buyers_5m * 0.3) + (price_change_5m * 0.3)
+    
+    Returns dict with score and breakdown.
+    """
+    # Extract data
+    volume_5m = float(pair.get("volume", {}).get("m5", 0) or 0)
+    volume_1h = float(pair.get("volume", {}).get("h1", 0) or 0)
+    volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+    
+    price_change_5m = float(pair.get("priceChange", {}).get("m5", 0) or 0)
+    price_change_1h = float(pair.get("priceChange", {}).get("h1", 0) or 0)
+    
+    txns = pair.get("txns", {})
+    buys_5m = txns.get("m5", {}).get("buys", 0) or 0
+    sells_5m = txns.get("m5", {}).get("sells", 0) or 0
+    buys_1h = txns.get("h1", {}).get("buys", 0) or 0
+    
+    liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+    
+    # Calculate components
+    
+    # 1. Volume Growth Score (0-40 points)
+    # Compare 5m volume to baseline (1h average)
+    baseline_5m = volume_1h / 12 if volume_1h > 0 else 1
+    volume_growth = (volume_5m / baseline_5m) if baseline_5m > 0 else 0
+    volume_score = min(40, volume_growth * 10)  # 4x growth = 40 points
+    
+    # 2. Buyer Activity Score (0-30 points)
+    buyer_score = min(30, buys_5m * 2)  # 15 buyers = 30 points
+    
+    # 3. Price Momentum Score (0-30 points)
+    if price_change_5m >= 10:
+        price_score = 30
+    elif price_change_5m >= 5:
+        price_score = 25
+    elif price_change_5m >= 3:
+        price_score = 20
+    elif price_change_5m >= 1:
+        price_score = 15
+    elif price_change_5m >= 0:
+        price_score = 10
+    else:
+        price_score = max(0, 5 + price_change_5m)  # Negative price = lower score
+    
+    # Bonus points
+    bonus = 0
+    
+    # Buy pressure bonus
+    buy_sell_ratio = buys_5m / max(sells_5m, 1)
+    if buy_sell_ratio >= 2.0:
+        bonus += 10
+    elif buy_sell_ratio >= 1.5:
+        bonus += 5
+    
+    # High liquidity bonus
+    if liquidity >= 50000:
+        bonus += 5
+    
+    # Early pump detection bonus
+    if price_change_5m >= ENGINE_CONFIG["momentum_price_change_min"] and volume_growth >= ENGINE_CONFIG["momentum_volume_multiplier"]:
+        bonus += 15  # Strong momentum signal
+    
+    # Total score
+    total_score = min(100, volume_score + buyer_score + price_score + bonus)
+    
+    # Determine if this is a momentum opportunity
+    is_momentum = (
+        price_change_5m >= ENGINE_CONFIG["min_price_change_5m"] and
+        volume_growth >= ENGINE_CONFIG["momentum_volume_multiplier"] and
+        buys_5m > sells_5m
+    )
+    
+    return {
+        "score": round(total_score, 1),
+        "volume_score": round(volume_score, 1),
+        "buyer_score": round(buyer_score, 1),
+        "price_score": round(price_score, 1),
+        "bonus": bonus,
+        "volume_growth": round(volume_growth, 2),
+        "buy_sell_ratio": round(buy_sell_ratio, 2),
+        "price_change_5m": round(price_change_5m, 2),
+        "buys_5m": buys_5m,
+        "sells_5m": sells_5m,
+        "is_momentum": is_momentum,
+        "signal_reasons": []
+    }
+
 
 def calculate_risk_analysis(pair: Dict, settings: BotSettings) -> TokenRiskAnalysis:
     """Calculate comprehensive risk analysis for a token - RELAXED FOR MEMECOINS"""
