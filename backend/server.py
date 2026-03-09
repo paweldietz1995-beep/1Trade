@@ -1618,7 +1618,13 @@ async def auto_trading_loop():
             for t in existing_open_trades:
                 active_trade_tokens.add(t.get("token_address"))
             
-            logger.info(f"📈 MULTI-TRADE: {available_slots} slots available (max: {max_parallel}, open: {open_trades})")
+            # Debug logging as requested
+            logger.info(f"🔄 MULTI TRADE LOOP | opportunities={len(opportunities)} | open_trades={open_trades} | slots={available_slots}")
+            
+            if available_slots <= 0:
+                logger.info(f"⚠️ No slots available (max_parallel_trades={max_parallel}, open={open_trades})")
+                await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
+                continue
             
             for opp in opportunities:
                 # Check if we've filled all available slots
@@ -1631,6 +1637,7 @@ async def auto_trading_loop():
                     
                     # DUPLICATE PROTECTION: Skip if we already have a trade for this token
                     if token_address in active_trade_tokens:
+                        logger.debug(f"⏭️ Skipping {opp['symbol']}: already trading this token")
                         continue
                     
                     # Double-check database for existing trades (safety check)
@@ -1639,16 +1646,19 @@ async def auto_trading_loop():
                         "status": "OPEN"
                     })
                     if existing_count >= max_trades_per_token:
+                        logger.debug(f"⏭️ Skipping {opp['symbol']}: max trades per token reached")
                         continue
                     
                     # COOLDOWN CHECK: Skip if token is in cooldown
                     if check_signal_cooldown(token_address):
+                        logger.debug(f"⏭️ Skipping {opp['symbol']}: in cooldown")
                         continue
                     
                     # Calculate trade size dynamically
                     trade_amount = calculate_dynamic_trade_size(portfolio, settings)
                     
                     if trade_amount < settings.min_trade_sol:
+                        logger.debug(f"⏭️ Skipping {opp['symbol']}: trade amount {trade_amount} < min {settings.min_trade_sol}")
                         continue
                     
                     # Execute trade
@@ -1674,6 +1684,9 @@ async def auto_trading_loop():
                     
                     # Add to active tokens to prevent duplicates in this cycle
                     active_trade_tokens.add(token_address)
+                    
+                    # Decrement available slots
+                    available_slots -= 1
                     
                     # Set cooldown for this token
                     set_signal_cooldown(token_address)
