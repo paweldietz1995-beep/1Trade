@@ -4723,37 +4723,64 @@ async def update_all_trade_prices():
         if addr and addr not in token_addresses:
             token_addresses.append(addr)
     
-    # Fetch all prices in batch
+    # Fetch all prices in batch - OPTIMIERT MIT BIRDEYE + DEXSCREENER
     price_map = {}
     if token_addresses:
         valid_addresses = [addr for addr in token_addresses if addr]
         
         if valid_addresses:
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client_http:
-                    for i in range(0, len(valid_addresses), 30):
-                        batch = valid_addresses[i:i+30]
-                        addresses_str = ",".join(batch)
-                        
-                        response = await client_http.get(
-                            f"https://api.dexscreener.com/latest/dex/tokens/{addresses_str}"
+                async with httpx.AsyncClient(timeout=8.0) as client_http:
+                    # PRIMÄR: Birdeye Multi-Price API (schnell, bis zu 100 Tokens)
+                    birdeye_success = False
+                    try:
+                        # Birdeye Multi-Price Endpoint
+                        addresses_list = valid_addresses[:100]
+                        birdeye_response = await client_http.post(
+                            "https://public-api.birdeye.so/defi/multi_price",
+                            json={"list_address": ",".join(addresses_list)},
+                            headers={"X-Chain": "solana"}
                         )
-                        if response.status_code == 200:
-                            data = response.json()
-                            pairs = data.get("pairs") or []
+                        if birdeye_response.status_code == 200:
+                            birdeye_data = birdeye_response.json()
+                            if birdeye_data.get("success") and "data" in birdeye_data:
+                                for addr, info in birdeye_data["data"].items():
+                                    price = info.get("value", 0)
+                                    if price and price > 0:
+                                        price_map[addr] = price
+                                birdeye_success = True
+                                logger.debug(f"⚡ Birdeye: {len(price_map)} Preise")
+                    except Exception as bird_err:
+                        logger.debug(f"Birdeye API nicht verfügbar: {bird_err}")
+                    
+                    # FALLBACK: DexScreener für alle/fehlende Preise
+                    missing_addresses = [addr for addr in valid_addresses if addr not in price_map]
+                    if missing_addresses or not birdeye_success:
+                        fetch_addresses = missing_addresses if birdeye_success else valid_addresses
+                        for i in range(0, len(fetch_addresses), 30):
+                            batch = fetch_addresses[i:i+30]
+                            addresses_str = ",".join(batch)
                             
-                            for pair in pairs:
-                                pair_addr = pair.get("pairAddress", "")
-                                base_addr = pair.get("baseToken", {}).get("address", "")
-                                price = float(pair.get("priceUsd", 0) or 0)
+                            response = await client_http.get(
+                                f"https://api.dexscreener.com/latest/dex/tokens/{addresses_str}"
+                            )
+                            if response.status_code == 200:
+                                data = response.json()
+                                pairs = data.get("pairs") or []
                                 
-                                if price > 0:
-                                    if pair_addr:
-                                        price_map[pair_addr] = price
-                                    if base_addr:
-                                        price_map[base_addr] = price
-                            
-                            logger.info(f"📊 Got {len(pairs)} pairs, mapped {len(price_map)} prices")
+                                for pair in pairs:
+                                    pair_addr = pair.get("pairAddress", "")
+                                    base_addr = pair.get("baseToken", {}).get("address", "")
+                                    price = float(pair.get("priceUsd", 0) or 0)
+                                    
+                                    if price > 0:
+                                        if pair_addr and pair_addr not in price_map:
+                                            price_map[pair_addr] = price
+                                        if base_addr and base_addr not in price_map:
+                                            price_map[base_addr] = price
+                    
+                    coverage = len(price_map)/len(valid_addresses)*100 if valid_addresses else 0
+                    logger.info(f"💰 Preise: {len(price_map)}/{len(valid_addresses)} ({coverage:.0f}%)")
             except Exception as e:
                 logger.error(f"Error fetching bulk prices: {e}")
     
@@ -7691,6 +7718,7 @@ async def make_rpc_call(method: str, params: list = None, retries: int = 3) -> d
 
 # Background task for RPC health monitoring
 rpc_monitor_task = None
+price_monitor_task = None
 
 async def rpc_health_monitor():
     """Background task that checks RPC health every 30 seconds"""
@@ -7701,6 +7729,39 @@ async def rpc_health_monitor():
             logger.error(f"RPC monitor error: {e}")
         
         await asyncio.sleep(30)
+
+async def fast_price_monitor():
+    """
+    ⚡ SCHNELLER PREIS-MONITOR (2 Sekunden Intervall)
+    
+    Aktualisiert Preise für alle offenen Trades und prüft Exit-Bedingungen.
+    Unabhängig vom Scanner-Intervall für schnellere Reaktionen.
+    """
+    logger.info("⚡ FAST_PRICE_MONITOR gestartet (2s Intervall)")
+    
+    while True:
+        try:
+            start_time = asyncio.get_event_loop().time()
+            
+            # Nur wenn Auto-Trading aktiv ist
+            if auto_trading_state.get("is_running") and not auto_trading_state.get("is_paused"):
+                result = await update_all_trade_prices()
+                
+                # Log summary
+                if result.get("updated", 0) > 0 or result.get("closed", 0) > 0:
+                    logger.debug(f"⚡ PRICE_UPDATE: {result.get('updated', 0)} updated, {result.get('closed', 0)} closed, {result.get('partial_sells', 0)} partial")
+            
+            # 2-Sekunden-Takt einhalten (abzüglich Bearbeitungszeit)
+            elapsed = asyncio.get_event_loop().time() - start_time
+            sleep_time = max(0.5, 2.0 - elapsed)  # Mindestens 0.5s Pause
+            await asyncio.sleep(sleep_time)
+            
+        except asyncio.CancelledError:
+            logger.info("⚡ FAST_PRICE_MONITOR gestoppt")
+            break
+        except Exception as e:
+            logger.error(f"Price monitor error: {e}")
+            await asyncio.sleep(2)
 
 @app.on_event("startup")
 async def start_rpc_monitor():
@@ -7736,20 +7797,27 @@ async def start_rpc_monitor():
     rpc_monitor_task = asyncio.create_task(rpc_health_monitor())
     logger.info("✅ RPC_HEALTH_MONITOR_STARTED")
     
+    # STEP 5: Start fast price monitor (2s interval)
+    price_monitor_task = asyncio.create_task(fast_price_monitor())
+    logger.info("✅ FAST_PRICE_MONITOR_STARTED (2s Intervall)")
+    
     # Log startup complete
     logger.info("=" * 60)
     logger.info("✅ TRADING BOT STARTUP COMPLETE")
     logger.info("   - Wallet: Waiting for connection")
     logger.info("   - RPC: " + ("Connected" if rpc_state.get("connected") else "Pending"))
     logger.info("   - Auto-Trading: Stopped (ready to start)")
+    logger.info("   - Price Monitor: Active (2s)")
     logger.info("=" * 60)
 
 @app.on_event("shutdown")
 async def stop_rpc_monitor():
-    """Stop RPC monitor on shutdown"""
-    global rpc_monitor_task
+    """Stop RPC monitor and price monitor on shutdown"""
+    global rpc_monitor_task, price_monitor_task
     if rpc_monitor_task:
         rpc_monitor_task.cancel()
+    if price_monitor_task:
+        price_monitor_task.cancel()
 
 # ============== RPC API ENDPOINTS ==============
 

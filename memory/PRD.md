@@ -1,12 +1,30 @@
-# Pump.fun Trading Bot - PRD v32
+# Pump.fun Trading Bot - PRD v33
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **HIGH-CAPACITY TRADING ENGINE: 50-150 parallele Trades mit massiver Skalierung.**
 
-## System Status: HIGH-CAPACITY TRADING ENGINE V2 AKTIV ✅
+## System Status: HIGH-CAPACITY TRADING ENGINE V3 AKTIV ✅
 
-Letztes Update: 2026-03-09 17:15
+Letztes Update: 2026-03-09 17:30
+
+---
+
+## NEU: 2-Sekunden Preis-Monitor
+
+### Features
+- **Dedizierter Background-Task** (`fast_price_monitor()`)
+- **Batch-Preisabfragen** via DexScreener (Birdeye als Option)
+- **Unabhängig vom Scanner** - reagiert schneller auf Kursbewegungen
+- **Coverage: 93/56 (166%)** - Pair- und Token-Adressen
+
+### Implementierung
+```python
+async def fast_price_monitor():
+    while True:
+        result = await update_all_trade_prices()
+        await asyncio.sleep(2.0)  # 2-Sekunden-Intervall
+```
 
 ---
 
