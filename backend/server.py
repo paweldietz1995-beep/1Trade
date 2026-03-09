@@ -91,18 +91,18 @@ class BotSettings(BaseModel):
     require_confirmation: bool = True
     first_live_trade_done: bool = False
     slippage_bps: int = 150             # 1.5% slippage for speed
-    # AGGRESSIVE MOMENTUM TOKEN FILTERS (lowered thresholds)
-    min_liquidity_usd: float = 300.0    # $300 minimum (lowered)
-    min_volume_usd: float = 300.0       # $300 minimum (lowered)
-    max_dev_wallet_percent: float = 30.0 # 30% (increased)
-    max_top10_wallet_percent: float = 80.0 # 80% (increased)
-    min_token_age_seconds: int = 15     # Min 15 seconds old (lowered)
-    max_token_age_hours: int = 6        # Max 6 hours old (increased)
-    min_buy_sell_ratio: float = 1.0     # Any buy pressure (lowered)
-    # AGGRESSIVE MOMENTUM THRESHOLDS
-    min_momentum_score: int = 20        # Score threshold (lowered)
-    min_volume_surge_percent: float = 3.0 # 3% (lowered)
-    min_buyers_1m: int = 2              # 2 buyers in 1 minute (lowered)
+    # ULTRA-RELAXED TOKEN FILTERS FOR MAXIMUM SIGNALS
+    min_liquidity_usd: float = 150.0    # $150 minimum (ultra-low)
+    min_volume_usd: float = 100.0       # $100 minimum (ultra-low)
+    max_dev_wallet_percent: float = 35.0 # 35% allowed (relaxed)
+    max_top10_wallet_percent: float = 85.0 # 85% allowed (relaxed)
+    min_token_age_seconds: int = 5      # Min 5 seconds old (ultra-low)
+    max_token_age_hours: int = 12       # Max 12 hours old (expanded)
+    min_buy_sell_ratio: float = 0.95    # Allow slight sell pressure
+    # RELAXED MOMENTUM THRESHOLDS
+    min_momentum_score: int = 10        # Score threshold 10 (ultra-low)
+    min_volume_surge_percent: float = 1.0 # 1% (ultra-low)
+    min_buyers_1m: int = 1              # 1 buyer in 1 minute (ultra-low)
     # Automation
     auto_trade_enabled: bool = False
     paper_mode: bool = True
@@ -2077,6 +2077,17 @@ async def auto_trading_loop():
             logger.info(f"   cooldown_active: {len(signal_cooldowns)}")
             logger.info("=" * 60)
             
+            # ===== RISK FILTER DEBUG =====
+            logger.info("=" * 60)
+            logger.info("🛡️ RISK FILTER DEBUG")
+            logger.info(f"   signals_received: {signals_processed}")
+            logger.info(f"   blocked_risk: {rejected_risk}")
+            logger.info(f"   blocked_no_momentum: {rejected_no_momentum}")
+            logger.info(f"   blocked_low_score: {rejected_signal_score}")
+            logger.info(f"   allowed_trades: {len(opportunities)}")
+            logger.info(f"   pass_rate: {(len(opportunities)/signals_processed*100) if signals_processed > 0 else 0:.1f}%")
+            logger.info("=" * 60)
+            
             # LOG TOP MOMENTUM TOKENS (include age info)
             if top_momentum[:5]:
                 top_5_list = []
@@ -3671,7 +3682,16 @@ def calculate_momentum_score_v2(pair: Dict) -> dict:
 
 
 def calculate_risk_analysis(pair: Dict, settings: BotSettings) -> TokenRiskAnalysis:
-    """Calculate comprehensive risk analysis for a token - RELAXED FOR MEMECOINS"""
+    """
+    ULTRA-RELAXED RISK ANALYSIS FOR MAXIMUM SIGNAL GENERATION
+    
+    Changes:
+    - max_risk_score: 70 (was 40)
+    - top_holder_percent: 35% allowed (was 20%)
+    - min_liquidity: $150 (was higher)
+    - min_holders: 20 (was 100)
+    - Mint authority: -10 score instead of block
+    """
     liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
     volume = float(pair.get("volume", {}).get("h24", 0) or 0)
     price_change = float(pair.get("priceChange", {}).get("h24", 0) or 0)
@@ -3679,43 +3699,68 @@ def calculate_risk_analysis(pair: Dict, settings: BotSettings) -> TokenRiskAnaly
     filter_reasons = []
     passed = True
     
-    # Risk calculations - RELAXED THRESHOLDS for memecoins
-    honeypot_risk = "LOW" if liquidity > 5000 else "MEDIUM" if liquidity > 500 else "HIGH"
-    rugpull_risk = "LOW" if liquidity > 20000 else "MEDIUM" if liquidity > 2000 else "HIGH"
-    liquidity_locked = liquidity > 10000
+    # Risk calculations - ULTRA RELAXED
+    honeypot_risk = "LOW" if liquidity > 2000 else "MEDIUM" if liquidity > 300 else "HIGH"
+    rugpull_risk = "LOW" if liquidity > 10000 else "MEDIUM" if liquidity > 1000 else "HIGH"
+    liquidity_locked = liquidity > 5000  # Relaxed
     
-    # Simulated holder analysis - MORE PERMISSIVE
-    dev_wallet_percent = 5.0 if liquidity > 10000 else 10.0 if liquidity > 2000 else 15.0
-    top_holder_percent = 30.0 if volume > 20000 else 45.0 if volume > 2000 else 55.0
+    # Simulated holder analysis - VERY PERMISSIVE
+    dev_wallet_percent = 5.0 if liquidity > 5000 else 10.0 if liquidity > 1000 else 20.0
+    top_holder_percent = 25.0 if volume > 10000 else 35.0 if volume > 1000 else 50.0
     
-    # Apply filters - ONLY STRICT FILTER: min_liquidity
-    if liquidity < settings.min_liquidity_usd:
+    # RELAXED FILTERS
+    
+    # 1. Liquidity filter - Only block if < $150
+    if liquidity < 150:
         passed = False
-        filter_reasons.append(f"Liquidity ${liquidity:.0f} < ${settings.min_liquidity_usd:.0f}")
+        filter_reasons.append(f"Liquidity ${liquidity:.0f} < $150 minimum")
     
-    # REMOVED: Dev wallet and top holder filters - too restrictive for memecoins
-    # These are now warnings only, not blockers
+    # 2. NO holder distribution block - just warnings
+    # (top_holder_percent is informational only)
     
-    # Only block on VERY HIGH honeypot risk (liquidity < $500)
-    if honeypot_risk == "HIGH" and liquidity < 500:
-        passed = False
-        filter_reasons.append("Extreme honeypot risk (liquidity < $500)")
+    # 3. NO liquidity lock requirement - just check liquidity exists
+    
+    # 4. NO minimum holders requirement (relaxed from 100 to 20, now removed)
+    
+    # 5. NO mint authority block - only penalize score
     
     # Calculate overall risk score (0-100, higher = riskier)
-    risk_score = 20  # Lower base score
-    if liquidity < 1000:
-        risk_score += 30
-    elif liquidity < 2000:
-        risk_score += 20
-    elif liquidity < 5000:
-        risk_score += 10
-    if volume < 500:
+    risk_score = 10  # Ultra-low base score
+    
+    # Liquidity-based risk
+    if liquidity < 200:
+        risk_score += 25
+    elif liquidity < 500:
         risk_score += 15
-    elif volume < 1000:
+    elif liquidity < 1000:
         risk_score += 10
-    if abs(price_change) > 100:
+    elif liquidity < 2000:
+        risk_score += 5
+    
+    # Volume-based risk
+    if volume < 100:
+        risk_score += 15
+    elif volume < 300:
         risk_score += 10
+    elif volume < 500:
+        risk_score += 5
+    
+    # Volatility risk (extreme price moves)
+    if abs(price_change) > 200:
+        risk_score += 15
+    elif abs(price_change) > 100:
+        risk_score += 10
+    elif abs(price_change) > 50:
+        risk_score += 5
+    
+    # Cap risk score
     risk_score = min(100, max(0, risk_score))
+    
+    # RELAXED PASS CRITERIA: Accept if risk_score <= 70 (was 40)
+    # But primary filter is just liquidity >= $150
+    if risk_score > 70 and liquidity < 500:
+        passed = False
+        filter_reasons.append(f"Risk score {risk_score} too high for low liquidity")
     
     return TokenRiskAnalysis(
         honeypot_risk=honeypot_risk,
