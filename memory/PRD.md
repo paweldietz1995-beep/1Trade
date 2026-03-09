@@ -1,12 +1,51 @@
-# Pump.fun Trading Bot - PRD v31
+# Pump.fun Trading Bot - PRD v32
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **HIGH-CAPACITY TRADING ENGINE: 50-150 parallele Trades mit massiver Skalierung.**
 
-## System Status: HIGH-CAPACITY TRADING ENGINE AKTIV ✅
+## System Status: HIGH-CAPACITY TRADING ENGINE V2 AKTIV ✅
 
-Letztes Update: 2026-03-09 16:37
+Letztes Update: 2026-03-09 17:15
+
+---
+
+## NEU: Mehrstufige Gewinnsicherung (ULTRA-WINNER)
+
+### Exit-Strategie V2
+| Stufe | Trigger | Aktion | Trail |
+|-------|---------|--------|-------|
+| MEGA_500 | +500% | 30% sichern | 8% |
+| ULTRA_1000 | +1000% | 30% sichern | 5% |
+| ULTRA_2000 | +2000% | 20% sichern | 5% |
+| Runner | Rest | Mit Trail laufen | 5% |
+
+### Dynamischer Trailing-Stop
+| Peak P&L | Trail % |
+|----------|---------|
+| +1000%+ | 5% |
+| +500-1000% | 8% |
+| +200-500% | 10% |
+| +100-200% | 12% |
+| +35-100% | 15% |
+
+---
+
+## NEU: Performance Dashboard
+
+### Komponenten
+- `/app/frontend/src/components/PerformanceStats.jsx`
+- `/app/backend/dashboard.py` (Streamlit-Version für lokale Nutzung)
+
+### API Endpoints
+- `GET /api/dashboard/snapshot` - Aggregierte Metriken
+
+### Angezeigte Metriken
+- Win Rate & P&L
+- Ausstiegsgründe (Bar Chart)
+- Top Gewinner (Live)
+- MEGA/ULTRA Exit Counter
+- Scanner Status
 
 ---
 

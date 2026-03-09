@@ -56,6 +56,7 @@ import TradingViewWidget from '../components/TradingViewWidget';
 import LiveTradesPanel from '../components/LiveTradesPanel';
 import DebugPanel from '../components/DebugPanel';
 import ActivityFeed from '../components/ActivityFeed';
+import PerformanceStats from '../components/PerformanceStats';
 import { toast } from 'sonner';
 
 const TRADING_MODES = {
@@ -752,7 +753,10 @@ const Dashboard = () => {
           </TabsContent>
 
           <TabsContent value="trades">
-            <LiveTradesPanel solPrice={solPrice} />
+            <div className="space-y-4">
+              <PerformanceStats solPrice={solPrice} />
+              <LiveTradesPanel solPrice={solPrice} />
+            </div>
           </TabsContent>
 
           <TabsContent value="chart">

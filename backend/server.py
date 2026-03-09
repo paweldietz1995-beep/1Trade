@@ -4890,13 +4890,13 @@ async def update_all_trade_prices():
                     
                     # DYNAMISCHE TRAILING-STOP BERECHNUNG
                     # Bei niedrigem Gewinn: weiter (15%), bei hohem Gewinn: enger (5%)
-                    if peak_pnl_percent >= 500:  # +500% und mehr
+                    if peak_pnl_percent >= 1000:  # +1000% und mehr
                         dynamic_trail_pct = 5   # Sehr eng: 5% vom Peak
-                    elif peak_pnl_percent >= 200:  # +200-500%
+                    elif peak_pnl_percent >= 500:  # +500-1000%
                         dynamic_trail_pct = 8   # Eng: 8% vom Peak
-                    elif peak_pnl_percent >= 100:  # +100-200%
+                    elif peak_pnl_percent >= 200:  # +200-500%
                         dynamic_trail_pct = 10  # Mittel: 10% vom Peak
-                    elif peak_pnl_percent >= 50:   # +50-100%
+                    elif peak_pnl_percent >= 100:  # +100-200%
                         dynamic_trail_pct = 12  # Standard: 12% vom Peak
                     else:
                         dynamic_trail_pct = trailing_stop_pct  # Default: 15%
@@ -4912,24 +4912,61 @@ async def update_all_trade_prices():
                         distance_from_peak = ((current_price / peak) - 1) * 100 if peak > 0 else 0
                         if distance_from_peak <= -dynamic_trail_pct:
                             should_close = True
-                            close_reason = "TRAILING_STOP"
+                            close_reason = f"TRAIL_{dynamic_trail_pct}%"
                             logger.info(f"📉 TRAILING: {trade.get('token_symbol')} stopped at +{pnl_percent:.1f}% (peak was +{peak_pnl_percent:.1f}%, trail {dynamic_trail_pct}%)")
                     
-                    # --- MEGA-WINNER SOFORT-SCHLIESSUNG ---
-                    # Bei extremen Gewinnen: Automatisch 50% verkaufen wenn noch nicht geschehen
-                    if pnl_percent >= 300 and "MEGA" not in levels_hit:
+                    # ============================================
+                    # MEHRSTUFIGE GEWINNSICHERUNG (ULTRA-WINNER)
+                    # ============================================
+                    # Stufe 1: +500% → 30% sichern
+                    # Stufe 2: +1000% → weitere 30% sichern
+                    # Stufe 3: +2000% → weitere 20% sichern
+                    # Rest läuft mit engem Trailing (5%)
+                    
+                    # STUFE 3: +2000% - 20% sichern
+                    if pnl_percent >= 2000 and "ULTRA_2000" not in levels_hit:
                         should_partial = True
-                        partial_reason = "MEGA_WINNER"
-                        sell_percent = 50  # 50% bei +300% sofort sichern
-                        levels_hit.append("MEGA")
+                        partial_reason = "ULTRA_2000"
+                        sell_percent = 20
+                        levels_hit.append("ULTRA_2000")
                         update_data["levels_hit"] = levels_hit
                         new_remaining = remaining_percent - sell_percent
                         update_data["remaining_percent"] = max(0, new_remaining)
                         if new_remaining <= 5:
                             should_close = True
-                            close_reason = "MEGA_WINNER"
+                            close_reason = "ULTRA_2000"
                             should_partial = False
-                        logger.info(f"💎 MEGA-WINNER: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! Sichern 50%!")
+                        logger.info(f"🚀🚀🚀 ULTRA-WINNER 2000%: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! Sichern 20%! (Rest: {new_remaining}%)")
+                    
+                    # STUFE 2: +1000% - 30% sichern
+                    elif pnl_percent >= 1000 and "ULTRA_1000" not in levels_hit:
+                        should_partial = True
+                        partial_reason = "ULTRA_1000"
+                        sell_percent = 30
+                        levels_hit.append("ULTRA_1000")
+                        update_data["levels_hit"] = levels_hit
+                        new_remaining = remaining_percent - sell_percent
+                        update_data["remaining_percent"] = max(0, new_remaining)
+                        if new_remaining <= 5:
+                            should_close = True
+                            close_reason = "ULTRA_1000"
+                            should_partial = False
+                        logger.info(f"🚀🚀 ULTRA-WINNER 1000%: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! Sichern 30%! (Rest: {new_remaining}%)")
+                    
+                    # STUFE 1: +500% - 30% sichern
+                    elif pnl_percent >= 500 and "MEGA_500" not in levels_hit:
+                        should_partial = True
+                        partial_reason = "MEGA_500"
+                        sell_percent = 30
+                        levels_hit.append("MEGA_500")
+                        update_data["levels_hit"] = levels_hit
+                        new_remaining = remaining_percent - sell_percent
+                        update_data["remaining_percent"] = max(0, new_remaining)
+                        if new_remaining <= 5:
+                            should_close = True
+                            close_reason = "MEGA_500"
+                            should_partial = False
+                        logger.info(f"🚀 MEGA-WINNER 500%: {trade.get('token_symbol')} at +{pnl_percent:.1f}%! Sichern 30%! (Rest: {new_remaining}%)")
             
             # Update trade in database
             await db.trades.update_one({"id": trade["id"]}, {"$set": update_data})
@@ -5838,6 +5875,106 @@ async def reset_scanner_health(api_name: str = None):
         "message": f"Health reset for: {api_name or 'all APIs'}",
         "current_health": scanner_health.get_health_summary()
     }
+
+
+
+# ============== DASHBOARD API ==============
+
+@api_router.get("/dashboard/snapshot")
+async def get_dashboard_snapshot():
+    """
+    Aggregierte Daten für das Performance Dashboard.
+    Liefert alle wichtigen Metriken in einem Aufruf.
+    """
+    try:
+        # Trades laden
+        all_trades = await db.trades.find().to_list(length=1000)
+        open_trades = [t for t in all_trades if t.get("status") == "OPEN"]
+        closed_trades = [t for t in all_trades if t.get("status") == "CLOSED"]
+        
+        # P&L berechnen
+        total_pnl = sum(t.get("pnl", 0) for t in closed_trades)
+        open_pnl = sum(t.get("pnl", 0) for t in open_trades)
+        
+        # Win Rate
+        winners = [t for t in closed_trades if t.get("pnl_percent", 0) > 0]
+        losers = [t for t in closed_trades if t.get("pnl_percent", 0) < 0]
+        win_rate = len(winners) / len(closed_trades) * 100 if closed_trades else 0
+        
+        # Close Reasons
+        close_reasons = {}
+        for t in closed_trades:
+            reason = t.get("close_reason", "UNKNOWN")
+            close_reasons[reason] = close_reasons.get(reason, 0) + 1
+        
+        # Top Winners (offene Trades)
+        top_winners = sorted(open_trades, key=lambda x: x.get("pnl_percent", 0), reverse=True)[:10]
+        
+        # Top Losers (offene Trades)
+        top_losers = sorted(open_trades, key=lambda x: x.get("pnl_percent", 0))[:10]
+        
+        # MEGA/ULTRA Stats
+        mega_exits = sum(1 for t in closed_trades if any(x in t.get("close_reason", "") for x in ["MEGA", "ULTRA"]))
+        
+        # Scanner Stats
+        scanner_summary = scanner_health.get_health_summary().get("summary", {})
+        
+        # Bot Status
+        settings = await get_bot_settings()
+        
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trades": {
+                "open_count": len(open_trades),
+                "closed_count": len(closed_trades),
+                "total_count": len(all_trades)
+            },
+            "pnl": {
+                "total_realized": round(total_pnl, 6),
+                "unrealized": round(open_pnl, 6),
+                "combined": round(total_pnl + open_pnl, 6)
+            },
+            "performance": {
+                "win_rate": round(win_rate, 2),
+                "winners": len(winners),
+                "losers": len(losers),
+                "avg_win": round(sum(t.get("pnl_percent", 0) for t in winners) / len(winners), 2) if winners else 0,
+                "avg_loss": round(sum(t.get("pnl_percent", 0) for t in losers) / len(losers), 2) if losers else 0
+            },
+            "close_reasons": close_reasons,
+            "mega_stats": {
+                "mega_exits": mega_exits,
+                "ultra_1000_count": sum(1 for t in closed_trades if "ULTRA_1000" in t.get("close_reason", "")),
+                "ultra_2000_count": sum(1 for t in closed_trades if "ULTRA_2000" in t.get("close_reason", ""))
+            },
+            "top_winners": [
+                {
+                    "symbol": t.get("token_symbol", "???"),
+                    "pnl_percent": round(t.get("pnl_percent", 0), 2),
+                    "remaining": t.get("remaining_percent", 100)
+                } for t in top_winners
+            ],
+            "top_losers": [
+                {
+                    "symbol": t.get("token_symbol", "???"),
+                    "pnl_percent": round(t.get("pnl_percent", 0), 2)
+                } for t in top_losers
+            ],
+            "scanner": scanner_summary,
+            "bot_status": {
+                "is_running": auto_trading_state.get("is_running", False),
+                "scan_count": auto_trading_state.get("scan_count", 0),
+                "trades_today": auto_trading_state.get("trades_today", 0)
+            },
+            "config": {
+                "max_open_trades": ENGINE_CONFIG.get("max_open_trades", 120),
+                "max_parallel_trades": settings.max_parallel_trades
+            }
+        }
+    except Exception as e:
+        logger.error(f"Dashboard snapshot error: {e}")
+        return {"error": str(e)}
+
 
 
 @api_router.get("/scanner/health")
