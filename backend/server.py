@@ -3084,7 +3084,7 @@ async def get_smart_wallets():
     return [SmartWallet(**w) for w in wallets]
 
 @api_router.post("/smart-wallets")
-async def add_smart_wallet(address: str):
+async def add_smart_wallet(address: str, name: str = None):
     """Add a wallet to track"""
     existing = await db.smart_wallets.find_one({"address": address})
     if existing:
@@ -3093,7 +3093,18 @@ async def add_smart_wallet(address: str):
     wallet = SmartWallet(address=address)
     doc = wallet.model_dump()
     doc["last_seen"] = doc["last_seen"].isoformat()
+    if name:
+        doc["name"] = name
     await db.smart_wallets.insert_one(doc)
+    
+    # Add to in-memory tracker
+    smart_wallet_tracker.add_wallet(address, name)
+    
+    # Log to activity feed
+    activity_feed.add_event("INFO", "WALLET", {
+        "message": f"📋 Started tracking wallet: {address[:12]}..."
+    })
+    
     return wallet
 
 # ============== MARKET DATA ==============
@@ -3188,38 +3199,6 @@ async def scan_for_early_pumps():
 
 
 # ============== SMART WALLET TRACKER ENDPOINTS ==============
-
-@api_router.get("/smart-wallets")
-async def get_smart_wallets():
-    """Get all tracked smart wallets"""
-    wallets = await db.smart_wallets.find({"is_tracking": True}, {"_id": 0}).to_list(100)
-    return wallets
-
-
-@api_router.post("/smart-wallets/add")
-async def add_smart_wallet(address: str, name: str = None):
-    """Add a wallet to track"""
-    existing = await db.smart_wallets.find_one({"address": address})
-    if existing:
-        return {"success": False, "message": "Wallet already being tracked"}
-    
-    doc = {
-        "address": address,
-        "name": name or f"Wallet_{address[:8]}",
-        "added_at": datetime.now(timezone.utc).isoformat(),
-        "is_tracking": True,
-        "profit_rate": 0,
-        "trades_count": 0
-    }
-    await db.smart_wallets.insert_one(doc)
-    smart_wallet_tracker.add_wallet(address, name)
-    
-    activity_feed.add_event("INFO", "WALLET", {
-        "message": f"📋 Started tracking wallet: {address[:12]}..."
-    })
-    
-    return {"success": True, "wallet": doc}
-
 
 @api_router.delete("/smart-wallets/{address}")
 async def remove_smart_wallet(address: str):
