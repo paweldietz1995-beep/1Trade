@@ -72,40 +72,41 @@ class AuthResponse(BaseModel):
 class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    # SCALPING CAPITAL MANAGEMENT
+    # MICRO-TRADE CAPITAL MANAGEMENT (100+ trades)
     total_budget_sol: float = 3.0
-    max_trade_percent: float = 1.0     # Max 1% of budget per trade
-    min_trade_sol: float = 0.005       # Min 0.005 SOL per trade
-    max_parallel_trades: int = 30      # 20-40 simultaneous trades
-    max_trade_amount_sol: float = 0.03 # Max 0.03 SOL per trade
-    # SCALPING RISK MANAGEMENT
-    take_profit_percent: float = 10.0  # 8-12% take profit
-    stop_loss_percent: float = 7.0     # 6-8% stop loss
+    max_trade_percent: float = 0.5      # Max 0.5% of budget per trade (micro)
+    min_trade_sol: float = 0.003        # Min 0.003 SOL per trade
+    max_parallel_trades: int = 120      # 100-150 simultaneous trades
+    max_trade_amount_sol: float = 0.015 # Max 0.015 SOL per trade
+    max_capital_in_trades_percent: float = 60.0  # Max 60% of wallet in trades
+    # QUICK EXIT RISK MANAGEMENT
+    take_profit_percent: float = 8.0    # 6-10% take profit (faster exits)
+    stop_loss_percent: float = 6.0      # 5-7% stop loss (tighter)
     trailing_stop_enabled: bool = True
     trailing_stop_percent: float = 4.0
-    max_daily_loss_percent: float = 20.0
-    max_daily_loss_sol: float = 0.6    # Max daily loss
-    max_loss_streak: int = 10          # Max consecutive losses
+    max_daily_loss_percent: float = 25.0 # 25% max daily loss
+    max_daily_loss_sol: float = 0.75    # Max daily loss
+    max_loss_streak: int = 15           # Max consecutive losses (more room)
     # Live Trading Safety
     require_confirmation: bool = True
     first_live_trade_done: bool = False
-    slippage_bps: int = 150            # 1.5% slippage for speed
+    slippage_bps: int = 150             # 1.5% slippage for speed
     # MOMENTUM TOKEN FILTERS
-    min_liquidity_usd: float = 500.0   # $500 minimum
-    min_volume_usd: float = 500.0      # $500 minimum
+    min_liquidity_usd: float = 500.0    # $500 minimum
+    min_volume_usd: float = 500.0       # $500 minimum
     max_dev_wallet_percent: float = 25.0
     max_top10_wallet_percent: float = 70.0
-    min_token_age_seconds: int = 30    # Min 30 seconds old
-    max_token_age_hours: int = 4       # Max 4 hours old
-    min_buy_sell_ratio: float = 1.05   # Buy pressure required
+    min_token_age_seconds: int = 30     # Min 30 seconds old
+    max_token_age_hours: int = 4        # Max 4 hours old
+    min_buy_sell_ratio: float = 1.05    # Buy pressure required
     # MOMENTUM THRESHOLDS
-    min_momentum_score: int = 25       # Score threshold
+    min_momentum_score: int = 25        # Score threshold
     min_volume_surge_percent: float = 5.0
-    min_buyers_1m: int = 3             # 3 buyers in 1 minute
+    min_buyers_1m: int = 3              # 3 buyers in 1 minute
     # Automation
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: float = 1.0 # 1 second scanning
+    scan_interval_seconds: float = 0.8  # 0.8 second scanning (faster)
     # Advanced
     smart_wallet_tracking: bool = True
     migration_detection: bool = True
@@ -283,65 +284,69 @@ auto_trading_state = {
 # Engine Configuration - High Capacity
 # ============== HIGH-FREQUENCY MOMENTUM SCALPING CONFIGURATION ==============
 ENGINE_CONFIG = {
-    # HIGH-FREQUENCY SCANNING (0.8-1.2s interval)
-    "scan_interval_seconds": 1.0,      # 1 second scans
-    "max_tokens_per_scan": 1000,       # Process up to 1000 tokens
-    "max_signals_per_scan": 500,       # Analyze top 500 signals
-    "max_open_trades": 30,             # 20-40 simultaneous trades (realistic)
-    "max_trades_per_token": 1,         # Only 1 trade per token
-    "signal_cooldown_seconds": 60,     # 60 second cooldown per token
-    "min_signal_score": 25,            # Minimum score for opportunities
+    # ULTRA-HIGH-FREQUENCY SCANNING (0.5-1.0s interval)
+    "scan_interval_seconds": 0.8,       # 0.8 second scans for speed
+    "max_tokens_per_scan": 3000,        # Process up to 3000 tokens
+    "max_signals_per_scan": 1000,       # Analyze top 1000 signals
+    "max_open_trades": 120,             # 100-150 simultaneous micro-trades
+    "max_trades_per_token": 1,          # Only 1 trade per token
+    "signal_cooldown_seconds": 45,      # 45 second cooldown per token (faster re-entry)
+    "min_signal_score": 25,             # Minimum score for opportunities
     
-    # SCALPING PROFIT TARGETS (quick exits)
-    "take_profit_percent": 10,         # 8-12% take profit
-    "stop_loss_percent": 7,            # 6-8% stop loss
+    # QUICK EXIT PROFIT TARGETS (fast momentum captures)
+    "take_profit_percent": 8,           # 6-10% take profit (faster exits)
+    "stop_loss_percent": 6,             # 5-7% stop loss (tighter)
     "trailing_stop_enabled": True,
-    "trailing_stop_percent": 4,        # 4% trailing stop
-    "trailing_stop_activation": 5,     # Activate after 5% profit
-    "daily_loss_limit_percent": 20,    # 20% max daily loss
-    "loss_streak_limit": 10,           # 10 consecutive losses max
+    "trailing_stop_percent": 4,         # 4% trailing stop
+    "trailing_stop_activation": 4,      # Activate after 4% profit
+    "daily_loss_limit_percent": 25,     # 25% max daily loss (more room for micro-trades)
+    "loss_streak_limit": 15,            # 15 consecutive losses max
     
     # MOMENTUM FILTERS (aggressive but safe)
-    "min_liquidity_usd": 500,          # $500 minimum liquidity
-    "min_volume_usd": 500,             # $500 minimum volume
-    "min_volume_5m": 500,              # $500 5-minute volume
-    "min_volume_surge_percent": 5,     # 5% volume surge
-    "min_buy_sell_ratio": 1.05,        # Buy pressure required
-    "min_buyers_1m": 3,                # 3 buyers in 1 minute
-    "min_momentum_score": 25,          # Momentum threshold
-    "min_price_change_1m": 2,          # 2% price change in 1m (momentum signal)
-    "max_token_age_hours": 4,          # Tokens < 4 hours old
-    "min_token_age_seconds": 30,       # At least 30 seconds old
-    "price_update_interval": 1,        # Update prices every 1 second
+    "min_liquidity_usd": 500,           # $500 minimum liquidity
+    "min_volume_usd": 500,              # $500 minimum volume
+    "min_volume_5m": 500,               # $500 5-minute volume
+    "min_volume_surge_percent": 5,      # 5% volume surge
+    "min_buy_sell_ratio": 1.05,         # Buy pressure required
+    "min_buyers_1m": 3,                 # 3 buyers in 1 minute
+    "min_momentum_score": 25,           # Momentum threshold
+    "min_price_change_1m": 2,           # 2% price change in 1m (momentum signal)
+    "max_token_age_hours": 4,           # Tokens < 4 hours old
+    "min_token_age_seconds": 30,        # At least 30 seconds old
+    "price_update_interval": 1,         # Update prices every 1 second
     
     # MOMENTUM ENTRY SIGNAL (1-minute based)
-    "momentum_volume_multiplier": 1.5, # 1.5x baseline volume required
-    "momentum_price_change_min": 2,    # 2% price change for momentum
+    "momentum_volume_multiplier": 1.4,  # 1.4x baseline volume required (was 1.5x)
+    "momentum_price_change_min": 2,     # 2% price change for momentum
     
     # NEW TOKEN PRIORITY BONUS
-    "new_token_age_seconds": 120,      # Tokens < 2 minutes old get bonus
-    "new_token_priority_bonus": 30,    # +30 priority score for new tokens
-    "ultra_new_token_seconds": 60,     # Tokens < 1 minute old
-    "ultra_new_token_bonus": 50,       # +50 priority for ultra-new
+    "new_token_age_seconds": 120,       # Tokens < 2 minutes old get bonus
+    "new_token_priority_bonus": 30,     # +30 priority score for new tokens
+    "ultra_new_token_seconds": 60,      # Tokens < 1 minute old
+    "ultra_new_token_bonus": 50,        # +50 priority for ultra-new
     
     # EARLY PUMP DETECTION
-    "early_pump_volume_surge": 100,    # 100% volume surge for early pump
-    "early_pump_price_change_1m": 2,   # 2% price change in 1 minute
-    "early_pump_min_liquidity": 1000,  # $1k min liquidity for early pumps
+    "early_pump_volume_surge": 100,     # 100% volume surge for early pump
+    "early_pump_price_change_1m": 2,    # 2% price change in 1 minute
+    "early_pump_min_liquidity": 1000,   # $1k min liquidity for early pumps
     
-    # MICRO-TRADE POSITION SIZING (0.5%-1% of wallet)
-    "micro_trade_percent": 0.75,       # 0.75% of wallet per trade
-    "max_micro_trade_sol": 0.03,       # Max 0.03 SOL per micro-trade
-    "min_micro_trade_sol": 0.005,      # Min 0.005 SOL per micro-trade
+    # MICRO-TRADE POSITION SIZING (0.2-0.5% of wallet)
+    "micro_trade_percent": 0.35,        # 0.35% of wallet per trade (very small)
+    "max_micro_trade_sol": 0.015,       # Max 0.015 SOL per micro-trade
+    "min_micro_trade_sol": 0.003,       # Min 0.003 SOL per micro-trade
+    
+    # CAPITAL CONTROL (max 60% of wallet in active trades)
+    "max_capital_in_trades_percent": 60, # Max 60% of wallet in trades
+    "capital_reserve_percent": 40,       # Keep 40% as reserve
     
     # Smart Wallet Tracking
-    "smart_wallet_min_profit": 25,     # 25% min profit to track wallet
-    "smart_wallet_min_trades": 3,      # 3 min trades to qualify
-    "copy_trade_delay_ms": 100,        # 100ms delay for copy trades
+    "smart_wallet_min_profit": 25,      # 25% min profit to track wallet
+    "smart_wallet_min_trades": 3,       # 3 min trades to qualify
+    "copy_trade_delay_ms": 100,         # 100ms delay for copy trades
     
     # Risk Management
-    "max_daily_trades": 300,           # Max trades per day
-    "max_portfolio_risk": 0.35,        # 35% max portfolio at risk
+    "max_daily_trades": 500,            # Max trades per day (increased)
+    "max_portfolio_risk": 0.60,         # 60% max portfolio at risk
     
     # SCANNER SOURCES (all parallel)
     "scanner_sources": [
@@ -1413,44 +1418,82 @@ async def process_signal_queue():
     
     return executed_trades
 
+
+async def check_capital_limits(portfolio, settings) -> tuple:
+    """
+    CAPITAL CONTROL: Check if we can open more trades based on capital usage.
+    
+    Returns: (can_trade, capital_used_sol, capital_available_sol, reason)
+    """
+    wallet_balance = portfolio.wallet_balance_sol if portfolio.wallet_balance_sol > 0 else settings.total_budget_sol
+    capital_in_trades = portfolio.in_trades_sol
+    
+    # Calculate max allowed capital in trades
+    max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 60) / 100
+    max_capital_allowed = wallet_balance * max_capital_percent
+    
+    # Calculate remaining capital for new trades
+    capital_available = max_capital_allowed - capital_in_trades
+    capital_used_percent = (capital_in_trades / wallet_balance * 100) if wallet_balance > 0 else 0
+    
+    if capital_in_trades >= max_capital_allowed:
+        return (False, capital_in_trades, 0, f"Capital limit reached: {capital_used_percent:.1f}% of wallet in trades (max {max_capital_percent*100:.0f}%)")
+    
+    return (True, capital_in_trades, capital_available, None)
+
+
 def calculate_dynamic_trade_size(portfolio, settings):
     """
-    ⚡ SNIPER MICRO-TRADE SIZING ⚡
+    ⚡ ULTRA-MICRO-TRADE SIZING FOR 100+ CONCURRENT TRADES ⚡
     
-    For sniper mode: use 0.3%-1% of wallet per trade (micro positions)
+    For high-concurrency mode: use 0.2%-0.5% of wallet per trade
     trade_size = wallet_balance * micro_trade_percent
     
-    Ensures many small trades instead of few large ones.
+    Capital Control: Never exceed max_capital_in_trades_percent of wallet
+    
+    Example with 3 SOL wallet:
+    - micro_trade_percent = 0.35%
+    - trade_size = 3 * 0.0035 = 0.0105 SOL per trade
+    - max_capital = 60% = 1.8 SOL
+    - max_trades = 1.8 / 0.0105 = ~171 trades possible
     """
     # Use user's max_parallel_trades setting
     max_trades = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
     open_trades = portfolio.open_trades
     remaining_slots = max(1, max_trades - open_trades)
     
-    # Get available capital
-    available = portfolio.available_sol
-    wallet_balance = portfolio.wallet_balance_sol if portfolio.wallet_balance_sol > 0 else available
+    # Get wallet balance
+    wallet_balance = portfolio.wallet_balance_sol if portfolio.wallet_balance_sol > 0 else settings.total_budget_sol
     
-    # SNIPER MODE: Use micro-trade percent from config
-    micro_percent = ENGINE_CONFIG.get("micro_trade_percent", 0.5) / 100
+    # Calculate capital limits
+    max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 60) / 100
+    max_capital_allowed = wallet_balance * max_capital_percent
+    capital_in_trades = portfolio.in_trades_sol
+    capital_available = max(0, max_capital_allowed - capital_in_trades)
+    
+    # MICRO-TRADE SIZING: Use very small percent from config
+    micro_percent = ENGINE_CONFIG.get("micro_trade_percent", 0.35) / 100
     micro_size = wallet_balance * micro_percent
     
-    # Dynamic allocation as backup
-    dynamic_size = available / remaining_slots
+    # Dynamic allocation based on remaining slots
+    dynamic_size = capital_available / remaining_slots if remaining_slots > 0 else 0
     
-    # Use the SMALLER of: micro-size, dynamic allocation, or max limits
-    max_micro = ENGINE_CONFIG.get("max_micro_trade_sol", 0.05)
-    min_micro = ENGINE_CONFIG.get("min_micro_trade_sol", 0.005)
+    # Apply min/max limits
+    max_micro = ENGINE_CONFIG.get("max_micro_trade_sol", 0.015)
+    min_micro = ENGINE_CONFIG.get("min_micro_trade_sol", 0.003)
     
-    # Apply user limits as well
+    # User limits
     max_trade_by_percent = settings.total_budget_sol * (settings.max_trade_percent / 100)
     max_trade = min(max_trade_by_percent, settings.max_trade_amount_sol, max_micro)
     min_trade = max(settings.min_trade_sol, min_micro)
     
-    # Final trade size: prefer micro-size for sniper mode
+    # Final trade size: smallest of micro-size, dynamic allocation, max limit
     trade_size = min(max_trade, max(min_trade, min(micro_size, dynamic_size)))
     
-    return round(trade_size, 4)
+    # Ensure we don't exceed available capital
+    trade_size = min(trade_size, capital_available)
+    
+    return round(max(trade_size, 0), 4)
 
 async def update_performance_metrics(trade_result: dict):
     """Update performance metrics after trade closes"""
@@ -1499,35 +1542,40 @@ async def check_risk_limits(portfolio, settings) -> tuple:
 
 async def auto_trading_loop():
     """
-    ⚡ ULTRA-FAST SNIPER BOT ⚡
-    - Sub-second scanning (0.8s intervals)
+    ⚡ ULTRA-HIGH-FREQUENCY MICRO-TRADE ENGINE ⚡
+    
+    - Sub-second scanning (0.5-0.8s intervals)
     - Multi-source scanner (7 DEX sources)
-    - Processes 1500+ tokens per scan
-    - Manages 100 simultaneous micro-trades
+    - Processes 2000-5000 tokens per scan
+    - Manages 100-150 simultaneous micro-trades
+    - Capital control: max 60% of wallet in trades
     - New token detection (< 2 minutes = priority)
-    - Momentum scoring: vol*0.30 + buyers*0.25 + price*0.20 + accel*0.15 + age*0.10
-    - Target: 8% profit, 6% stop loss, micro positions (0.5% of wallet)
+    - Momentum scoring for fast entries
+    - Target: 8% profit, 6% stop loss, micro positions (0.2-0.5% of wallet)
     """
     global auto_trading_state
     
-    logger.info("=" * 60)
-    logger.info("🚀 HIGH-FREQUENCY MOMENTUM SCALPING ENGINE ACTIVATED 🚀")
-    logger.info("=" * 60)
+    logger.info("=" * 70)
+    logger.info("⚡ ULTRA-HIGH-FREQUENCY MICRO-TRADE ENGINE ACTIVATED ⚡")
+    logger.info("=" * 70)
     logger.info(f"   🔄 Scan interval: {ENGINE_CONFIG['scan_interval_seconds']}s")
     logger.info(f"   📊 Max tokens/scan: {ENGINE_CONFIG['max_tokens_per_scan']}")
     logger.info(f"   💰 Max parallel trades: {ENGINE_CONFIG['max_open_trades']}")
+    logger.info(f"   📈 Trade size: {ENGINE_CONFIG.get('micro_trade_percent', 0.35)}% of wallet")
+    logger.info(f"   💵 Capital limit: {ENGINE_CONFIG.get('max_capital_in_trades_percent', 60)}% max in trades")
     logger.info(f"   🎯 Take profit: {ENGINE_CONFIG['take_profit_percent']}%")
     logger.info(f"   🛡️ Stop loss: {ENGINE_CONFIG['stop_loss_percent']}%")
     logger.info(f"   🆕 New token bonus: +{ENGINE_CONFIG.get('new_token_priority_bonus', 30)} (< {ENGINE_CONFIG.get('new_token_age_seconds', 120)}s)")
-    logger.info(f"   ⏱️ Cooldown: {ENGINE_CONFIG.get('signal_cooldown_seconds', 60)}s")
+    logger.info(f"   ⏱️ Cooldown: {ENGINE_CONFIG.get('signal_cooldown_seconds', 45)}s")
     logger.info(f"   📡 Sources: {', '.join(ENGINE_CONFIG['scanner_sources'])}")
+    logger.info("=" * 70)
     
     scan_start_time = datetime.now(timezone.utc)
     last_state_save = datetime.now(timezone.utc)
     
     # Log bot start to activity feed
     activity_feed.add_event("INFO", "SYSTEM", {
-        "message": "🚀 High-Frequency Momentum Scalper gestartet"
+        "message": "⚡ Ultra-High-Frequency Micro-Trade Engine gestartet"
     })
     
     while auto_trading_state["is_running"]:
@@ -1549,6 +1597,9 @@ async def auto_trading_loop():
                 await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
                 continue
             
+            # Check capital limits
+            can_trade, capital_used, capital_available, capital_reason = await check_capital_limits(portfolio, settings)
+            
             # Process signal queue first (execute waiting signals)
             queue_trades = await process_signal_queue()
             
@@ -1556,8 +1607,27 @@ async def auto_trading_loop():
             open_trades = await db.trades.count_documents({"status": "OPEN"})
             available_slots = ENGINE_CONFIG["max_open_trades"] - open_trades
             
+            # Calculate capital metrics
+            wallet_balance = portfolio.wallet_balance_sol if portfolio.wallet_balance_sol > 0 else settings.total_budget_sol
+            capital_used_percent = (capital_used / wallet_balance * 100) if wallet_balance > 0 else 0
+            
+            # ===== TRADING ENGINE STATUS LOG =====
+            logger.info("=" * 50)
+            logger.info("📊 TRADING ENGINE STATUS")
+            logger.info(f"   open_trades: {open_trades}")
+            logger.info(f"   available_slots: {available_slots}")
+            logger.info(f"   capital_used: {capital_used:.4f} SOL ({capital_used_percent:.1f}%)")
+            logger.info(f"   capital_available: {capital_available:.4f} SOL")
+            logger.info("=" * 50)
+            
+            # Skip scanning if capital limit reached
+            if not can_trade:
+                logger.warning(f"⚠️ {capital_reason}")
+                await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
+                continue
+            
             # SCAN
-            logger.info(f"🔍 SCAN #{auto_trading_state['scan_count']+1} | Open: {open_trades}/{ENGINE_CONFIG['max_open_trades']} | Slots: {available_slots}")
+            logger.info(f"🔍 SCAN #{auto_trading_state['scan_count']+1} | Open: {open_trades}/{ENGINE_CONFIG['max_open_trades']} | Capital: {capital_used_percent:.1f}%")
             
             # Use multi-source scanner to get tokens from all DEX sources
             all_pairs_list = await multi_source_scanner.scan_all_sources()
@@ -1682,8 +1752,13 @@ async def auto_trading_loop():
             if elapsed_minutes > 0:
                 auto_trading_state["signals_per_minute"] = auto_trading_state["signals_processed"] / elapsed_minutes
             
-            # LOG SCANNER SUMMARY
-            logger.info(f"📊 SCANNER SUMMARY | tokens_scanned: {len(all_pairs)} | opportunities: {len(opportunities)} | open_trades: {open_trades}")
+            # ===== SCANNER SUMMARY LOG =====
+            logger.info("=" * 50)
+            logger.info("📊 SCANNER SUMMARY")
+            logger.info(f"   tokens_scanned: {len(all_pairs)}")
+            logger.info(f"   opportunities: {len(opportunities)}")
+            logger.info(f"   new_tokens: {new_tokens_count}")
+            logger.info("=" * 50)
             
             # LOG TOP MOMENTUM TOKENS (include age info)
             if top_momentum[:5]:
@@ -1700,6 +1775,11 @@ async def auto_trading_loop():
             max_parallel = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
             available_slots = max_parallel - open_trades
             
+            # Also check capital availability
+            trade_size = calculate_dynamic_trade_size(portfolio, settings)
+            max_trades_by_capital = int(capital_available / trade_size) if trade_size > 0 else 0
+            available_slots = min(available_slots, max_trades_by_capital)
+            
             trades_executed_this_cycle = 0
             max_trades_per_token = ENGINE_CONFIG.get("max_trades_per_token", 1)
             
@@ -1710,12 +1790,12 @@ async def auto_trading_loop():
             existing_open_trades = await db.trades.find(
                 {"status": "OPEN"}, 
                 {"token_address": 1, "_id": 0}
-            ).to_list(100)
+            ).to_list(200)  # Increased limit for 100+ trades
             for t in existing_open_trades:
                 active_trade_tokens.add(t.get("token_address"))
             
-            # Debug logging as requested
-            logger.info(f"🔄 MULTI TRADE LOOP | opportunities={len(opportunities)} | open_trades={open_trades} | slots={available_slots}")
+            # Debug logging
+            logger.info(f"🔄 TRADE EXECUTION | opportunities={len(opportunities)} | available_slots={available_slots} | trade_size={trade_size:.4f} SOL")
             
             if available_slots <= 0:
                 logger.info(f"⚠️ No slots available (max_parallel_trades={max_parallel}, open={open_trades})")
@@ -2050,7 +2130,7 @@ async def reset_auto_trading_state():
 
 @api_router.get("/auto-trading/status")
 async def get_auto_trading_status():
-    """Get comprehensive auto trading status with performance metrics"""
+    """Get comprehensive auto trading status with performance metrics for 100+ trades"""
     
     # Calculate win rate
     total = auto_trading_state.get("total_trades", 0)
@@ -2060,6 +2140,23 @@ async def get_auto_trading_status():
     # Calculate average profit/loss
     avg_profit = auto_trading_state.get("total_profit", 0) / max(winning, 1)
     avg_loss = auto_trading_state.get("total_loss", 0) / max(auto_trading_state.get("losing_trades", 1), 1)
+    
+    # Get current open trades count
+    open_trades = await db.trades.count_documents({"status": "OPEN"})
+    
+    # Get portfolio for capital metrics
+    try:
+        portfolio = await get_portfolio_summary()
+        settings = await get_bot_settings()
+        wallet_balance = portfolio.wallet_balance_sol if portfolio.wallet_balance_sol > 0 else settings.total_budget_sol
+        capital_in_trades = portfolio.in_trades_sol
+        capital_used_percent = (capital_in_trades / wallet_balance * 100) if wallet_balance > 0 else 0
+        max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 60)
+        capital_available = max(0, (wallet_balance * max_capital_percent / 100) - capital_in_trades)
+    except:
+        capital_in_trades = 0
+        capital_used_percent = 0
+        capital_available = 0
     
     return {
         "is_running": auto_trading_state["is_running"],
@@ -2073,6 +2170,16 @@ async def get_auto_trading_status():
         "signals_processed": auto_trading_state.get("signals_processed", 0),
         "signals_per_minute": round(auto_trading_state.get("signals_per_minute", 0), 1),
         "high_frequency_mode": auto_trading_state.get("high_frequency_mode", True),
+        # Trade capacity
+        "open_trades": open_trades,
+        "available_slots": ENGINE_CONFIG["max_open_trades"] - open_trades,
+        # Capital metrics
+        "capital": {
+            "in_trades_sol": round(capital_in_trades, 4),
+            "used_percent": round(capital_used_percent, 1),
+            "available_sol": round(capital_available, 4),
+            "max_percent": ENGINE_CONFIG.get("max_capital_in_trades_percent", 60)
+        },
         # Queue info
         "queue_size": len(auto_trading_state.get("signal_queue", [])),
         "queue_max_size": ENGINE_CONFIG.get("queue_max_size", 100),
@@ -2090,8 +2197,12 @@ async def get_auto_trading_status():
         # Engine config
         "config": {
             "max_open_trades": ENGINE_CONFIG["max_open_trades"],
+            "micro_trade_percent": ENGINE_CONFIG.get("micro_trade_percent", 0.35),
+            "max_capital_in_trades_percent": ENGINE_CONFIG.get("max_capital_in_trades_percent", 60),
             "take_profit_percent": ENGINE_CONFIG["take_profit_percent"],
             "stop_loss_percent": ENGINE_CONFIG["stop_loss_percent"],
+            "trailing_stop_percent": ENGINE_CONFIG["trailing_stop_percent"],
+            "signal_cooldown_seconds": ENGINE_CONFIG.get("signal_cooldown_seconds", 45),
             "daily_loss_limit_percent": ENGINE_CONFIG["daily_loss_limit_percent"],
             "min_signal_score": ENGINE_CONFIG["min_signal_score"]
         }
