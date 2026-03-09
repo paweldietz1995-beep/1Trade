@@ -1,6 +1,6 @@
 import { Page, expect } from '@playwright/test';
 
-const BASE_URL = 'https://pump-sniper-1.preview.emergentagent.com';
+const BASE_URL = 'https://solana-sniper-13.preview.emergentagent.com';
 const API_URL = `${BASE_URL}/api`;
 
 export async function waitForAppReady(page: Page) {
