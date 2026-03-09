@@ -3,7 +3,7 @@ import { dismissToasts, loginWithPin } from '../fixtures/helpers';
 
 const VALID_PIN = '1234';
 // Use explicit URL since process.env isn't available in Playwright context
-const API_BASE = 'https://dex-momentum.preview.emergentagent.com';
+const API_BASE = 'https://solana-scalper-1.preview.emergentagent.com';
 
 test.describe('Token Scanner', () => {
   test.beforeEach(async ({ page }) => {

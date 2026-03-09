@@ -11,7 +11,7 @@ export default defineConfig({
     ['json', { outputFile: '/root/.emergent/automation_output/20260309_053518/results.json' }],
   ],
   use: {
-    baseURL: 'https://dex-momentum.preview.emergentagent.com',
+    baseURL: 'https://solana-scalper-1.preview.emergentagent.com',
     screenshot: 'only-on-failure',
     trace: 'off',
     headless: true,

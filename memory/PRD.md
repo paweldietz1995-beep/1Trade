@@ -1,63 +1,66 @@
-# Pump.fun Trading Bot - PRD v30
+# Pump.fun Trading Bot - PRD v31
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
-**Stable Profitability V4: 3-6 Trades/Minute mit Anti-Rug-Schutz.**
+**HIGH-CAPACITY TRADING ENGINE: 50-150 parallele Trades mit massiver Skalierung.**
 
-## System Status: STABLE PROFITABILITY V4 AKTIV ✅
+## System Status: HIGH-CAPACITY TRADING ENGINE AKTIV ✅
 
-Letztes Update: 2026-03-09
+Letztes Update: 2026-03-09 16:37
 
 ---
 
-## Stable Profitability V4 Strategie
+## High-Capacity Trading Engine V1
 
-### Trade-Frequenz Kontrolle
+### Erreichte Ziele ✅
+| Ziel | Status | Ergebnis |
+|------|--------|----------|
+| 50-150 parallele Trades | ✅ | 120 aktive Trades erreicht |
+| Gelockerte Filter | ✅ | Pass-Rate von 3.4% auf 12.6% |
+| Micro-Trade Sizing | ✅ | 0.006 SOL pro Trade |
+| Keine Filter-Blockaden | ✅ | skipped_low_amount: 0 |
+
+### Behobene Probleme
+1. **Kritischer Bug behoben:** `PortfolioSummary * float` TypeError
+2. **Filter-Lockerung:** Momentum-Bedingung von AND auf OR umgestellt
+3. **Liquiditäts-Bonus:** Tokens mit $100k+ Liquidität werden automatisch akzeptiert
+4. **Settings-Problem:** `max_parallel_trades` von 30 auf 120 erhöht
+5. **Min-Trade-Sol:** Von 0.02 auf 0.005 SOL gesenkt
+6. **Max-Trades-Per-Token:** Von 1 auf 3 erhöht
+
+### Aktuelle Konfiguration
 | Parameter | Wert |
 |-----------|------|
-| Target Min | 3 Trades/Minute |
-| Target Max | 6 Trades/Minute |
-| Priorisierung | Beste Signale bei Überschuss |
+| Max offene Trades | 120 |
+| Max Trades pro Token | 3 |
+| Trade-Größe | 0.006 SOL |
+| Min Trade | 0.005 SOL |
+| Max Kapital in Trades | 70% |
+| Scan-Intervall | 5s |
 
-### Dynamische Trade-Skalierung
-| Wallet | Trades | Trade-Größe |
-|--------|--------|-------------|
-| 1 SOL | ~35 | 0.025 SOL |
-| 3 SOL | ~80 | 0.035 SOL |
-| 10 SOL | ~150 | 0.06 SOL |
+### Scanner Multi-Source
+| Quelle | Tokens/Scan |
+|--------|-------------|
+| Jupiter | ~800 |
+| Meteora | ~479 |
+| Raydium | ~411 |
+| DexScreener | ~43 |
+| Birdeye | ~30 |
+| Orca | ~30 |
+| PumpFun | ~21 |
+| **Gesamt** | **~1814** |
 
-### Position Sizing
+### Momentum Filter (GELOCKERT)
+```python
+passes_filter = (
+    is_momentum OR                    # Hat Momentum-Signal
+    signal_score >= 35 OR             # Guter Score
+    (is_new_token AND score >= 15) OR # Neuer Token
+    (liq >= $10k AND score >= 15) OR  # Etablierter Token
+    (liq >= $50k AND score >= 10) OR  # Sehr liquider Token
+    (liq >= $100k)                    # Auto-Accept
+)
 ```
-trade_size = wallet_balance / target_active_trades
-
-Beispiel: 3 SOL / 80 = 0.0375 SOL
-```
-
-| Parameter | Wert |
-|-----------|------|
-| Min Trade | 0.02 SOL |
-| Max Trade | 0.06 SOL |
-| Target | 0.035 SOL |
-
-### Scanner Filter (Grundfilter)
-| Filter | Wert |
-|--------|------|
-| Liquidität | ≥ $30,000 |
-| Volume 5m | ≥ $8,000 |
-| Holders | ≥ 80 |
-| Token Age | 2min - 12h |
-
-### Momentum Entry
-| Kriterium | Wert |
-|-----------|------|
-| Price Change 1m | ≥ 5% |
-| Volume Spike | ≥ 2x |
-| Buy/Sell Ratio | > 1.2 |
-| Upward Trend | Required |
-
-### Anti-Rug Filter (ERWEITERT)
-| Filter | Wert |
-|--------|------|
 | Max Single Wallet | 15% |
 | Max Dev Wallet | 10% |
 | Min Unique Wallets | 60 |

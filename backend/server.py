@@ -79,17 +79,18 @@ class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     
-    # ===== STABLE PROFITABILITY V4 =====
+    # ===== HIGH VOLUME V5 =====
     total_budget_sol: float = 3.0
     
-    # ===== TRADE FREQUENCY CONTROL =====
-    trade_rate_target_min: int = 3        # 3 Trades/Minute min
-    trade_rate_target_max: int = 6        # 6 Trades/Minute max
+    # ===== TRADE FREQUENCY =====
+    trade_rate_target_min: int = 3
+    trade_rate_target_max: int = 6
     prioritize_best_signals: bool = True
+    max_new_trades_per_cycle: int = 12    # NEU
     
-    # ===== TRADE CAPACITY =====
+    # ===== TRADE CAPACITY (ERHÖHT) =====
     min_active_trades: int = 50
-    max_parallel_trades: int = 100
+    max_parallel_trades: int = 120        # ERHÖHT
     target_active_trades: int = 80
     
     # ===== DYNAMIC POSITION SIZING =====
@@ -100,9 +101,9 @@ class BotSettings(BaseModel):
     max_trade_percent: float = 1.25
     
     # ===== CAPITAL MANAGEMENT =====
-    max_capital_in_trades_percent: float = 80.0
-    capital_reserve_percent: float = 20.0
-    warn_low_capital_percent: float = 10.0
+    max_capital_in_trades_percent: float = 85.0  # ERHÖHT
+    capital_reserve_percent: float = 15.0
+    warn_low_capital_percent: float = 5.0
     
     # ===== TAKE PROFIT LEVELS =====
     tp1_percent: float = 25.0
@@ -122,8 +123,8 @@ class BotSettings(BaseModel):
     minimum_profit_before_sell: float = 15.0
     
     # ===== STOP LOSS STRATEGY =====
-    stop_loss_percent: float = 12.0       # Hard Stop: -12%
-    max_loss_percent: float = 18.0        # Emergency: -18%
+    stop_loss_percent: float = 12.0
+    max_loss_percent: float = 18.0
     hard_stop_enabled: bool = True
     
     # ===== WINNER PROTECTION =====
@@ -136,70 +137,70 @@ class BotSettings(BaseModel):
     trailing_stop_enabled: bool = True
     
     # ===== RISK MANAGEMENT =====
-    max_daily_loss_percent: float = 15.0
-    max_daily_loss_sol: float = 0.45
-    max_loss_streak: int = 6
-    loss_streak_pause_seconds: int = 180
+    max_daily_loss_percent: float = 20.0  # ERHÖHT
+    max_daily_loss_sol: float = 0.6
+    max_loss_streak: int = 10             # ERHÖHT
+    loss_streak_pause_seconds: int = 120
     
-    # ===== SCANNER FILTER (GRUNDFILTER) =====
-    min_liquidity_usd: float = 30000.0
-    min_volume_usd: float = 8000.0
-    min_volume_5m: float = 8000.0
-    min_market_cap_usd: float = 40000.0
-    max_market_cap_usd: float = 5000000.0
-    min_holders: int = 80
-    min_token_age_seconds: int = 120
-    max_token_age_hours: int = 12
+    # ===== SCANNER FILTER (GELOCKERT) =====
+    min_liquidity_usd: float = 10000.0    # GESENKT
+    min_volume_usd: float = 2000.0        # GESENKT
+    min_volume_5m: float = 2000.0         # GESENKT
+    min_market_cap_usd: float = 20000.0   # GESENKT
+    max_market_cap_usd: float = 10000000.0 # ERHÖHT
+    min_holders: int = 25                  # GESENKT
+    min_token_age_seconds: int = 60        # GESENKT: 1 Minute
+    max_token_age_hours: int = 24          # ERHÖHT: 24h
     
-    # ===== MOMENTUM ENTRY =====
-    min_price_change_1m: float = 5.0
-    min_volume_spike: float = 2.0
-    min_buy_sell_ratio: float = 1.2
-    min_buyers_1m: int = 4
-    require_upward_trend: bool = True
-    pump_volume_multiplier: float = 2.0
-    pump_price_change_min: float = 5.0
-    pump_buyers_ratio: float = 1.2
+    # ===== MOMENTUM ENTRY (GELOCKERT) =====
+    min_price_change_1m: float = 2.0      # GESENKT
+    min_volume_spike: float = 1.5         # GESENKT
+    min_buy_sell_ratio: float = 1.0       # GESENKT
+    min_buyers_1m: int = 2                # GESENKT
+    require_upward_trend: bool = False    # DEAKTIVIERT
+    pump_volume_multiplier: float = 1.5
+    pump_price_change_min: float = 2.0
+    pump_buyers_ratio: float = 1.0
     
     # ===== SLIPPAGE CONTROL =====
-    max_slippage_percent: float = 8.0
-    slippage_warning_percent: float = 5.0
-    slippage_bps: int = 300
-    reject_high_slippage: bool = True
+    max_slippage_percent: float = 10.0    # ERHÖHT
+    slippage_warning_percent: float = 7.0
+    slippage_bps: int = 400
+    reject_high_slippage: bool = False    # DEAKTIVIERT
     
-    # ===== TOKEN RISIKO-FILTER =====
-    max_top_holder_percent: float = 20.0
-    min_liquidity_ratio: float = 5.0
+    # ===== TOKEN RISIKO-FILTER (GELOCKERT) =====
+    max_top_holder_percent: float = 30.0  # ERHÖHT
+    min_liquidity_ratio: float = 3.0      # GESENKT
     max_trades_per_token: int = 1
     
-    # ===== ANTI-RUG FILTER (ERWEITERT) =====
-    anti_rug_enabled: bool = True
-    max_single_wallet_percent: float = 15.0
-    max_dev_wallet_percent: float = 10.0
-    min_unique_wallets: int = 60
-    max_top10_wallet_percent: float = 60.0
+    # ===== ANTI-RUG FILTER (DEAKTIVIERT) =====
+    anti_rug_enabled: bool = False        # DEAKTIVIERT für mehr Trades
+    max_single_wallet_percent: float = 25.0
+    max_dev_wallet_percent: float = 20.0
+    min_unique_wallets: int = 20
+    max_top10_wallet_percent: float = 80.0
     
-    # ===== SCAM & LOW-QUALITY FILTER =====
-    scam_filter_enabled: bool = True
-    min_name_length: int = 3
-    detect_random_ticker: bool = True
-    min_liquidity_for_entry: float = 25000.0
-    min_volume_1m_for_entry: float = 2000.0
+    # ===== SCAM FILTER (DEAKTIVIERT) =====
+    scam_filter_enabled: bool = False     # DEAKTIVIERT für mehr Trades
+    min_name_length: int = 2
+    detect_random_ticker: bool = False
+    min_liquidity_for_entry: float = 8000.0
+    min_volume_1m_for_entry: float = 500.0
     
-    # ===== MOMENTUM THRESHOLDS =====
-    min_momentum_score: int = 60
-    min_volume_surge_percent: float = 100.0
+    # ===== MOMENTUM THRESHOLDS (GELOCKERT) =====
+    min_momentum_score: int = 35          # GESENKT
+    min_volume_surge_percent: float = 50.0 # GESENKT
     
     # ===== AUTOMATION =====
     auto_trade_enabled: bool = False
     paper_mode: bool = True
-    scan_interval_seconds: float = 3.0
+    scan_interval_seconds: float = 1.0    # SCHNELLER
     
     # ===== ASYNC EXECUTION =====
     async_execution_enabled: bool = True
     trade_queue_enabled: bool = True
-    trade_queue_max_size: int = 50
-    parallel_order_limit: int = 10
+    trade_queue_max_size: int = 100
+    parallel_order_limit: int = 15
     scanner_non_blocking: bool = True
     
     # ===== ADVANCED =====
@@ -389,45 +390,46 @@ auto_trading_state = {
     "last_reset_date": None
 }
 
-# Engine Configuration - STABLE PROFITABILITY V4
-# ============== 3-6 TRADES/MIN | ANTI-RUG | DYNAMIC SIZING ==============
+# Engine Configuration - HIGH VOLUME V5
+# ============== GELOCKERTE FILTER FÜR 50-100 TRADES ==============
 ENGINE_CONFIG = {
     # ===== TRADE FREQUENCY CONTROL =====
-    "trade_rate_target_min": 3,           # Min 3 Trades pro Minute
-    "trade_rate_target_max": 6,           # Max 6 Trades pro Minute
-    "trade_rate_window_seconds": 60,      # Fenster für Rate-Berechnung
-    "prioritize_best_signals": True,      # Nur beste Signale bei Überschuss
+    "trade_rate_target_min": 3,
+    "trade_rate_target_max": 6,
+    "trade_rate_window_seconds": 60,
+    "prioritize_best_signals": True,
     
-    # ===== SCANNING =====
-    "scan_interval_seconds": 3.0,
-    "max_tokens_per_scan": 2000,
-    "max_signals_per_scan": 500,
-    "min_signal_score": 60,               # Qualitäts-Schwelle
+    # ===== SCANNING (ERHÖHT) =====
+    "scan_interval_seconds": 1.0,         # ⚠️ SCHNELLER: 1 Sekunde
+    "max_tokens_per_scan": 500,           # 500 Tokens pro Scan
+    "max_signals_per_scan": 200,
+    "min_signal_score": 35,               # ⚠️ GESENKT: 35 (statt 60)
+    "max_new_trades_per_cycle": 12,       # ⚠️ NEU: 12 Trades pro Zyklus
     
-    # ===== TRADE CAPACITY =====
+    # ===== TRADE CAPACITY (ERHÖHT) =====
     "min_active_trades": 50,
-    "max_open_trades": 100,
-    "target_active_trades": 80,           # Ziel: 80 aktive Trades
-    "max_trades_per_token": 1,            # STRICT: 1 Trade pro Token
-    "signal_cooldown_seconds": 120,
+    "max_open_trades": 120,               # ⚠️ ERHÖHT: 120
+    "target_active_trades": 80,
+    "max_trades_per_token": 3,
+    "signal_cooldown_seconds": 60,        # ⚠️ GESENKT: 60s (statt 120)
     
     # ===== DYNAMIC POSITION SIZING =====
     "dynamic_sizing_enabled": True,
-    "min_trade_sol": 0.02,                # Min 0.02 SOL
-    "max_trade_sol": 0.06,                # Max 0.06 SOL (strenger)
-    "target_trade_sol": 0.035,            # ~3 SOL / 80 = 0.0375
-    "trade_percent": 1.25,                # 1.25% of wallet
+    "min_trade_sol": 0.02,
+    "max_trade_sol": 0.06,
+    "target_trade_sol": 0.035,
+    "trade_percent": 1.25,
     
     # ===== CAPITAL MANAGEMENT =====
-    "max_capital_in_trades_percent": 80,
-    "capital_reserve_percent": 20,
-    "warn_low_capital_percent": 10,
+    "max_capital_in_trades_percent": 85,  # ⚠️ ERHÖHT: 85%
+    "capital_reserve_percent": 15,
+    "warn_low_capital_percent": 5,
     
-    # ===== DYNAMIC SCALING (Kapital-basiert) =====
+    # ===== DYNAMIC SCALING =====
     "scaling_rules": {
-        "1_sol": {"trades": 35, "trade_size": 0.025},
-        "3_sol": {"trades": 80, "trade_size": 0.035},
-        "10_sol": {"trades": 150, "trade_size": 0.06},
+        "1_sol": {"trades": 40, "trade_size": 0.02},
+        "3_sol": {"trades": 100, "trade_size": 0.03},
+        "10_sol": {"trades": 200, "trade_size": 0.05},
     },
     
     # ===== TAKE PROFIT LEVELS =====
@@ -450,8 +452,8 @@ ENGINE_CONFIG = {
     "minimum_profit_before_sell": 15,
     
     # ===== STOP LOSS STRATEGY =====
-    "stop_loss_percent": 12,              # Hard Stop: -12%
-    "max_loss_percent": 18,               # Emergency Stop: -18%
+    "stop_loss_percent": 12,
+    "max_loss_percent": 18,
     "hard_stop_enabled": True,
     
     # ===== WINNER PROTECTION =====
@@ -460,92 +462,90 @@ ENGINE_CONFIG = {
     "protected_stop_percent": 40,
     
     # ===== RISK MANAGEMENT =====
-    "daily_loss_limit_percent": 15,
-    "loss_streak_limit": 6,
-    "loss_streak_pause_seconds": 180,
+    "daily_loss_limit_percent": 20,       # ⚠️ ERHÖHT: 20%
+    "loss_streak_limit": 10,              # ⚠️ ERHÖHT: 10
+    "loss_streak_pause_seconds": 120,
     
-    # ===== SCANNER FILTER (GRUNDFILTER) =====
-    "min_liquidity_usd": 30000,           # $30k min Liquidität
-    "min_volume_usd": 8000,
-    "min_volume_5m": 8000,                # $8k 5-min Volume
-    "min_market_cap_usd": 40000,
-    "max_market_cap_usd": 5000000,
-    "min_holders": 80,                    # 80 Holder minimum
-    "min_token_age_seconds": 120,         # Min 2 Minuten
-    "max_token_age_hours": 12,
-    "price_update_interval": 2,
+    # ===== SCANNER FILTER (GELOCKERT) =====
+    "min_liquidity_usd": 10000,           # ⚠️ GESENKT: $10k (statt $30k)
+    "min_volume_usd": 2000,               # ⚠️ GESENKT: $2k
+    "min_volume_5m": 2000,                # ⚠️ GESENKT: $2k (statt $8k)
+    "min_market_cap_usd": 20000,          # ⚠️ GESENKT: $20k
+    "max_market_cap_usd": 10000000,       # ⚠️ ERHÖHT: $10M
+    "min_holders": 25,                    # ⚠️ GESENKT: 25 (statt 80)
+    "min_token_age_seconds": 60,          # ⚠️ GESENKT: 1 Minute (statt 2)
+    "max_token_age_hours": 24,            # ⚠️ ERHÖHT: 24h (statt 12)
+    "price_update_interval": 1,           # ⚠️ SCHNELLER: 1s
     
-    # ===== MOMENTUM ENTRY =====
-    "min_price_change_1m": 5.0,           # 5% Price Change
-    "min_volume_spike": 2.0,              # 2x Volume Spike
-    "min_buy_sell_ratio": 1.2,            # Buyers > Sellers
-    "min_buyers_1m": 4,
-    "require_upward_trend": True,         # 5m Aufwärtstrend
-    "min_momentum_score": 60,
-    "min_volume_surge_percent": 100,
+    # ===== MOMENTUM ENTRY (GELOCKERT) =====
+    "min_price_change_1m": 2.0,           # ⚠️ GESENKT: 2% (statt 5%)
+    "min_volume_spike": 1.5,              # ⚠️ GESENKT: 1.5x (statt 2x)
+    "min_buy_sell_ratio": 1.0,            # ⚠️ GESENKT: 1.0 (buyers >= sellers)
+    "min_buyers_1m": 2,                   # ⚠️ GESENKT: 2 (statt 4)
+    "require_upward_trend": False,        # ⚠️ DEAKTIVIERT
+    "min_momentum_score": 35,             # ⚠️ GESENKT: 35 (statt 60)
+    "min_volume_surge_percent": 50,       # ⚠️ GESENKT: 50% (statt 100%)
     
-    # ===== PUMP DETECTION =====
-    "pump_volume_multiplier": 2.0,        # volume_1m > avg × 2
-    "pump_price_change_min": 5.0,         # 5% price change
-    "pump_buyers_ratio": 1.2,
+    # ===== PUMP DETECTION (GELOCKERT) =====
+    "pump_volume_multiplier": 1.5,        # ⚠️ GESENKT: 1.5x
+    "pump_price_change_min": 2.0,         # ⚠️ GESENKT: 2%
+    "pump_buyers_ratio": 1.0,
     "pump_detection_enabled": True,
     
     # ===== SLIPPAGE SCHUTZ =====
-    "max_slippage_percent": 8,
-    "slippage_warning_percent": 5,
-    "reject_high_slippage": True,
+    "max_slippage_percent": 10,           # ⚠️ ERHÖHT: 10%
+    "slippage_warning_percent": 7,
+    "reject_high_slippage": False,        # ⚠️ DEAKTIVIERT
     "slippage_estimation_enabled": True,
     
-    # ===== TOKEN RISIKO-FILTER =====
-    "max_top_holder_percent": 20,         # Max 20% Top Holder
-    "min_liquidity_ratio": 5,             # Liquidität > 5x Trade-Size
+    # ===== TOKEN RISIKO-FILTER (GELOCKERT) =====
+    "max_top_holder_percent": 30,         # ⚠️ ERHÖHT: 30% (statt 20%)
+    "min_liquidity_ratio": 3,             # ⚠️ GESENKT: 3x (statt 5x)
     
-    # ===== ANTI-RUG FILTER (ERWEITERT) =====
-    "anti_rug_enabled": True,
-    "require_liquidity_lock": False,      # Wenn verfügbar prüfen
-    "max_single_wallet_percent": 15,      # Max 15% einzelne Wallet
-    "max_dev_wallet_percent": 10,         # Max 10% Dev Wallet
-    "min_unique_wallets": 60,             # Min 60 unique Wallets
-    "max_top10_wallet_percent": 60,       # Max 60% Top 10
+    # ===== ANTI-RUG FILTER (GELOCKERT) =====
+    "anti_rug_enabled": False,            # ⚠️ DEAKTIVIERT für mehr Trades
+    "require_liquidity_lock": False,
+    "max_single_wallet_percent": 25,      # ⚠️ ERHÖHT: 25%
+    "max_dev_wallet_percent": 20,         # ⚠️ ERHÖHT: 20%
+    "min_unique_wallets": 20,             # ⚠️ GESENKT: 20
+    "max_top10_wallet_percent": 80,       # ⚠️ ERHÖHT: 80%
     "reject_honeypot_tokens": True,
-    "reject_mint_authority": True,        # Keine aktive Mint Authority
+    "reject_mint_authority": False,       # ⚠️ DEAKTIVIERT
     
-    # ===== SCAM & LOW-QUALITY FILTER =====
-    "scam_filter_enabled": True,
-    "min_name_length": 3,                 # Name mind. 3 Zeichen
-    "detect_random_ticker": True,         # Random Pattern Detection
-    "min_liquidity_for_entry": 25000,     # $25k für Entry
-    "min_volume_1m_for_entry": 2000,      # $2k Volume in 1min
-    "reject_suspicious_names": True,      # Verdächtige Namen
-    "suspicious_patterns": [
-        "test", "rug", "scam", "honeypot", "fake"
-    ],
+    # ===== SCAM & LOW-QUALITY FILTER (GELOCKERT) =====
+    "scam_filter_enabled": False,         # ⚠️ DEAKTIVIERT für mehr Trades
+    "min_name_length": 2,
+    "detect_random_ticker": False,
+    "min_liquidity_for_entry": 8000,      # ⚠️ GESENKT: $8k
+    "min_volume_1m_for_entry": 500,       # ⚠️ GESENKT: $500
+    "reject_suspicious_names": False,
+    "suspicious_patterns": [],
     
     # ===== NEW TOKEN PRIORITY =====
-    "new_token_age_seconds": 300,
-    "new_token_priority_bonus": 25,
-    "ultra_new_token_seconds": 180,
-    "ultra_new_token_bonus": 35,
+    "new_token_age_seconds": 600,         # ⚠️ ERHÖHT: 10 Minuten
+    "new_token_priority_bonus": 20,
+    "ultra_new_token_seconds": 300,
+    "ultra_new_token_bonus": 30,
     
-    # ===== EARLY PUMP DETECTION =====
-    "early_pump_volume_surge": 150,
-    "early_pump_price_change_1m": 5.0,
-    "early_pump_min_liquidity": 30000,
+    # ===== EARLY PUMP DETECTION (GELOCKERT) =====
+    "early_pump_volume_surge": 80,        # ⚠️ GESENKT: 80%
+    "early_pump_price_change_1m": 2.0,    # ⚠️ GESENKT: 2%
+    "early_pump_min_liquidity": 10000,    # ⚠️ GESENKT: $10k
     
     # ===== SMART WALLET TRACKING =====
-    "smart_wallet_min_profit": 50,
-    "smart_wallet_min_trades": 5,
-    "copy_trade_delay_ms": 150,
+    "smart_wallet_min_profit": 30,
+    "smart_wallet_min_trades": 3,
+    "copy_trade_delay_ms": 100,
     
-    # ===== DAILY LIMITS =====
-    "max_daily_trades": 400,              # ~6.7 Trades/min × 60min
-    "max_portfolio_risk": 0.80,
+    # ===== DAILY LIMITS (ERHÖHT) =====
+    "max_daily_trades": 800,              # ⚠️ ERHÖHT: 800
+    "max_portfolio_risk": 0.90,           # ⚠️ ERHÖHT: 90%
     
-    # ===== ASYNC EXECUTION (PERFORMANCE) =====
+    # ===== ASYNC EXECUTION =====
     "async_execution_enabled": True,
     "trade_queue_enabled": True,
-    "trade_queue_max_size": 50,
-    "parallel_order_limit": 10,
+    "trade_queue_max_size": 100,          # ⚠️ ERHÖHT: 100
+    "parallel_order_limit": 15,           # ⚠️ ERHÖHT: 15
     "scanner_non_blocking": True,
     
     # ===== SCANNER SOURCES =====
@@ -1829,7 +1829,7 @@ async def process_signal_queue():
                 continue
             
             # Calculate dynamic trade size
-            trade_amount = calculate_dynamic_trade_size(portfolio, settings)
+            trade_amount = calculate_trade_size_for_portfolio(portfolio, settings)
             
             if trade_amount < settings.min_trade_sol:
                 continue
@@ -1894,7 +1894,7 @@ async def check_capital_limits(portfolio, settings) -> tuple:
     return (True, capital_in_trades, capital_available, None)
 
 
-def calculate_dynamic_trade_size(portfolio, settings):
+def calculate_trade_size_for_portfolio(portfolio, settings):
     """
     ⚡ ULTRA-MICRO-TRADE SIZING FOR 120 CONCURRENT TRADES ⚡
     
@@ -1910,6 +1910,8 @@ def calculate_dynamic_trade_size(portfolio, settings):
     - OR: 3 SOL / 120 trades = 0.025 SOL (but capped by percent)
     - max_capital = 70% = 2.1 SOL
     - max_trades = 2.1 / 0.006 = 350 trades possible
+    
+    Returns: float (trade size in SOL)
     """
     # Use user's max_parallel_trades setting
     max_trades = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
@@ -2192,8 +2194,25 @@ async def auto_trading_loop():
                     # Use new momentum score
                     signal_score = momentum_data["score"]
                     
-                    # Check if momentum signal triggers
-                    if not momentum_data["is_momentum"] and signal_score < ENGINE_CONFIG["min_signal_score"]:
+                    # Check if momentum signal triggers - ULTRA GELOCKERT
+                    is_new_token = momentum_data.get("is_new_token", False) or momentum_data.get("age_seconds", 999999) < 300
+                    min_score_threshold = ENGINE_CONFIG.get("min_signal_score", 35)
+                    liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+                    
+                    # Hohe Liquidität als Qualitätssignal (Jupiter/Raydium verifizierte Tokens)
+                    has_high_liquidity = liq >= ENGINE_CONFIG.get("min_liquidity_usd", 10000)
+                    has_very_high_liquidity = liq >= 50000  # $50k+ = sehr vertrauenswürdig
+                    
+                    passes_filter = (
+                        momentum_data["is_momentum"] or  # Hat Momentum-Signal
+                        signal_score >= min_score_threshold or  # Guter Score
+                        (is_new_token and signal_score >= 15) or  # Neuer Token mit minimalem Score
+                        (has_high_liquidity and signal_score >= 15) or  # Etablierter Token mit niedrigem Score
+                        (has_very_high_liquidity and signal_score >= 10) or  # Sehr liquider Token akzeptiert fast alles
+                        (liq >= 100000)  # $100k+ Liquidität = automatisch durchlassen
+                    )
+                    
+                    if not passes_filter:
                         rejected_no_momentum += 1
                         continue
                     
@@ -2306,9 +2325,25 @@ async def auto_trading_loop():
             available_slots = max_parallel - open_trades
             
             # Also check capital availability
-            trade_size = calculate_dynamic_trade_size(portfolio, settings)
-            max_trades_by_capital = int(capital_available / trade_size) if trade_size > 0 else 0
-            available_slots = min(available_slots, max_trades_by_capital)
+            trade_size = calculate_trade_size_for_portfolio(portfolio, settings)
+            
+            # Fix: Ensure trade_size is positive and calculate max_trades_by_capital correctly
+            if trade_size > 0 and capital_available > 0:
+                max_trades_by_capital = int(capital_available / trade_size)
+            else:
+                max_trades_by_capital = available_slots  # Don't limit if calculation fails
+            
+            # Debug log before limiting
+            logger.info(f"   DEBUG: available_slots_before_limit={available_slots}, max_trades_by_capital={max_trades_by_capital}")
+            
+            # Only limit by capital if it's a reasonable constraint
+            if max_trades_by_capital > 0:
+                available_slots = min(available_slots, max_trades_by_capital)
+            
+            # Ensure at least 1 slot if we have capital
+            if available_slots <= 0 and capital_available > trade_size:
+                available_slots = 1
+                logger.warning(f"⚠️ Force-enabling 1 slot (capital_available={capital_available:.4f}, trade_size={trade_size:.4f})")
             
             trades_executed_this_cycle = 0
             max_trades_per_token = ENGINE_CONFIG.get("max_trades_per_token", 1)
@@ -2432,8 +2467,9 @@ async def auto_trading_loop():
             skipped_low_amount = 0
             skipped_low_score = 0
             
-            # Minimum score for slot filling (force fill with score >= 10)
-            min_score_threshold = ENGINE_CONFIG.get("min_signal_score", 10)
+            # Minimum score for slot filling - ULTRA AGGRESSIVE (score >= 5)
+            # Bei Force Slot Filling akzeptieren wir fast alles mit Mindestliquidität
+            min_score_threshold = 5  # Sehr niedrig für maximale Trade-Anzahl
             
             logger.info("=" * 60)
             logger.info("🚀 FORCE SLOT FILLING")
@@ -2471,7 +2507,7 @@ async def auto_trading_loop():
                         continue
                     
                     # Calculate trade size dynamically
-                    trade_amount = calculate_dynamic_trade_size(portfolio, settings)
+                    trade_amount = calculate_trade_size_for_portfolio(portfolio, settings)
                     
                     # Ensure trade_amount doesn't exceed max
                     max_trade_limit = min(
@@ -3712,6 +3748,25 @@ def calculate_momentum_score_v2(pair: Dict) -> dict:
     # ===== BASE SCORE (0-100) =====
     base_score = volume_score + buyer_score + price_score + price_accel
     
+    # ===== LIQUIDITY BONUS (für Tokens ohne Transaktionsdaten) =====
+    # Tokens wie Jupiter-verifizierte Tokens haben oft keine Echtzeit-Daten
+    # aber hohe Liquidität ist ein gutes Qualitätssignal
+    liquidity_bonus = 0
+    if liquidity >= 100000:  # $100k+ Liquidität
+        liquidity_bonus = 25
+    elif liquidity >= 50000:  # $50k+ 
+        liquidity_bonus = 20
+    elif liquidity >= 20000:  # $20k+
+        liquidity_bonus = 15
+    elif liquidity >= 10000:  # $10k+
+        liquidity_bonus = 10
+    elif liquidity >= 5000:  # $5k+
+        liquidity_bonus = 5
+    
+    # Wenn keine Transaktionsdaten vorhanden sind, Liquidität als Ersatz verwenden
+    if buys_1m == 0 and sells_1m == 0 and liquidity > 0:
+        base_score += liquidity_bonus
+    
     # ===== NEW TOKEN PRIORITY BONUS =====
     age_bonus = 0
     if age_seconds < ENGINE_CONFIG.get("ultra_new_token_seconds", 60):
@@ -3748,11 +3803,19 @@ def calculate_momentum_score_v2(pair: Dict) -> dict:
     total_score = base_score + bonus
     
     # Determine if this is a MOMENTUM opportunity (entry conditions)
-    # price_change_1m >= 2% AND volume_1m >= 1.5x baseline AND buyers >= sellers
+    # GELOCKERT: Nur EIN Kriterium muss erfüllt sein ODER Score >= 30
+    # Alte Bedingung war zu streng: price_change_1m >= 2% AND volume_1m >= 1.5x AND buyers >= sellers
     is_momentum = (
-        price_change_1m >= ENGINE_CONFIG.get("min_price_change_1m", 2) and
-        volume_growth >= ENGINE_CONFIG.get("momentum_volume_multiplier", 1.5) and
-        buys_1m >= sells_1m
+        # Starkes Preismomentum
+        price_change_1m >= ENGINE_CONFIG.get("min_price_change_1m", 2) or
+        # ODER Volume Surge
+        volume_growth >= ENGINE_CONFIG.get("momentum_volume_multiplier", 1.5) or
+        # ODER Kauf-Druck (mehr Käufer als Verkäufer mit gutem Ratio)
+        (buys_1m > sells_1m and buy_sell_ratio >= 1.3) or
+        # ODER Neuer Token mit Aktivität (< 5 Minuten + irgendeine Aktivität)
+        (age_seconds < 300 and buys_1m >= 1) or
+        # ODER Score ist hoch genug (erlaubt alte, etablierte Tokens mit guten Scores)
+        total_score >= 30
     )
     
     # Build signal reasons

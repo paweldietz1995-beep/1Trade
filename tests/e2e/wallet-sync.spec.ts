@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 
-const BASE_URL = 'https://dex-momentum.preview.emergentagent.com';
+const BASE_URL = 'https://solana-scalper-1.preview.emergentagent.com';
 const API_URL = `${BASE_URL}/api`;
 
 // Helper to login with PIN
