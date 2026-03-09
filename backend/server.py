@@ -677,9 +677,9 @@ class RealtimeLaunchSniper:
         # Sort queue by priority (highest first)
         self.snipe_queue.sort(key=lambda x: x["priority_score"], reverse=True)
         
-        # Keep only top 50 in queue
-        if len(self.snipe_queue) > 50:
-            self.snipe_queue = self.snipe_queue[:50]
+        # Keep only top 200 in queue (expanded from 50)
+        if len(self.snipe_queue) > 200:
+            self.snipe_queue = self.snipe_queue[:200]
         
         # Update stats
         self.stats["total_detections"] += 1
@@ -859,7 +859,7 @@ class CrashRecovery:
     async def recover_active_trades(self):
         """Recover active trades after crash"""
         try:
-            active_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(100)
+            active_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(200)  # Increased for 100+ trades
             if active_trades:
                 logger.info(f"🔄 Recovered {len(active_trades)} active trades from database")
                 # Log recovery event
@@ -1894,8 +1894,8 @@ async def auto_trading_loop():
                 except Exception as e:
                     pass
             
-            # Get top snipe targets for priority trading
-            top_snipe_targets = launch_sniper.get_top_snipe_targets(limit=20)
+            # Get top snipe targets for priority trading (expanded to 100)
+            top_snipe_targets = launch_sniper.get_top_snipe_targets(limit=100)
             
             # Cleanup old detections every scan
             launch_sniper.cleanup_old_detections(max_age_seconds=300)
@@ -1906,12 +1906,12 @@ async def auto_trading_loop():
                 logger.info("=" * 50)
                 logger.info("🎯 LAUNCH SNIPER STATUS")
                 logger.info(f"   new_candidates: {snipe_candidates}")
-                logger.info(f"   queue_size: {len(top_snipe_targets)}")
+                logger.info(f"   queue_size: {sniper_stats['queue_size']}")
                 logger.info(f"   total_detections: {sniper_stats['total_detections']}")
                 logger.info(f"   avg_detection_age: {sniper_stats['avg_detection_age_seconds']:.1f}s")
                 if top_snipe_targets:
-                    top_3 = [f"{t['symbol']}({t['priority_score']})" for t in top_snipe_targets[:3]]
-                    logger.info(f"   top_targets: {', '.join(top_3)}")
+                    top_5 = [f"{t['symbol']}({t['priority_score']})" for t in top_snipe_targets[:5]]
+                    logger.info(f"   top_targets: {', '.join(top_5)}")
                 logger.info("=" * 50)
             
             # Convert to dict for deduplication
@@ -2027,7 +2027,7 @@ async def auto_trading_loop():
             auto_trading_state["last_scan"] = datetime.now(timezone.utc).isoformat()
             auto_trading_state["scan_count"] += 1
             auto_trading_state["signals_processed"] += signals_processed
-            auto_trading_state["current_opportunities"] = opportunities[:10]
+            auto_trading_state["current_opportunities"] = opportunities[:50]  # Store top 50 for display
             
             # Calculate signals per minute
             elapsed_minutes = (datetime.now(timezone.utc) - scan_start_time).total_seconds() / 60
@@ -2076,8 +2076,16 @@ async def auto_trading_loop():
             for t in existing_open_trades:
                 active_trade_tokens.add(t.get("token_address"))
             
-            # Debug logging
-            logger.info(f"🔄 TRADE EXECUTION | opportunities={len(opportunities)} | snipe_targets={len(top_snipe_targets)} | available_slots={available_slots} | trade_size={trade_size:.4f} SOL")
+            # Debug logging - EXPANDED ENGINE STATUS
+            logger.info("=" * 60)
+            logger.info("📊 ENGINE STATUS")
+            logger.info(f"   open_trades: {open_trades}")
+            logger.info(f"   sniper_targets: {len(top_snipe_targets)}")
+            logger.info(f"   scanner_opportunities: {len(opportunities)}")
+            logger.info(f"   available_slots: {available_slots}")
+            logger.info(f"   trade_size: {trade_size:.4f} SOL")
+            logger.info(f"   capital_available: {capital_available:.4f} SOL")
+            logger.info("=" * 60)
             
             if available_slots <= 0:
                 logger.info(f"⚠️ No slots available (max_parallel_trades={max_parallel}, open={open_trades})")
@@ -2514,6 +2522,9 @@ async def get_auto_trading_status():
         capital_used_percent = 0
         capital_available = 0
     
+    # Get sniper stats
+    sniper_stats = launch_sniper.get_stats()
+    
     return {
         "is_running": auto_trading_state["is_running"],
         "last_scan": auto_trading_state["last_scan"],
@@ -2526,9 +2537,16 @@ async def get_auto_trading_status():
         "signals_processed": auto_trading_state.get("signals_processed", 0),
         "signals_per_minute": round(auto_trading_state.get("signals_per_minute", 0), 1),
         "high_frequency_mode": auto_trading_state.get("high_frequency_mode", True),
-        # Trade capacity
+        # Trade capacity (expanded for 100-200 trades)
         "open_trades": open_trades,
         "available_slots": ENGINE_CONFIG["max_open_trades"] - open_trades,
+        # Sniper stats
+        "sniper": {
+            "queue_size": sniper_stats["queue_size"],
+            "total_detections": sniper_stats["total_detections"],
+            "successful_snipes": sniper_stats["successful_snipes"],
+            "avg_detection_age": round(sniper_stats["avg_detection_age_seconds"], 1)
+        },
         # Capital metrics
         "capital": {
             "in_trades_sol": round(capital_in_trades, 4),
@@ -2550,9 +2568,11 @@ async def get_auto_trading_status():
             "daily_pnl": round(auto_trading_state.get("daily_pnl", 0), 6),
             "max_drawdown": round(auto_trading_state.get("max_drawdown", 0), 2)
         },
-        # Engine config
+        # Engine config (expanded limits)
         "config": {
             "max_open_trades": ENGINE_CONFIG["max_open_trades"],
+            "max_sniper_targets": 200,
+            "max_opportunities": 200,
             "micro_trade_percent": ENGINE_CONFIG.get("micro_trade_percent", 0.35),
             "max_capital_in_trades_percent": ENGINE_CONFIG.get("max_capital_in_trades_percent", 60),
             "take_profit_percent": ENGINE_CONFIG["take_profit_percent"],
@@ -4059,7 +4079,7 @@ async def get_trading_opportunities():
     
     # Sort by priority (momentum score)
     opportunities.sort(key=lambda x: x.priority, reverse=True)
-    return opportunities[:10]
+    return opportunities[:200]  # Expanded from 10 to 200
 
 # ============== JUPITER SWAP ENDPOINTS ==============
 
@@ -4395,7 +4415,7 @@ async def update_all_trade_prices():
     Fetches live prices from DEX Screener and updates each trade.
     Also checks TP/SL conditions and auto-closes if triggered.
     """
-    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(100)
+    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(200)  # Increased for 100+ trades
     
     if not open_trades:
         return {"updated": 0, "closed": 0, "trades": []}
@@ -4539,7 +4559,7 @@ async def update_all_trade_prices():
     }
 
 
-# Signal cooldown tracker
+# Signal cooldown tracker (supports 200+ tokens)
 signal_cooldowns = {}
 
 def check_signal_cooldown(token_address: str) -> bool:
@@ -4552,8 +4572,15 @@ def check_signal_cooldown(token_address: str) -> bool:
 
 def set_signal_cooldown(token_address: str):
     """Set cooldown for a token after trade execution"""
-    cooldown_seconds = ENGINE_CONFIG.get("signal_cooldown_seconds", 60)
+    cooldown_seconds = ENGINE_CONFIG.get("signal_cooldown_seconds", 45)
     signal_cooldowns[token_address] = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+    
+    # Cleanup old cooldowns (keep under 500 entries)
+    if len(signal_cooldowns) > 500:
+        now = datetime.now(timezone.utc)
+        expired = [k for k, v in signal_cooldowns.items() if v < now]
+        for k in expired:
+            del signal_cooldowns[k]
 
 # ============== PORTFOLIO ENDPOINTS ==============
 
