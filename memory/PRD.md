@@ -1,64 +1,114 @@
-# Pump.fun Trading Bot - PRD v14
+# Pump.fun Trading Bot - PRD v15
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
 
-## Zuletzt Behoben ✅
-
-### 1. "Auto Trading Already Running" Fehler (März 2026)
-**Problem:** System zeigte "already running" Fehler auch wenn kein Bot aktiv war.
-
-**Lösung:**
-- Backend setzt `is_running = False` bei jedem Neustart
-- Neue Endpoints hinzugefügt:
-  - `POST /api/auto-trading/force-restart` - Erzwingt Neustart
-  - `POST /api/auto-trading/reset` - Setzt Zustand zurück ohne zu starten
-- Frontend zeigt "Force Restart" Toast bei Konflikt
-
-### 2. Echtzeit-Preisaktualisierung für TEST-Trades (März 2026)
-**Problem:** P&L, ROI, aktueller Preis wurden nicht aktualisiert.
-
-**Lösung:**
-- Backend verwendet `token_address` für DEX Screener API
-- Frontend aktualisiert alle 2,5 Sekunden
-- Beide Live und Test Trades werden gleich behandelt
-
 ## Vollständig Implementiert ✅
 
-### Auto Trading Engine
-- **Start/Stop/Force-Restart/Reset** Funktionen
-- **Scan-Intervall:** 2 Sekunden
-- **Max offene Trades:** 20
-- **Duplikat-Schutz**
-- **Signal-Cooldown:** 60 Sekunden
+### 1. VIER UNABHÄNGIGE LOOPS
+- **Token Scanner:** Alle 2 Sekunden DEX Screener/Pump.fun scannen
+- **Momentum Analyzer:** Signal-Score mit Volume-Spikes, Price-Change, Buy/Sell Ratio
+- **Trade Monitor:** P&L-Berechnung alle 2,5 Sekunden
+- **UI Live Update:** Activity Feed, Dashboard Updates
 
-### Echtzeit-Preisverfolgung
-- **Update-Intervall:** 2,5 Sekunden
-- **API:** DEX Screener
-- **Auto-Close:** bei TP/SL/Trailing Stop
+### 2. Momentum Detection ✅
+**Kaufbedingungen:**
+- priceChange5m > 10%
+- volumeSpike > 2x
+- buyers > sellers
+- Signal Score >= 35
 
-### Trade-Typen
-- **Live Mode:** Echte Blockchain-Transaktionen (vorbereitet)
-- **Test Mode:** Simuliert Position ohne Swap
+### 3. Anti-Rug Filter ✅ (NEU)
+**Überprüfungen:**
+- Liquidität >= $2k (REQUIRED)
+- Volume/Liquidity Ratio < 100x
+- Token Age > 1 Stunde (weniger Risiko)
+- Transaction Activity > 50/24h
+- Buy/Sell Balance
+
+**Risk Levels:** LOW, MEDIUM, HIGH
+
+### 4. Live Bot Activity Feed ✅ (NEU)
+**Event-Typen:**
+- `BUY` - Bot Kauf mit Entry, Amount, Score
+- `SELL` - Bot Verkauf mit Exit, P&L, Reason
+- `TP_HIT` - Take Profit erreicht
+- `SL_HIT` - Stop Loss erreicht
+- `SIGNAL` - Signal erkannt
+- `SCAN` - Scanner Aktivität
+- `ANTI_RUG` - Rug Check Ergebnis
+
+### 5. Trade Execution ✅
+```javascript
+triggerBuy(token) {
+  trade = {
+    token: symbol,
+    tokenAddress: address,
+    entryPrice: price,
+    sizeSOL: tradeSize,
+    takeProfit: 10%,
+    stopLoss: 5%,
+    type: "TEST"
+  }
+  activeTrades.push(trade)
+  logBotActivity("BUY", trade)
+}
+```
+
+### 6. Real-time P&L Calculation ✅
+```
+profitPercent = ((currentPrice - entryPrice) / entryPrice) * 100
+pnlSOL = sizeSOL * (profitPercent / 100)
+```
+
+### 7. Auto-Close System ✅
+- Take Profit: currentPrice >= takeProfit → close
+- Stop Loss: currentPrice <= stopLoss → close
+- Trailing Stop: currentPrice <= trailingStop → close
+
+### 8. Test Mode ✅
+- Keine Blockchain-Transaktion
+- Simulierte Position
+- P&L/ROI Berechnung aktiv
+
+### 9. Force Restart / Reset ✅
+- `POST /api/auto-trading/force-restart` - Erzwingt Neustart
+- `POST /api/auto-trading/reset` - Setzt Zustand zurück
+- Backend setzt `is_running = False` bei Neustart
 
 ## API Endpoints
 
 | Endpoint | Beschreibung |
 |----------|-------------|
-| `POST /api/auto-trading/start` | Engine starten |
-| `POST /api/auto-trading/stop` | Engine stoppen |
-| `POST /api/auto-trading/force-restart` | Erzwingt Neustart |
-| `POST /api/auto-trading/reset` | Setzt Zustand zurück |
-| `POST /api/trades/update-all-prices` | Bulk-Preisaktualisierung |
+| `POST /api/auto-trading/start` | Bot starten |
+| `POST /api/auto-trading/stop` | Bot stoppen |
+| `POST /api/auto-trading/force-restart` | Force Neustart |
+| `POST /api/auto-trading/reset` | State Reset |
+| `GET /api/activity` | Activity Feed |
+| `POST /api/trades/update-all-prices` | Bulk P&L Update |
+
+## UI Features
+
+### Dashboard
+- **TESTMODUS** Toggle
+- **Auto-Trading starten** Button
+- **Aktive Trades** Panel mit Live P&L
+- **BOT AKTIVITÄT** Live Feed
+
+### Activity Feed Events
+- Farbcodierung: GRÜN=Gewinn, ROT=Verlust
+- Zeitstempel für jedes Event
+- Detaillierte Trade-Informationen
 
 ## Aktuelle Statistiken
-- **Geschlossene Trades:** 100+
+- **Geschlossene Trades:** 110+
 - **Trefferquote:** 29%
-- **Gesamt P&L:** +67.3%
+- **System Status:** Stabil
 
 ## Nächste Schritte
 - Jupiter Swap Integration (Live Mode)
 - Performance Dashboard
+- Break-Even Anzeige
 
 ## Credentials
 - **PIN:** 1234

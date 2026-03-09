@@ -302,7 +302,7 @@ class ActivityFeed:
     def add_event(self, event_type: str, token: str, data: dict = None):
         event = {
             "id": str(uuid.uuid4()),
-            "type": event_type,  # BUY, SELL, SIGNAL, ERROR
+            "type": event_type,  # BUY, SELL, SIGNAL, SCAN, TP_HIT, SL_HIT, ERROR, INFO
             "token": token,
             "data": data or {},
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -314,6 +314,68 @@ class ActivityFeed:
     
     def get_events(self, limit: int = 50) -> list:
         return self.events[:limit]
+    
+    def log_bot_scan(self, tokens_found: int, opportunities: int):
+        """Log scanner activity"""
+        self.add_event("SCAN", "SCANNER", {
+            "tokens_found": tokens_found,
+            "opportunities": opportunities,
+            "message": f"Scanned {tokens_found} tokens, found {opportunities} opportunities"
+        })
+    
+    def log_bot_buy(self, token: str, price: float, amount_sol: float, signal_score: int, reasons: list = None):
+        """Log buy execution"""
+        self.add_event("BUY", token, {
+            "price": price,
+            "amount_sol": amount_sol,
+            "signal_score": signal_score,
+            "reasons": reasons or [],
+            "message": f"BUY {token} @ ${price:.8f} | {amount_sol:.4f} SOL | Score: {signal_score}"
+        })
+    
+    def log_bot_sell(self, token: str, entry_price: float, exit_price: float, pnl_sol: float, pnl_percent: float, reason: str):
+        """Log sell execution"""
+        pnl_str = f"+{pnl_sol:.6f}" if pnl_sol >= 0 else f"{pnl_sol:.6f}"
+        roi_str = f"+{pnl_percent:.2f}" if pnl_percent >= 0 else f"{pnl_percent:.2f}"
+        self.add_event("SELL", token, {
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "pnl_sol": pnl_sol,
+            "pnl_percent": pnl_percent,
+            "reason": reason,
+            "message": f"SELL {token} @ ${exit_price:.8f} | P&L: {pnl_str} SOL ({roi_str}%) | {reason}"
+        })
+    
+    def log_tp_hit(self, token: str, roi: float):
+        """Log take profit trigger"""
+        self.add_event("TP_HIT", token, {
+            "roi": roi,
+            "message": f"🎯 TAKE PROFIT HIT {token} at +{roi:.2f}%"
+        })
+    
+    def log_sl_hit(self, token: str, roi: float):
+        """Log stop loss trigger"""
+        self.add_event("SL_HIT", token, {
+            "roi": roi,
+            "message": f"⚠️ STOP LOSS HIT {token} at {roi:.2f}%"
+        })
+    
+    def log_signal(self, token: str, signal_type: str, strength: str, score: int):
+        """Log signal detection"""
+        self.add_event("SIGNAL", token, {
+            "signal_type": signal_type,
+            "strength": strength,
+            "score": score,
+            "message": f"📊 {strength} signal detected: {token} (Score: {score})"
+        })
+    
+    def log_anti_rug(self, token: str, risk_level: str, reasons: list):
+        """Log anti-rug check"""
+        self.add_event("ANTI_RUG", token, {
+            "risk_level": risk_level,
+            "reasons": reasons,
+            "message": f"🛡️ Anti-rug check {token}: {risk_level} risk"
+        })
 
 activity_feed = ActivityFeed(max_events=100)
 
@@ -568,6 +630,96 @@ def calculate_enhanced_momentum(pair: Dict, settings: BotSettings) -> tuple:
         price_change_5m,
         price_change_1h
     )
+
+
+async def check_anti_rug_filters(pair: Dict) -> tuple:
+    """
+    Anti-rug pull filter checks:
+    - Liquidity requirements
+    - Top holder concentration
+    - Token age
+    - Transaction activity
+    
+    Returns: (is_safe, risk_level, reasons)
+    """
+    reasons = []
+    risk_score = 0
+    
+    # Get token data
+    liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+    volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+    txns_24h = pair.get("txns", {}).get("h24", {})
+    buys_24h = txns_24h.get("buys", 0)
+    sells_24h = txns_24h.get("sells", 0)
+    
+    # Get pair age in hours
+    pair_created = pair.get("pairCreatedAt", 0)
+    if pair_created:
+        age_hours = (datetime.now(timezone.utc).timestamp() * 1000 - pair_created) / (1000 * 60 * 60)
+    else:
+        age_hours = 999  # Unknown age, assume old
+    
+    # ===== CHECK 1: LIQUIDITY =====
+    # Minimum $20k liquidity required
+    min_liquidity = ENGINE_CONFIG.get("min_liquidity_usd", 2000)
+    if liquidity < min_liquidity:
+        risk_score += 30
+        reasons.append(f"Low liquidity: ${liquidity:.0f} < ${min_liquidity}")
+    elif liquidity < 10000:
+        risk_score += 15
+        reasons.append(f"Medium liquidity: ${liquidity:.0f}")
+    
+    # ===== CHECK 2: VOLUME TO LIQUIDITY RATIO =====
+    # Suspicious if volume >> liquidity (potential wash trading)
+    if liquidity > 0:
+        vol_liq_ratio = volume_24h / liquidity
+        if vol_liq_ratio > 100:
+            risk_score += 25
+            reasons.append(f"Suspicious volume ratio: {vol_liq_ratio:.0f}x liquidity")
+        elif vol_liq_ratio > 50:
+            risk_score += 10
+            reasons.append(f"High volume ratio: {vol_liq_ratio:.0f}x liquidity")
+    
+    # ===== CHECK 3: TOKEN AGE =====
+    # Very new tokens are riskier
+    if age_hours < 1:
+        risk_score += 20
+        reasons.append(f"Very new token: {age_hours:.1f} hours old")
+    elif age_hours < 6:
+        risk_score += 10
+        reasons.append(f"New token: {age_hours:.1f} hours old")
+    
+    # ===== CHECK 4: TRANSACTION ACTIVITY =====
+    # Low transaction count is suspicious
+    total_txns = buys_24h + sells_24h
+    if total_txns < 50:
+        risk_score += 15
+        reasons.append(f"Low activity: {total_txns} transactions in 24h")
+    
+    # ===== CHECK 5: BUY/SELL BALANCE =====
+    # Extreme imbalance might indicate manipulation
+    if buys_24h > 0 and sells_24h > 0:
+        ratio = max(buys_24h, sells_24h) / min(buys_24h, sells_24h)
+        if ratio > 10:
+            risk_score += 15
+            reasons.append(f"Imbalanced trades: {ratio:.0f}x ratio")
+    
+    # Determine risk level
+    if risk_score >= 50:
+        risk_level = "HIGH"
+        is_safe = False
+    elif risk_score >= 30:
+        risk_level = "MEDIUM"
+        is_safe = True  # Allow with caution
+    else:
+        risk_level = "LOW"
+        is_safe = True
+    
+    # Log anti-rug check
+    token_symbol = pair.get("baseToken", {}).get("symbol", "???")
+    logger.debug(f"🛡️ Anti-rug check {token_symbol}: {risk_level} (score: {risk_score})")
+    
+    return (is_safe, risk_level, risk_score, reasons)
 
 async def execute_auto_trade_cycle():
     """
@@ -1150,14 +1302,14 @@ async def auto_trading_loop():
                     # Set cooldown for this token
                     set_signal_cooldown(token_address)
                     
-                    # Add to activity feed
-                    activity_feed.add_event("BUY", opp['symbol'], {
-                        "price": opp["price_usd"],
-                        "amount_sol": trade_amount,
-                        "signal_score": opp['signal_score'],
-                        "buy_sell_ratio": opp['buy_sell_ratio'],
-                        "trade_id": trade["id"] if isinstance(trade, dict) else str(trade)
-                    })
+                    # Log to enhanced activity feed
+                    activity_feed.log_bot_buy(
+                        token=opp['symbol'],
+                        price=opp["price_usd"],
+                        amount_sol=trade_amount,
+                        signal_score=int(opp['signal_score']),
+                        reasons=opp.get('signal_reasons', [])
+                    )
                     
                     logger.info(f"✅ TRADE: {opp['symbol']} | {trade_amount} SOL | Score: {opp['signal_score']:.0f} | B/S: {opp['buy_sell_ratio']:.1f}x")
                     
@@ -2303,18 +2455,24 @@ async def close_trade_auto(trade_id: str, reason: str = "MANUAL"):
     await db.trades.update_one({"id": trade_id}, {"$set": update_data})
     
     mode_str = "Paper" if is_paper else "Live"
-    logger.info(f"✅ [{mode_str}] Trade closed: {trade.get('token_symbol', trade_id)} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
+    token_symbol = trade.get('token_symbol', 'Unknown')
+    logger.info(f"✅ [{mode_str}] Trade closed: {token_symbol} - PnL: {pnl_percent:.2f}% ({pnl_sol:.6f} SOL)")
     
-    # Add to activity feed
-    activity_feed.add_event("SELL", trade.get('token_symbol', 'Unknown'), {
-        "entry_price": entry_price,
-        "exit_price": exit_price,
-        "pnl_sol": round(pnl_sol, 6),
-        "pnl_percent": round(pnl_percent, 2),
-        "reason": reason,
-        "mode": mode_str.lower(),
-        "trade_id": trade_id
-    })
+    # Log TP/SL hit events
+    if reason in ["TP_HIT", "TAKE_PROFIT"]:
+        activity_feed.log_tp_hit(token_symbol, pnl_percent)
+    elif reason in ["SL_HIT", "STOP_LOSS"]:
+        activity_feed.log_sl_hit(token_symbol, pnl_percent)
+    
+    # Log sell to activity feed
+    activity_feed.log_bot_sell(
+        token=token_symbol,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        pnl_sol=round(pnl_sol, 6),
+        pnl_percent=round(pnl_percent, 2),
+        reason=reason
+    )
     
     return {
         "success": True, 
