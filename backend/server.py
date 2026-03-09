@@ -238,20 +238,53 @@ class SwapRequest(BaseModel):
     slippage_bps: int = 100
     wallet_address: str
 
-# ============== AUTO TRADING ENGINE ==============
+# ============== HIGH-FREQUENCY MULTI-TRADE ENGINE ==============
 
-# Auto Trading State
+# Trading Engine State - Enhanced for High-Capacity
 auto_trading_state = {
     "is_running": False,
     "last_scan": None,
     "scan_count": 0,
     "trades_executed": 0,
+    "trades_today": 0,
     "errors": [],
     "current_opportunities": [],
     "signals_processed": 0,
+    "signals_per_minute": 0,
     "last_trade_time": None,
     "high_frequency_mode": True,
-    "min_signal_score": 60
+    "min_signal_score": 50,
+    # Signal Queue
+    "signal_queue": [],
+    "queue_max_size": 100,
+    # Performance Metrics
+    "total_trades": 0,
+    "winning_trades": 0,
+    "losing_trades": 0,
+    "total_profit": 0.0,
+    "total_loss": 0.0,
+    "max_drawdown": 0.0,
+    "peak_equity": 0.0,
+    "daily_pnl": 0.0,
+    "last_reset_date": None
+}
+
+# Engine Configuration - High Capacity
+ENGINE_CONFIG = {
+    "scan_interval_seconds": 2,        # 2 second scans
+    "max_tokens_per_scan": 200,        # Process up to 200 tokens
+    "max_signals_per_scan": 100,       # Analyze top 100 signals
+    "max_open_trades": 30,             # Allow up to 30 simultaneous trades
+    "min_signal_score": 50,            # Minimum score to trigger trade
+    "take_profit_percent": 10,         # 10% take profit
+    "stop_loss_percent": 6,            # 6% stop loss
+    "trailing_stop_enabled": True,
+    "trailing_stop_percent": 5,        # 5% trailing stop
+    "daily_loss_limit_percent": 15,    # 15% max daily loss
+    "loss_streak_limit": 5,            # 5 consecutive losses
+    "min_liquidity_usd": 10000,        # $10k minimum liquidity
+    "min_volume_surge_percent": 50,    # 50% volume surge
+    "min_buy_sell_ratio": 1.2          # 1.2x buy pressure
 }
 
 class AutoTradingStatus(BaseModel):
@@ -259,11 +292,37 @@ class AutoTradingStatus(BaseModel):
     last_scan: Optional[str] = None
     scan_count: int = 0
     trades_executed: int = 0
-    scan_interval_seconds: int = 3
+    trades_today: int = 0
+    scan_interval_seconds: int = 2
     errors: List[str] = []
     current_opportunities: int = 0
     signals_processed: int = 0
+    signals_per_minute: float = 0.0
     high_frequency_mode: bool = True
+    # Queue
+    queue_size: int = 0
+    queue_max_size: int = 100
+    # Performance
+    win_rate: float = 0.0
+    avg_profit: float = 0.0
+    avg_loss: float = 0.0
+    max_drawdown: float = 0.0
+    daily_pnl: float = 0.0
+
+class SignalQueueItem(BaseModel):
+    """Queued signal waiting for execution"""
+    address: str
+    symbol: str
+    signal_score: float
+    momentum_score: float
+    liquidity: float
+    volume_5m: float
+    buy_sell_ratio: float
+    price_usd: float
+    pair_address: str
+    queued_at: str
+    priority: int  # Higher = more urgent
+    expiry_seconds: int = 60  # Signal expires after 60s
 
 class MomentumSignal(BaseModel):
     token_address: str
@@ -680,70 +739,425 @@ async def execute_auto_trade_cycle():
 # Background task for auto trading loop
 auto_trading_task = None
 
-async def auto_trading_loop():
+async def process_signal_queue():
     """
-    High-frequency background loop that runs every 2-3 seconds.
-    - Scans market continuously
-    - Processes multiple opportunities per minute
-    - Respects risk limits
+    Process queued signals when trade slots become available.
+    Executes highest priority signals first.
     """
     global auto_trading_state
     
-    logger.info("🚀 High-Frequency Trading Loop Started")
+    # Get current open trades
+    open_trades = await db.trades.count_documents({"status": "OPEN"})
+    max_trades = ENGINE_CONFIG["max_open_trades"]
+    available_slots = max_trades - open_trades
+    
+    if available_slots <= 0 or not auto_trading_state["signal_queue"]:
+        return []
+    
+    executed_trades = []
+    settings = await get_bot_settings()
+    portfolio = await get_portfolio_summary()
+    
+    # Sort queue by priority (signal_score)
+    auto_trading_state["signal_queue"].sort(key=lambda x: x.get("signal_score", 0), reverse=True)
+    
+    # Process top signals up to available slots
+    now = datetime.now(timezone.utc)
+    queue_to_remove = []
+    
+    for i, signal in enumerate(auto_trading_state["signal_queue"][:available_slots]):
+        try:
+            # Check if signal expired
+            queued_at = datetime.fromisoformat(signal.get("queued_at", now.isoformat()))
+            if (now - queued_at).total_seconds() > 60:  # Expire after 60s
+                queue_to_remove.append(i)
+                continue
+            
+            # Calculate dynamic trade size
+            trade_amount = calculate_dynamic_trade_size(portfolio, settings)
+            
+            if trade_amount < settings.min_trade_sol:
+                continue
+            
+            # Execute trade
+            trade_data = TradeCreate(
+                token_address=signal["address"],
+                token_symbol=signal["symbol"],
+                token_name=signal.get("name", signal["symbol"]),
+                pair_address=signal.get("pair_address"),
+                trade_type="BUY",
+                amount_sol=trade_amount,
+                price_entry=signal["price_usd"],
+                take_profit_percent=ENGINE_CONFIG["take_profit_percent"],
+                stop_loss_percent=ENGINE_CONFIG["stop_loss_percent"],
+                trailing_stop_percent=ENGINE_CONFIG["trailing_stop_percent"] if ENGINE_CONFIG["trailing_stop_enabled"] else None,
+                paper_trade=settings.paper_mode,
+                auto_trade=True
+            )
+            
+            trade = await create_trade(trade_data)
+            executed_trades.append(trade)
+            queue_to_remove.append(i)
+            
+            auto_trading_state["trades_executed"] += 1
+            auto_trading_state["trades_today"] += 1
+            
+            logger.info(f"📈 Queue trade executed: {signal['symbol']} for {trade_amount} SOL (Score: {signal['signal_score']:.0f})")
+            
+        except Exception as e:
+            logger.error(f"Queue trade error for {signal.get('symbol', '???')}: {e}")
+            queue_to_remove.append(i)
+    
+    # Remove processed signals from queue
+    for i in sorted(queue_to_remove, reverse=True):
+        if i < len(auto_trading_state["signal_queue"]):
+            auto_trading_state["signal_queue"].pop(i)
+    
+    return executed_trades
+
+def calculate_dynamic_trade_size(portfolio, settings):
+    """
+    Dynamic capital allocation based on available balance and max trades.
+    trade_size = available_balance / remaining_trade_slots
+    """
+    max_trades = ENGINE_CONFIG["max_open_trades"]
+    open_trades = portfolio.open_trades
+    remaining_slots = max(1, max_trades - open_trades)
+    
+    # Get wallet balance or available budget
+    available = portfolio.available_sol if portfolio.wallet_balance_sol == 0 else portfolio.wallet_balance_sol
+    
+    # Dynamic allocation: divide available capital by remaining slots
+    dynamic_size = available / remaining_slots
+    
+    # Apply configured limits
+    max_trade = settings.total_budget_sol * (settings.max_trade_percent / 100)
+    min_trade = settings.min_trade_sol
+    
+    # Final trade size
+    trade_size = min(max_trade, max(min_trade, dynamic_size))
+    
+    return round(trade_size, 4)
+
+async def update_performance_metrics(trade_result: dict):
+    """Update performance metrics after trade closes"""
+    global auto_trading_state
+    
+    pnl = trade_result.get("pnl", 0)
+    
+    if pnl > 0:
+        auto_trading_state["winning_trades"] += 1
+        auto_trading_state["total_profit"] += pnl
+    else:
+        auto_trading_state["losing_trades"] += 1
+        auto_trading_state["total_loss"] += abs(pnl)
+    
+    auto_trading_state["total_trades"] += 1
+    auto_trading_state["daily_pnl"] += pnl
+    
+    # Update drawdown
+    current_equity = auto_trading_state.get("peak_equity", 0) + auto_trading_state["daily_pnl"]
+    if current_equity > auto_trading_state["peak_equity"]:
+        auto_trading_state["peak_equity"] = current_equity
+    else:
+        drawdown = (auto_trading_state["peak_equity"] - current_equity) / max(auto_trading_state["peak_equity"], 1) * 100
+        if drawdown > auto_trading_state["max_drawdown"]:
+            auto_trading_state["max_drawdown"] = drawdown
+
+async def check_risk_limits(portfolio, settings) -> tuple:
+    """
+    Check if any risk limits are breached.
+    Returns: (is_blocked, reason)
+    """
+    # Daily loss limit check
+    daily_loss_pct = abs(auto_trading_state["daily_pnl"]) / max(settings.total_budget_sol, 0.01) * 100
+    if auto_trading_state["daily_pnl"] < 0 and daily_loss_pct >= ENGINE_CONFIG["daily_loss_limit_percent"]:
+        return True, f"Daily loss limit reached ({daily_loss_pct:.1f}%)"
+    
+    # Loss streak check
+    if portfolio.loss_streak >= ENGINE_CONFIG["loss_streak_limit"]:
+        return True, f"Loss streak limit reached ({portfolio.loss_streak} consecutive losses)"
+    
+    # Portfolio pause check
+    if portfolio.is_paused:
+        return True, portfolio.pause_reason
+    
+    return False, None
+
+async def auto_trading_loop():
+    """
+    High-Frequency Multi-Trade Engine Loop
+    - 2 second scan interval
+    - Processes up to 200 tokens per scan
+    - Manages up to 30 simultaneous trades
+    - Signal queue for overflow
+    - Dynamic capital allocation
+    """
+    global auto_trading_state
+    
+    logger.info("🚀 HIGH-CAPACITY TRADING ENGINE STARTED")
+    logger.info(f"   - Scan interval: {ENGINE_CONFIG['scan_interval_seconds']}s")
+    logger.info(f"   - Max tokens/scan: {ENGINE_CONFIG['max_tokens_per_scan']}")
+    logger.info(f"   - Max open trades: {ENGINE_CONFIG['max_open_trades']}")
+    logger.info(f"   - Take profit: {ENGINE_CONFIG['take_profit_percent']}%")
+    logger.info(f"   - Stop loss: {ENGINE_CONFIG['stop_loss_percent']}%")
+    
+    scan_start_time = datetime.now(timezone.utc)
     
     while auto_trading_state["is_running"]:
+        cycle_start = datetime.now(timezone.utc)
+        
         try:
-            # Execute trade cycle
-            result = await execute_auto_trade_cycle()
+            settings = await get_bot_settings()
+            portfolio = await get_portfolio_summary()
             
-            if result.get("executed"):
-                token = result.get('token', 'Unknown')
-                amount = result.get('amount', 0)
-                score = result.get('signal_score', 0)
-                logger.info(f"✅ Auto trade executed: {token} for {amount} SOL (Score: {score})")
-                auto_trading_state["last_trade_time"] = datetime.now(timezone.utc).isoformat()
-            elif result.get("reason"):
-                # Log non-critical reasons occasionally
-                if auto_trading_state["scan_count"] % 10 == 0:
-                    logger.debug(f"⏳ No trade: {result.get('reason')}")
+            # Check risk limits first
+            is_blocked, block_reason = await check_risk_limits(portfolio, settings)
+            if is_blocked:
+                logger.warning(f"⚠️ Trading blocked: {block_reason}")
+                await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
+                continue
+            
+            # Process signal queue first (execute waiting signals)
+            queue_trades = await process_signal_queue()
+            
+            # Get current open trades count
+            open_trades = await db.trades.count_documents({"status": "OPEN"})
+            available_slots = ENGINE_CONFIG["max_open_trades"] - open_trades
+            
+            # Scan market for new opportunities
+            logger.info(f"🔍 SCAN #{auto_trading_state['scan_count']+1} | Open: {open_trades}/{ENGINE_CONFIG['max_open_trades']} | Queue: {len(auto_trading_state['signal_queue'])}")
+            
+            # Parallel fetch from multiple sources
+            pump_task = asyncio.create_task(fetch_pump_fun_tokens())
+            dex_task = asyncio.create_task(fetch_dex_screener_tokens(100))  # Get 100 tokens
+            
+            try:
+                pump_pairs, dex_pairs = await asyncio.gather(pump_task, dex_task, return_exceptions=True)
+                pump_pairs = pump_pairs if isinstance(pump_pairs, list) else []
+                dex_pairs = dex_pairs if isinstance(dex_pairs, list) else []
+            except Exception as e:
+                logger.error(f"Fetch error: {e}")
+                pump_pairs, dex_pairs = [], []
+            
+            # Combine and dedupe - limit to max_tokens_per_scan
+            all_pairs = {}
+            for pair in pump_pairs + dex_pairs:
+                if len(all_pairs) >= ENGINE_CONFIG["max_tokens_per_scan"]:
+                    break
                     
+                address = pair.get("baseToken", {}).get("address", "")
+                if not address or address in all_pairs:
+                    continue
+                    
+                liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+                volume_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+                
+                # Pre-filter: liquidity > $10k
+                if liquidity >= ENGINE_CONFIG["min_liquidity_usd"] and volume_24h >= 5000:
+                    all_pairs[address] = pair
+            
+            # Parallel signal analysis
+            opportunities = []
+            signals_processed = 0
+            
+            for address, pair in all_pairs.items():
+                try:
+                    signals_processed += 1
+                    
+                    # Calculate momentum
+                    (
+                        momentum_score, signal_strength, signals, signal_reasons,
+                        buy_signal, buys_5m, sells_5m, volume_5m, price_5m, price_1h
+                    ) = calculate_enhanced_momentum(pair, settings)
+                    
+                    # Risk analysis
+                    risk_analysis = calculate_risk_analysis(pair, settings)
+                    if not risk_analysis.passed_filters:
+                        continue
+                    
+                    # Buy/sell ratio
+                    buy_sell_ratio = buys_5m / max(sells_5m, 1)
+                    if buy_sell_ratio < ENGINE_CONFIG["min_buy_sell_ratio"]:
+                        continue
+                    
+                    # Calculate SIGNAL SCORE (0-100)
+                    signal_score = 0
+                    liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+                    
+                    # Momentum (0-30)
+                    signal_score += min(30, momentum_score * 0.3)
+                    
+                    # Liquidity (0-25)
+                    if liq >= 100000: signal_score += 25
+                    elif liq >= 50000: signal_score += 20
+                    elif liq >= 20000: signal_score += 15
+                    elif liq >= 10000: signal_score += 10
+                    
+                    # Volume surge (0-25)
+                    if volume_5m > 20000: signal_score += 25
+                    elif volume_5m > 10000: signal_score += 20
+                    elif volume_5m > 5000: signal_score += 15
+                    elif volume_5m > 1000: signal_score += 10
+                    
+                    # Buy pressure (0-20)
+                    if buy_sell_ratio >= 3.0: signal_score += 20
+                    elif buy_sell_ratio >= 2.0: signal_score += 15
+                    elif buy_sell_ratio >= 1.5: signal_score += 12
+                    elif buy_sell_ratio >= 1.2: signal_score += 8
+                    
+                    # Only strong signals
+                    if buy_signal and signal_score >= ENGINE_CONFIG["min_signal_score"]:
+                        base_token = pair.get("baseToken", {})
+                        
+                        opportunity = {
+                            "address": address,
+                            "symbol": base_token.get("symbol", "???"),
+                            "name": base_token.get("name", "Unknown"),
+                            "price_usd": float(pair.get("priceUsd", 0) or 0),
+                            "momentum_score": momentum_score,
+                            "signal_score": signal_score,
+                            "signal_strength": signal_strength,
+                            "signal_reasons": signal_reasons,
+                            "risk_score": risk_analysis.risk_score,
+                            "liquidity": liq,
+                            "volume_5m": volume_5m,
+                            "pair_address": pair.get("pairAddress"),
+                            "buy_sell_ratio": buy_sell_ratio,
+                            "price_change_5m": price_5m,
+                            "queued_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        opportunities.append(opportunity)
+                        
+                except Exception as e:
+                    continue
+            
+            # Sort by signal score
+            opportunities.sort(key=lambda x: x["signal_score"], reverse=True)
+            
+            # Update state
+            auto_trading_state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            auto_trading_state["scan_count"] += 1
+            auto_trading_state["signals_processed"] += signals_processed
+            auto_trading_state["current_opportunities"] = opportunities[:10]
+            
+            # Calculate signals per minute
+            elapsed_minutes = (datetime.now(timezone.utc) - scan_start_time).total_seconds() / 60
+            if elapsed_minutes > 0:
+                auto_trading_state["signals_per_minute"] = auto_trading_state["signals_processed"] / elapsed_minutes
+            
+            logger.info(f"📊 {len(all_pairs)} tokens scanned, {len(opportunities)} opportunities (Score >= {ENGINE_CONFIG['min_signal_score']})")
+            
+            # Execute trades for available slots
+            trades_executed_this_cycle = 0
+            
+            for opp in opportunities[:available_slots]:
+                try:
+                    # Check if we already have a trade for this token
+                    existing = await db.trades.find_one({
+                        "token_address": opp["address"],
+                        "status": "OPEN"
+                    })
+                    if existing:
+                        continue
+                    
+                    # Calculate trade size
+                    trade_amount = calculate_dynamic_trade_size(portfolio, settings)
+                    
+                    if trade_amount < settings.min_trade_sol:
+                        continue
+                    
+                    # Execute trade
+                    trade_data = TradeCreate(
+                        token_address=opp["address"],
+                        token_symbol=opp["symbol"],
+                        token_name=opp["name"],
+                        pair_address=opp.get("pair_address"),
+                        trade_type="BUY",
+                        amount_sol=trade_amount,
+                        price_entry=opp["price_usd"],
+                        take_profit_percent=ENGINE_CONFIG["take_profit_percent"],
+                        stop_loss_percent=ENGINE_CONFIG["stop_loss_percent"],
+                        trailing_stop_percent=ENGINE_CONFIG["trailing_stop_percent"] if ENGINE_CONFIG["trailing_stop_enabled"] else None,
+                        paper_trade=settings.paper_mode,
+                        auto_trade=True
+                    )
+                    
+                    trade = await create_trade(trade_data)
+                    trades_executed_this_cycle += 1
+                    auto_trading_state["trades_executed"] += 1
+                    auto_trading_state["trades_today"] += 1
+                    
+                    logger.info(f"✅ TRADE: {opp['symbol']} | {trade_amount} SOL | Score: {opp['signal_score']:.0f} | B/S: {opp['buy_sell_ratio']:.1f}x")
+                    
+                except Exception as e:
+                    logger.error(f"Trade execution error: {e}")
+            
+            # Queue remaining opportunities
+            remaining_opps = opportunities[available_slots:available_slots + 20]  # Queue up to 20
+            for opp in remaining_opps:
+                if len(auto_trading_state["signal_queue"]) < ENGINE_CONFIG.get("queue_max_size", 100):
+                    # Don't queue duplicates
+                    if not any(q["address"] == opp["address"] for q in auto_trading_state["signal_queue"]):
+                        auto_trading_state["signal_queue"].append(opp)
+            
+            # Log cycle summary
+            cycle_time = (datetime.now(timezone.utc) - cycle_start).total_seconds()
+            logger.info(f"⏱️ Cycle complete: {trades_executed_this_cycle} trades, {cycle_time:.2f}s")
+            
         except Exception as e:
-            logger.error(f"Auto trading loop error: {e}")
+            logger.error(f"Trading loop error: {e}")
             auto_trading_state["errors"].append({
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
             auto_trading_state["errors"] = auto_trading_state["errors"][-10:]
         
-        # High-frequency: 2-3 second intervals
-        # This allows ~20-30 scans per minute
-        await asyncio.sleep(3)
+        # Wait for next scan
+        await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
 
 @api_router.post("/auto-trading/start")
 async def start_auto_trading(background_tasks: BackgroundTasks):
-    """Start the high-frequency auto trading engine"""
+    """Start the high-capacity multi-trade engine"""
     global auto_trading_state, auto_trading_task
     
     if auto_trading_state["is_running"]:
         return {"success": False, "message": "Auto trading already running"}
+    
+    # Reset daily metrics if new day
+    today = datetime.now(timezone.utc).date().isoformat()
+    if auto_trading_state.get("last_reset_date") != today:
+        auto_trading_state["trades_today"] = 0
+        auto_trading_state["daily_pnl"] = 0.0
+        auto_trading_state["last_reset_date"] = today
     
     # Reset state
     auto_trading_state["is_running"] = True
     auto_trading_state["scan_count"] = 0
     auto_trading_state["trades_executed"] = 0
     auto_trading_state["signals_processed"] = 0
+    auto_trading_state["signals_per_minute"] = 0.0
     auto_trading_state["errors"] = []
+    auto_trading_state["signal_queue"] = []
     auto_trading_state["high_frequency_mode"] = True
+    auto_trading_state["current_opportunities"] = []
     
     # Start background task
     auto_trading_task = asyncio.create_task(auto_trading_loop())
     
-    logger.info("🚀 High-Frequency Auto Trading Engine Started (3s interval, ~20 scans/min)")
+    logger.info("🚀 HIGH-CAPACITY TRADING ENGINE STARTED")
     return {
         "success": True, 
-        "message": "Auto trading started in high-frequency mode",
-        "interval_seconds": 3,
-        "scans_per_minute": 20
+        "message": "High-capacity trading engine started",
+        "config": {
+            "scan_interval_seconds": ENGINE_CONFIG["scan_interval_seconds"],
+            "max_tokens_per_scan": ENGINE_CONFIG["max_tokens_per_scan"],
+            "max_open_trades": ENGINE_CONFIG["max_open_trades"],
+            "take_profit_percent": ENGINE_CONFIG["take_profit_percent"],
+            "stop_loss_percent": ENGINE_CONFIG["stop_loss_percent"],
+            "daily_loss_limit_percent": ENGINE_CONFIG["daily_loss_limit_percent"],
+            "scans_per_minute": 60 / ENGINE_CONFIG["scan_interval_seconds"]
+        }
     }
 
 @api_router.post("/auto-trading/stop")
@@ -761,35 +1175,94 @@ async def stop_auto_trading():
             pass
         auto_trading_task = None
     
-    logger.info("🛑 Auto Trading Engine Stopped")
+    # Calculate final stats
+    total_trades = auto_trading_state.get("total_trades", 0)
+    winning = auto_trading_state.get("winning_trades", 0)
+    win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
+    
+    logger.info("🛑 HIGH-CAPACITY TRADING ENGINE STOPPED")
     return {
         "success": True, 
-        "message": "Auto trading stopped",
-        "stats": {
+        "message": "Trading engine stopped",
+        "session_stats": {
             "scan_count": auto_trading_state["scan_count"],
-            "trades_executed": auto_trading_state["trades_executed"]
+            "signals_processed": auto_trading_state["signals_processed"],
+            "trades_executed": auto_trading_state["trades_executed"],
+            "trades_today": auto_trading_state.get("trades_today", 0),
+            "win_rate": round(win_rate, 1),
+            "daily_pnl": auto_trading_state.get("daily_pnl", 0),
+            "max_drawdown": auto_trading_state.get("max_drawdown", 0)
         }
     }
 
-@api_router.get("/auto-trading/status", response_model=AutoTradingStatus)
+@api_router.get("/auto-trading/status")
 async def get_auto_trading_status():
-    """Get current auto trading status with high-frequency metrics"""
-    return AutoTradingStatus(
-        is_running=auto_trading_state["is_running"],
-        last_scan=auto_trading_state["last_scan"],
-        scan_count=auto_trading_state["scan_count"],
-        trades_executed=auto_trading_state["trades_executed"],
-        scan_interval_seconds=3,
-        errors=[e.get("error", "") for e in auto_trading_state["errors"][-5:]],
-        current_opportunities=len(auto_trading_state.get("current_opportunities", [])),
-        signals_processed=auto_trading_state.get("signals_processed", 0),
-        high_frequency_mode=auto_trading_state.get("high_frequency_mode", True)
-    )
+    """Get comprehensive auto trading status with performance metrics"""
+    
+    # Calculate win rate
+    total = auto_trading_state.get("total_trades", 0)
+    winning = auto_trading_state.get("winning_trades", 0)
+    win_rate = (winning / total * 100) if total > 0 else 0
+    
+    # Calculate average profit/loss
+    avg_profit = auto_trading_state.get("total_profit", 0) / max(winning, 1)
+    avg_loss = auto_trading_state.get("total_loss", 0) / max(auto_trading_state.get("losing_trades", 1), 1)
+    
+    return {
+        "is_running": auto_trading_state["is_running"],
+        "last_scan": auto_trading_state["last_scan"],
+        "scan_count": auto_trading_state["scan_count"],
+        "trades_executed": auto_trading_state["trades_executed"],
+        "trades_today": auto_trading_state.get("trades_today", 0),
+        "scan_interval_seconds": ENGINE_CONFIG["scan_interval_seconds"],
+        "errors": [e.get("error", "") for e in auto_trading_state["errors"][-5:]],
+        "current_opportunities": len(auto_trading_state.get("current_opportunities", [])),
+        "signals_processed": auto_trading_state.get("signals_processed", 0),
+        "signals_per_minute": round(auto_trading_state.get("signals_per_minute", 0), 1),
+        "high_frequency_mode": auto_trading_state.get("high_frequency_mode", True),
+        # Queue info
+        "queue_size": len(auto_trading_state.get("signal_queue", [])),
+        "queue_max_size": ENGINE_CONFIG.get("queue_max_size", 100),
+        # Performance metrics
+        "performance": {
+            "total_trades": total,
+            "winning_trades": winning,
+            "losing_trades": auto_trading_state.get("losing_trades", 0),
+            "win_rate": round(win_rate, 1),
+            "avg_profit": round(avg_profit, 6),
+            "avg_loss": round(avg_loss, 6),
+            "daily_pnl": round(auto_trading_state.get("daily_pnl", 0), 6),
+            "max_drawdown": round(auto_trading_state.get("max_drawdown", 0), 2)
+        },
+        # Engine config
+        "config": {
+            "max_open_trades": ENGINE_CONFIG["max_open_trades"],
+            "take_profit_percent": ENGINE_CONFIG["take_profit_percent"],
+            "stop_loss_percent": ENGINE_CONFIG["stop_loss_percent"],
+            "daily_loss_limit_percent": ENGINE_CONFIG["daily_loss_limit_percent"],
+            "min_signal_score": ENGINE_CONFIG["min_signal_score"]
+        }
+    }
 
 @api_router.get("/auto-trading/opportunities")
 async def get_current_opportunities():
     """Get current detected opportunities from auto trading"""
     return auto_trading_state.get("current_opportunities", [])
+
+@api_router.get("/auto-trading/queue")
+async def get_signal_queue():
+    """Get current signal queue waiting for execution"""
+    return {
+        "queue": auto_trading_state.get("signal_queue", [])[:20],  # Return top 20
+        "queue_size": len(auto_trading_state.get("signal_queue", [])),
+        "max_size": ENGINE_CONFIG.get("queue_max_size", 100)
+    }
+
+@api_router.post("/auto-trading/clear-queue")
+async def clear_signal_queue():
+    """Clear the signal queue"""
+    auto_trading_state["signal_queue"] = []
+    return {"success": True, "message": "Signal queue cleared"}
 
 # ============== CONSTANTS ==============
 
