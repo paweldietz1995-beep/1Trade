@@ -3739,9 +3739,13 @@ class WalletSyncManager:
         """
         global wallet_state
         
-        logger.info("=" * 50)
-        logger.info("WALLET_SYNC_SEQUENCE_STARTED")
-        logger.info("=" * 50)
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("    WALLET SYNC PROCESS - DETAILED DEBUG LOG")
+        logger.info("=" * 60)
+        logger.info(f"Input Address: {address if address else 'None'}")
+        logger.info(f"Wallet Type: {wallet_type}")
+        logger.info("=" * 60)
         
         self.diagnostics = []
         results = {
@@ -3753,87 +3757,159 @@ class WalletSyncManager:
             "trading_engine_ready": False
         }
         
+        current_step = 0
+        
         try:
             # ============ STEP 1: Environment Variables ============
+            current_step = 1
+            logger.info("")
+            logger.info(f"STEP {current_step}: Checking environment variables...")
             self._log_diagnostic("ENV_CHECK", "STARTED")
+            
             env_result = await self._check_environment_variables()
+            logger.info(f"   ENV_CHECK result: {env_result}")
+            
             if not env_result["success"]:
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {env_result['error']}")
                 raise WalletSyncError(env_result["error"], "ENV_VARIABLE_MISSING")
+            
             results["steps_completed"].append("ENV_CHECK")
             self._log_diagnostic("ENV_CHECK", "SUCCESS")
+            logger.info(f"   ✅ STEP {current_step} OK: Environment variables verified")
             
             # ============ STEP 2: RPC Connection ============
+            current_step = 2
+            logger.info("")
+            logger.info(f"STEP {current_step}: Testing RPC connection...")
             self._log_diagnostic("RPC_INIT", "STARTED")
+            
             rpc_result = await self._initialize_rpc_connection()
+            logger.info(f"   RPC_INIT result: connected={rpc_result.get('connected')}, endpoint={rpc_result.get('endpoint', 'None')[:50] if rpc_result.get('endpoint') else 'None'}")
+            
             if not rpc_result["connected"]:
-                raise WalletSyncError(rpc_result["error"], "RPC_CONNECTION_FAILED")
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {rpc_result.get('error', 'RPC connection failed')}")
+                raise WalletSyncError(rpc_result.get("error", "RPC connection failed"), "RPC_CONNECTION_FAILED")
+            
             results["steps_completed"].append("RPC_INIT")
             results["rpc_endpoint"] = rpc_result["endpoint"]
             self._log_diagnostic("RPC_CONNECTED", "SUCCESS", rpc_result["endpoint"][:40])
+            logger.info(f"   ✅ STEP {current_step} OK: RPC connected to {rpc_result['endpoint'][:40]}...")
             
-            # ============ STEP 3: Wallet Address Validation ============
+            # ============ STEP 3: Wallet Address Loading ============
+            current_step = 3
+            logger.info("")
+            logger.info(f"STEP {current_step}: Loading wallet address...")
+            
             if not address:
-                # Check for server-side private key
-                private_key = os.environ.get("PRIVATE_KEY")
+                logger.info("   No address provided, checking for server keypair...")
+                private_key = os.environ.get("PRIVATE_KEY") or os.environ.get("SOLANA_PRIVATE_KEY")
+                
                 if private_key:
+                    logger.info("   Found private key in environment, loading keypair...")
                     self._log_diagnostic("KEYPAIR_LOAD", "STARTED")
                     keypair_result = await self._load_server_keypair(private_key)
+                    logger.info(f"   KEYPAIR_LOAD result: {keypair_result}")
+                    
                     if not keypair_result["success"]:
+                        logger.error(f"WALLET SYNC FAILED at step {current_step}: {keypair_result['error']}")
                         raise WalletSyncError(keypair_result["error"], "INVALID_PRIVATE_KEY_FORMAT")
+                    
                     address = keypair_result["address"]
                     wallet_type = "server"
                     results["steps_completed"].append("KEYPAIR_LOAD")
                     self._log_diagnostic("WALLET_LOADED", "SUCCESS", f"Server keypair: {address[:12]}...")
+                    logger.info(f"   ✅ STEP {current_step} OK: Server keypair loaded, address: {address}")
                 else:
-                    # No address and no private key - test mode or browser wallet required
+                    logger.info("   No private key found - entering test mode")
                     self._log_diagnostic("WALLET_LOAD", "WARNING", "No wallet address - using test mode")
                     wallet_state["sync_status"] = "test_mode"
                     results["steps_completed"].append("TEST_MODE_INIT")
                     results["success"] = True
                     results["test_mode"] = True
                     results["message"] = "Test mode active - no wallet connected"
+                    logger.info(f"   ✅ STEP {current_step} OK: Test mode activated")
                     return results
+            else:
+                logger.info(f"   Address provided: {address}")
+                logger.info(f"   ✅ STEP {current_step} OK: Wallet address loaded")
             
             # ============ STEP 4: Validate Wallet Structure ============
+            current_step = 4
+            logger.info("")
+            logger.info(f"STEP {current_step}: Validating wallet address structure...")
+            logger.info(f"   Address to validate: {address}")
             self._log_diagnostic("WALLET_VALIDATE", "STARTED")
+            
             validation_result = await self._validate_wallet_structure(address)
+            logger.info(f"   WALLET_VALIDATE result: {validation_result}")
+            
             if not validation_result["valid"]:
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {validation_result['error']}")
                 raise WalletSyncError(validation_result["error"], "WALLET_NOT_LOADED")
+            
             results["steps_completed"].append("WALLET_VALIDATE")
             self._log_diagnostic("WALLET_VALIDATION_SUCCESS", "SUCCESS")
+            logger.info(f"   ✅ STEP {current_step} OK: Wallet address structure valid")
             
             # ============ STEP 5: Verify Public Key ============
+            current_step = 5
+            logger.info("")
+            logger.info(f"STEP {current_step}: Verifying public key format...")
             self._log_diagnostic("PUBKEY_VERIFY", "STARTED")
+            
             pubkey_result = await self._verify_public_key(address)
+            logger.info(f"   PUBKEY_VERIFY result: {pubkey_result}")
+            
             if not pubkey_result["valid"]:
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {pubkey_result['error']}")
                 raise WalletSyncError(pubkey_result["error"], "INVALID_WALLET_PUBLIC_KEY")
+            
             results["steps_completed"].append("PUBKEY_VERIFY")
             wallet_state["public_key_valid"] = True
             self._log_diagnostic("PUBKEY_VERIFIED", "SUCCESS")
+            logger.info(f"   ✅ STEP {current_step} OK: Public key format verified")
             
             # ============ STEP 6: Check Wallet Adapter Conflicts ============
+            current_step = 6
+            logger.info("")
+            logger.info(f"STEP {current_step}: Checking wallet adapter conflicts...")
             self._log_diagnostic("ADAPTER_CHECK", "STARTED")
+            
             adapter_result = await self._check_wallet_adapter_conflict(wallet_type)
+            logger.info(f"   ADAPTER_CHECK result: {adapter_result}")
+            
             if adapter_result["conflict"]:
+                logger.warning(f"   ⚠️ Wallet adapter conflict detected: {adapter_result['details']}")
                 self._log_diagnostic("WALLET_ADAPTER_CONFLICT", "WARNING", adapter_result["details"])
                 wallet_state["adapter_conflict"] = True
             else:
                 results["steps_completed"].append("ADAPTER_CHECK")
                 self._log_diagnostic("ADAPTER_CHECK", "SUCCESS", f"Type: {wallet_type}")
+            logger.info(f"   ✅ STEP {current_step} OK: Adapter check complete")
             
             # ============ STEP 7: Fetch Wallet Balance ============
+            current_step = 7
+            logger.info("")
+            logger.info(f"STEP {current_step}: Fetching wallet balance...")
+            logger.info(f"   Calling _fetch_balance_with_retry for address: {address}")
             self._log_diagnostic("BALANCE_FETCH", "STARTED")
+            
             balance_result = await self._fetch_balance_with_retry(address)
+            logger.info(f"   BALANCE_FETCH result: {balance_result}")
+            
             if not balance_result["success"]:
-                raise WalletSyncError(balance_result["error"], "BALANCE_FETCH_FAILED")
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {balance_result.get('error', 'Balance fetch failed')}")
+                raise WalletSyncError(balance_result.get("error", "Balance fetch failed"), "BALANCE_FETCH_FAILED")
             
             balance_sol = balance_result["balance"]
             results["steps_completed"].append("BALANCE_FETCH")
             results["balance"] = balance_sol
             self._log_diagnostic("WALLET_BALANCE_FETCHED", "SUCCESS", f"{balance_sol:.6f} SOL")
+            logger.info(f"   ✅ STEP {current_step} OK: Balance fetched = {balance_sol:.6f} SOL")
             
             # Check minimum balance
             if balance_sol < WALLET_SYNC_CONFIG["min_balance_sol"]:
+                logger.warning(f"   ⚠️ LOW BALANCE WARNING: {balance_sol:.6f} SOL < {WALLET_SYNC_CONFIG['min_balance_sol']} minimum")
                 self._log_diagnostic("LOW_WALLET_BALANCE", "WARNING", 
                     f"{balance_sol:.6f} SOL < {WALLET_SYNC_CONFIG['min_balance_sol']} minimum")
                 activity_feed.add_event("WARNING", "WALLET", {
@@ -3841,21 +3917,38 @@ class WalletSyncManager:
                 })
             
             # ============ STEP 8: Initialize Trading Engine ============
+            current_step = 8
+            logger.info("")
+            logger.info(f"STEP {current_step}: Initializing trading engine...")
             self._log_diagnostic("ENGINE_INIT", "STARTED")
+            
             engine_result = await self._initialize_trading_engine(address, balance_sol)
+            logger.info(f"   ENGINE_INIT result: {engine_result}")
+            
             if not engine_result["success"]:
-                raise WalletSyncError(engine_result["error"], "TRADING_ENGINE_INIT_FAILED")
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {engine_result.get('error', 'Engine init failed')}")
+                raise WalletSyncError(engine_result.get("error", "Engine init failed"), "TRADING_ENGINE_INIT_FAILED")
+            
             results["steps_completed"].append("ENGINE_INIT")
             self._log_diagnostic("TRADING_ENGINE_INITIALIZED", "SUCCESS")
+            logger.info(f"   ✅ STEP {current_step} OK: Trading engine initialized")
             
             # ============ STEP 9: Sync Wallet with Engine ============
+            current_step = 9
+            logger.info("")
+            logger.info(f"STEP {current_step}: Syncing wallet with trading engine...")
             self._log_diagnostic("WALLET_SYNC", "STARTED")
+            
             sync_result = await self._sync_wallet_to_engine(address, balance_sol, wallet_type)
+            logger.info(f"   WALLET_SYNC result: {sync_result}")
+            
             if not sync_result["success"]:
-                raise WalletSyncError(sync_result["error"], "WALLET_SYNC_FAILED")
+                logger.error(f"WALLET SYNC FAILED at step {current_step}: {sync_result.get('error', 'Sync failed')}")
+                raise WalletSyncError(sync_result.get("error", "Sync failed"), "WALLET_SYNC_FAILED")
             
             results["steps_completed"].append("WALLET_SYNC")
             self._log_diagnostic("WALLET_SYNC_SUCCESS", "SUCCESS", f"{address[:12]}... synced")
+            logger.info(f"   ✅ STEP {current_step} OK: Wallet synced with engine")
             
             # ============ ALL STEPS COMPLETE ============
             self.initialization_complete = True
@@ -3870,14 +3963,18 @@ class WalletSyncManager:
             results["synced_at"] = datetime.now(timezone.utc).isoformat()
             results["message"] = "Wallet successfully synced with trading engine"
             
-            # Log final success
-            logger.info("=" * 50)
-            logger.info("WALLET_SYNC_SUCCESS")
+            # Log final success summary
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("    WALLET SYNC COMPLETED SUCCESSFULLY")
+            logger.info("=" * 60)
             logger.info(f"   Address: {address}")
             logger.info(f"   Balance: {balance_sol:.6f} SOL")
             logger.info(f"   Type: {wallet_type}")
+            logger.info(f"   Steps completed: {results['steps_completed']}")
             logger.info("   Trading Engine: READY")
-            logger.info("=" * 50)
+            logger.info("=" * 60)
+            logger.info("")
             
             activity_feed.add_event("INFO", "WALLET", {
                 "message": f"✅ Full sync complete: {balance_sol:.6f} SOL"
@@ -3891,10 +3988,20 @@ class WalletSyncManager:
             results["error_code"] = e.error_code
             self._log_diagnostic(e.error_code, "FAILED", e.message)
             
-            # Block auto-trading on sync failure
-            logger.error(f"AUTO_TRADING_BLOCKED_WALLET_SYNC_FAILED: {e.error_code}")
+            # Log failure summary
+            logger.error("")
+            logger.error("=" * 60)
+            logger.error(f"    WALLET SYNC FAILED AT STEP {current_step}")
+            logger.error("=" * 60)
+            logger.error(f"   Error Code: {e.error_code}")
+            logger.error(f"   Error Message: {e.message}")
+            logger.error(f"   Steps completed: {results['steps_completed']}")
+            logger.error(f"   Steps failed: {results['steps_failed']}")
+            logger.error("=" * 60)
+            logger.error("")
+            
             activity_feed.add_event("ERROR", "WALLET", {
-                "message": f"❌ Sync failed: {e.error_code}"
+                "message": f"❌ Sync failed at step {current_step}: {e.error_code}"
             })
             
             wallet_state["sync_status"] = "error"
@@ -3906,6 +4013,17 @@ class WalletSyncManager:
             results["error"] = str(e)
             results["error_code"] = "UNKNOWN_ERROR"
             self._log_diagnostic("WALLET_SYNC_FAILED", "FAILED", str(e))
+            
+            # Log unexpected error
+            logger.error("")
+            logger.error("=" * 60)
+            logger.error(f"    WALLET SYNC FAILED - UNEXPECTED ERROR AT STEP {current_step}")
+            logger.error("=" * 60)
+            logger.error(f"   Exception: {type(e).__name__}")
+            logger.error(f"   Message: {str(e)}")
+            logger.error(f"   Steps completed: {results['steps_completed']}")
+            logger.error("=" * 60)
+            logger.error("")
             
             wallet_state["sync_status"] = "error"
             wallet_state["sync_error"] = str(e)
