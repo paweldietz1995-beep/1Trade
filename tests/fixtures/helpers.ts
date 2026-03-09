@@ -1,6 +1,6 @@
 import { Page, expect } from '@playwright/test';
 
-const BASE_URL = 'https://trading-engine-18.preview.emergentagent.com';
+const BASE_URL = 'https://solana-auto-trade.preview.emergentagent.com';
 const API_URL = `${BASE_URL}/api`;
 
 export async function waitForAppReady(page: Page) {

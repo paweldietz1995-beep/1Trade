@@ -14,7 +14,14 @@ import {
   RefreshCw,
   ExternalLink,
   DollarSign,
-  Percent
+  Percent,
+  ChevronRight,
+  Calendar,
+  Info,
+  Award,
+  Timer,
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -24,6 +31,206 @@ import { Progress } from './ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
 
+// Trade Details Modal Component
+const TradeDetailsModal = ({ trade, onClose, solPrice, t }) => {
+  if (!trade) return null;
+  
+  const pnl = trade.pnl || 0;
+  const isProfitable = pnl >= 0;
+  const roi = trade.pnl_percent || ((trade.price_exit - trade.price_entry) / trade.price_entry * 100);
+  
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    return date.toLocaleString('de-DE', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: '2-digit',
+      hour: '2-digit', 
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+  
+  const formatDuration = (start, end) => {
+    if (!start || !end) return '--';
+    const diff = new Date(end) - new Date(start);
+    const hours = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
+    
+    if (hours > 0) return `${hours}h ${mins}m`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="bg-[#0A0A0A] border border-[#1E293B] rounded-sm w-full max-w-lg">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-[#1E293B]">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${
+              isProfitable ? 'bg-neon-green/20 text-neon-green' : 'bg-neon-red/20 text-neon-red'
+            }`}>
+              {trade.token_symbol?.charAt(0) || '?'}
+            </div>
+            <div>
+              <h3 className="font-heading font-bold">{trade.token_symbol}</h3>
+              <p className="text-xs text-muted-foreground">{trade.token_name}</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
+
+        {/* P&L Summary */}
+        <div className={`p-4 ${isProfitable ? 'bg-neon-green/5' : 'bg-neon-red/5'}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">{t('trades.pnl')}</div>
+              <div className={`text-2xl font-mono font-bold ${isProfitable ? 'text-neon-green' : 'text-neon-red'}`}>
+                {pnl >= 0 ? '+' : ''}{pnl.toFixed(6)} SOL
+              </div>
+              <div className="text-sm text-muted-foreground">
+                ≈ ${(pnl * solPrice).toFixed(2)} USD
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-muted-foreground mb-1">{t('trades.roi')}</div>
+              <div className={`text-xl font-mono font-bold ${isProfitable ? 'text-neon-green' : 'text-neon-red'}`}>
+                {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
+              </div>
+              <Badge className={isProfitable ? 'bg-neon-green/20 text-neon-green border-none' : 'bg-neon-red/20 text-neon-red border-none'}>
+                {isProfitable ? (
+                  <><TrendingUp className="w-3 h-3 mr-1" />{t('trades.profitableTrade')}</>
+                ) : (
+                  <><TrendingDown className="w-3 h-3 mr-1" />{t('trades.losingTrade')}</>
+                )}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        {/* Trade Details */}
+        <div className="p-4 space-y-4">
+          {/* Prices */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <ArrowUpRight className="w-3 h-3" />
+                {t('trades.entry')}
+              </div>
+              <div className="font-mono font-bold text-neon-cyan">
+                ${trade.price_entry?.toFixed(10) || '0.00'}
+              </div>
+            </div>
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <ArrowDownRight className="w-3 h-3" />
+                {t('trades.exit')}
+              </div>
+              <div className="font-mono font-bold">
+                ${trade.price_exit?.toFixed(10) || trade.price_current?.toFixed(10) || '0.00'}
+              </div>
+            </div>
+          </div>
+
+          {/* Size & Time */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="text-xs text-muted-foreground mb-1">{t('trades.size')}</div>
+              <div className="font-mono font-bold">{trade.amount_sol?.toFixed(4)} SOL</div>
+            </div>
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="text-xs text-muted-foreground mb-1">{t('trades.duration')}</div>
+              <div className="font-mono font-bold">
+                {formatDuration(trade.opened_at || trade.created_at, trade.closed_at)}
+              </div>
+            </div>
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="text-xs text-muted-foreground mb-1">{t('trades.type')}</div>
+              <Badge variant="outline" className={trade.paper_trade ? 'border-neon-cyan/30 text-neon-cyan' : 'border-neon-green/30 text-neon-green'}>
+                {trade.paper_trade ? t('trades.paper') : t('trades.live')}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Times */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <Calendar className="w-3 h-3" />
+                {t('trades.timeOpened')}
+              </div>
+              <div className="font-mono text-sm">{formatTime(trade.opened_at || trade.created_at)}</div>
+            </div>
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <CheckCircle className="w-3 h-3" />
+                {t('trades.timeClosed')}
+              </div>
+              <div className="font-mono text-sm">{formatTime(trade.closed_at)}</div>
+            </div>
+          </div>
+
+          {/* Close Reason */}
+          {trade.close_reason && (
+            <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
+              <div className="text-xs text-muted-foreground mb-1">Grund</div>
+              <Badge className={`${
+                trade.close_reason === 'TAKE_PROFIT' ? 'bg-neon-green/20 text-neon-green' :
+                trade.close_reason === 'STOP_LOSS' ? 'bg-neon-red/20 text-neon-red' :
+                'bg-neon-yellow/20 text-neon-yellow'
+              } border-none`}>
+                {trade.close_reason === 'TAKE_PROFIT' ? t('trades.takeProfitHit') :
+                 trade.close_reason === 'STOP_LOSS' ? t('trades.stopLossHit') :
+                 t('trades.manualClose')}
+              </Badge>
+            </div>
+          )}
+
+          {/* Transaction Links */}
+          <div className="flex gap-2">
+            {trade.entry_tx && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+                onClick={() => window.open(`https://solscan.io/tx/${trade.entry_tx}`, '_blank')}
+              >
+                <ExternalLink className="w-3 h-3 mr-2" />
+                {t('trades.entryTx')}
+              </Button>
+            )}
+            {trade.exit_tx && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1"
+                onClick={() => window.open(`https://solscan.io/tx/${trade.exit_tx}`, '_blank')}
+              >
+                <ExternalLink className="w-3 h-3 mr-2" />
+                {t('trades.exitTx')}
+              </Button>
+            )}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex-1"
+              onClick={() => window.open(`https://dexscreener.com/solana/${trade.pair_address || trade.token_address}`, '_blank')}
+            >
+              <BarChart3 className="w-3 h-3 mr-2" />
+              {t('trades.viewChart')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => {
   const { t } = useTranslation();
   const { API_URL } = useApp();
@@ -31,6 +238,15 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
   const [closedTrades, setClosedTrades] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('open');
+  const [selectedTrade, setSelectedTrade] = useState(null);
+  const [closedStats, setClosedStats] = useState({
+    totalTrades: 0,
+    totalProfit: 0,
+    totalLoss: 0,
+    winRate: 0,
+    avgProfit: 0,
+    avgLoss: 0
+  });
   const [stats, setStats] = useState({
     totalInvested: 0,
     currentValue: 0,
@@ -46,21 +262,36 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
       ]);
       
       setOpenTrades(openRes.data);
-      setClosedTrades(closedRes.data.slice(0, 20));
+      setClosedTrades(closedRes.data);
       
-      // Calculate stats
+      // Calculate open trades stats
       const invested = openRes.data.reduce((sum, t) => sum + t.amount_sol, 0);
       const currentValue = openRes.data.reduce((sum, t) => {
         const pnlPercent = ((t.price_current / t.price_entry) - 1) * 100;
         return sum + t.amount_sol * (1 + pnlPercent / 100);
       }, 0);
-      const closedPnl = closedRes.data.reduce((sum, t) => sum + (t.pnl || 0), 0);
       
       setStats({
         totalInvested: invested,
         currentValue: currentValue,
-        totalPnl: closedPnl + (currentValue - invested),
-        totalPnlPercent: invested > 0 ? ((currentValue - invested) / invested * 100) : 0
+        totalPnl: currentValue - invested,
+        totalPnlPercent: invested > 0 ? ((currentValue - invested) / invested) * 100 : 0
+      });
+      
+      // Calculate closed trades stats
+      const closed = closedRes.data;
+      const winners = closed.filter(t => (t.pnl || 0) > 0);
+      const losers = closed.filter(t => (t.pnl || 0) < 0);
+      const totalProfit = winners.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const totalLoss = Math.abs(losers.reduce((sum, t) => sum + (t.pnl || 0), 0));
+      
+      setClosedStats({
+        totalTrades: closed.length,
+        totalProfit: totalProfit,
+        totalLoss: totalLoss,
+        winRate: closed.length > 0 ? (winners.length / closed.length) * 100 : 0,
+        avgProfit: winners.length > 0 ? totalProfit / winners.length : 0,
+        avgLoss: losers.length > 0 ? totalLoss / losers.length : 0
       });
       
       if (onTradeUpdate) {
@@ -68,73 +299,51 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
       }
     } catch (error) {
       console.error('Error fetching trades:', error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [API_URL, onTradeUpdate]);
-
-  // Update trade prices from API
-  const updateTradePrices = useCallback(async () => {
-    if (openTrades.length === 0) return;
-    
-    for (const trade of openTrades) {
-      try {
-        const response = await axios.get(`${API_URL}/tokens/${trade.token_address}`);
-        const currentPrice = response.data.price_usd;
-        
-        if (currentPrice && currentPrice !== trade.price_current) {
-          await axios.put(`${API_URL}/trades/${trade.id}/update-price`, null, {
-            params: { current_price: currentPrice }
-          });
-        }
-      } catch (error) {
-        // Token might not be found
-      }
-    }
-    fetchTrades();
-  }, [API_URL, openTrades, fetchTrades]);
 
   useEffect(() => {
     fetchTrades();
-    const interval = setInterval(() => {
-      fetchTrades();
-      updateTradePrices();
-    }, 10000);
+    const interval = setInterval(fetchTrades, 5000);
     return () => clearInterval(interval);
-  }, [fetchTrades, updateTradePrices]);
+  }, [fetchTrades]);
 
-  const closeTrade = async (tradeId, currentPrice, reason = 'MANUAL') => {
+  const closeTrade = async (tradeId) => {
     try {
-      const response = await axios.put(`${API_URL}/trades/${tradeId}/close`, null, {
-        params: { exit_price: currentPrice, reason }
-      });
-      
-      const pnl = response.data.pnl_percent;
-      toast.success(
-        `Trade Closed ${pnl >= 0 ? '📈' : '📉'}`,
-        {
-          description: `P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}% (${response.data.pnl >= 0 ? '+' : ''}${response.data.pnl.toFixed(6)} SOL)`
-        }
-      );
+      await axios.post(`${API_URL}/trades/${tradeId}/close`);
+      toast.success(t('trades.closeTrade'));
       fetchTrades();
     } catch (error) {
-      toast.error('Failed to close trade');
+      toast.error(t('errors.tradeFailed'));
     }
   };
 
   const formatPrice = (price) => {
-    if (!price) return '$0';
-    if (price < 0.00001) return `$${price.toExponential(2)}`;
-    if (price < 0.01) return `$${price.toFixed(6)}`;
+    if (!price) return '$0.00';
+    if (price < 0.0001) return `$${price.toExponential(2)}`;
+    if (price < 1) return `$${price.toFixed(8)}`;
     return `$${price.toFixed(4)}`;
   };
 
-  const calculateProgress = (entry, current, takeProfit, stopLoss) => {
-    const range = takeProfit - stopLoss;
-    const position = current - stopLoss;
-    return Math.max(0, Math.min(100, (position / range) * 100));
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  const getPnlColor = (pnl) => pnl >= 0 ? 'text-neon-green' : 'text-neon-red';
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  };
+
+  const getPnlColor = (value) => {
+    if (value > 0) return 'text-neon-green';
+    if (value < 0) return 'text-neon-red';
+    return 'text-muted-foreground';
+  };
 
   // Compact view for sidebar
   if (compact) {
@@ -159,42 +368,37 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="p-3">
+        <CardContent className="p-2">
           {openTrades.length === 0 ? (
-            <div className="text-center py-6 text-muted-foreground text-sm">
-              No active trades
+            <div className="text-center py-8 text-muted-foreground">
+              <Target className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">{t('trades.noActiveTrades')}</p>
             </div>
           ) : (
             <ScrollArea className="h-[300px]">
               <div className="space-y-2">
-                {openTrades.map((trade, index) => {
+                {openTrades.slice(0, 10).map((trade) => {
                   const pnlPercent = ((trade.price_current / trade.price_entry) - 1) * 100;
                   const pnlSol = trade.amount_sol * (pnlPercent / 100);
                   
                   return (
                     <div 
-                      key={trade.id} 
-                      className="p-3 bg-[#050505] rounded-sm border border-[#1E293B] hover:border-neon-violet/30 transition-colors"
-                      data-testid={`trade-compact-${index}`}
+                      key={trade.id}
+                      className="p-3 bg-[#050505] rounded-sm border border-[#1E293B] hover:border-neon-violet/30 transition-colors cursor-pointer"
+                      onClick={() => setSelectedTrade(trade)}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-violet to-neon-cyan flex items-center justify-center text-xs font-bold">
-                            {trade.token_symbol.slice(0, 2)}
+                          <div className="w-6 h-6 rounded-full bg-neon-violet/20 flex items-center justify-center text-xs font-bold text-neon-violet">
+                            {trade.token_symbol?.charAt(0) || '?'}
                           </div>
-                          <div>
-                            <div className="font-semibold text-sm">{trade.token_symbol}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {trade.amount_sol.toFixed(4)} SOL
-                            </div>
-                          </div>
+                          <span className="font-medium text-sm">{trade.token_symbol}</span>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-neon-red hover:bg-neon-red/10"
-                          onClick={() => closeTrade(trade.id, trade.price_current)}
-                          data-testid={`close-trade-${index}`}
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6"
+                          onClick={(e) => { e.stopPropagation(); closeTrade(trade.id); }}
                         >
                           <X className="w-3 h-3" />
                         </Button>
@@ -202,11 +406,11 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
                       
                       <div className="grid grid-cols-2 gap-2 text-xs mb-2">
                         <div>
-                          <span className="text-muted-foreground">Entry: </span>
+                          <span className="text-muted-foreground">{t('trades.entry')}: </span>
                           <span className="font-mono">{formatPrice(trade.price_entry)}</span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Now: </span>
+                          <span className="text-muted-foreground">{t('trades.now')}: </span>
                           <span className="font-mono">{formatPrice(trade.price_current)}</span>
                         </div>
                       </div>
@@ -219,7 +423,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
                           {pnlSol >= 0 ? '+' : ''}{pnlSol.toFixed(6)} SOL
                         </div>
                         <Badge variant="outline" className={`text-xs ${trade.paper_trade ? 'border-neon-cyan/30 text-neon-cyan' : 'border-neon-green/30 text-neon-green'}`}>
-                          {trade.paper_trade ? 'Paper' : 'Live'}
+                          {trade.paper_trade ? t('trades.paper') : t('trades.live')}
                         </Badge>
                       </div>
                     </div>
@@ -229,6 +433,15 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
             </ScrollArea>
           )}
         </CardContent>
+        
+        {selectedTrade && (
+          <TradeDetailsModal 
+            trade={selectedTrade} 
+            onClose={() => setSelectedTrade(null)} 
+            solPrice={solPrice}
+            t={t}
+          />
+        )}
       </Card>
     );
   }
@@ -256,7 +469,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
         {/* Portfolio Summary */}
         <div className="grid grid-cols-4 gap-3 mt-4">
           <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
-            <div className="text-xs text-muted-foreground mb-1">Total Invested</div>
+            <div className="text-xs text-muted-foreground mb-1">{t('trades.totalInvested')}</div>
             <div className="font-mono font-bold text-neon-cyan">
               {stats.totalInvested.toFixed(4)} SOL
             </div>
@@ -265,7 +478,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
             </div>
           </div>
           <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
-            <div className="text-xs text-muted-foreground mb-1">Current Value</div>
+            <div className="text-xs text-muted-foreground mb-1">{t('trades.currentValue')}</div>
             <div className="font-mono font-bold">
               {stats.currentValue.toFixed(4)} SOL
             </div>
@@ -274,7 +487,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
             </div>
           </div>
           <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
-            <div className="text-xs text-muted-foreground mb-1">Total P&L</div>
+            <div className="text-xs text-muted-foreground mb-1">{t('trades.pnl')}</div>
             <div className={`font-mono font-bold ${getPnlColor(stats.totalPnl)}`}>
               {stats.totalPnl >= 0 ? '+' : ''}{stats.totalPnl.toFixed(4)} SOL
             </div>
@@ -283,7 +496,7 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
             </div>
           </div>
           <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
-            <div className="text-xs text-muted-foreground mb-1">Net Result</div>
+            <div className="text-xs text-muted-foreground mb-1">{t('trades.netResult')}</div>
             <div className={`font-mono font-bold text-lg ${getPnlColor(stats.currentValue - stats.totalInvested)}`}>
               {stats.currentValue >= stats.totalInvested ? '+' : ''}{(stats.currentValue - stats.totalInvested).toFixed(4)} SOL
             </div>
@@ -295,145 +508,222 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full justify-start px-4 pt-2 bg-transparent border-b border-[#1E293B] rounded-none">
             <TabsTrigger value="open" className="data-[state=active]:bg-[#1E293B]">
-              Active ({openTrades.length})
+              {t('trades.activeTrades')} ({openTrades.length})
             </TabsTrigger>
             <TabsTrigger value="closed" className="data-[state=active]:bg-[#1E293B]">
-              Closed ({closedTrades.length})
+              {t('trades.closedTrades')} ({closedTrades.length})
             </TabsTrigger>
           </TabsList>
 
+          {/* Active Trades Tab */}
           <TabsContent value="open" className="mt-0">
-            <ScrollArea className="h-[400px]">
-              {openTrades.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
-                  <BarChart3 className="w-8 h-8 mb-2" />
-                  <p>No active trades</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-[#1E293B]">
-                  {/* Table Header */}
-                  <div className="grid grid-cols-7 gap-2 px-4 py-2 text-xs uppercase tracking-wider text-muted-foreground bg-[#050505]">
-                    <div>Token</div>
-                    <div className="text-right">Entry</div>
-                    <div className="text-right">Current</div>
-                    <div className="text-right">Amount</div>
-                    <div className="text-right">P&L</div>
-                    <div className="text-right">ROI</div>
-                    <div className="text-center">Action</div>
-                  </div>
-                  
-                  {openTrades.map((trade, index) => {
-                    const pnlPercent = ((trade.price_current / trade.price_entry) - 1) * 100;
-                    const pnlSol = trade.amount_sol * (pnlPercent / 100);
-                    
-                    return (
-                      <div 
-                        key={trade.id}
-                        className="grid grid-cols-7 gap-2 px-4 py-3 hover:bg-white/5 transition-colors items-center"
-                        data-testid={`trade-row-${index}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-violet to-neon-cyan flex items-center justify-center text-xs font-bold">
-                            {trade.token_symbol.slice(0, 2)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-sm">{trade.token_symbol}</div>
-                            <Badge variant="outline" className={`text-xs ${trade.paper_trade ? 'border-neon-cyan/30 text-neon-cyan' : 'border-neon-green/30 text-neon-green'}`}>
-                              {trade.paper_trade ? 'Paper' : 'Live'}
+            {openTrades.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Target className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>{t('trades.noActiveTrades')}</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-[400px]">
+                <table className="w-full">
+                  <thead className="bg-[#050505] sticky top-0">
+                    <tr className="text-xs uppercase tracking-wider text-muted-foreground">
+                      <th className="text-left p-3">Token</th>
+                      <th className="text-right p-3">{t('trades.entry')}</th>
+                      <th className="text-right p-3">{t('trades.current')}</th>
+                      <th className="text-right p-3">{t('trades.size')}</th>
+                      <th className="text-right p-3">{t('trades.pnl')}</th>
+                      <th className="text-right p-3">{t('trades.roi')}</th>
+                      <th className="text-right p-3">{t('trades.type')}</th>
+                      <th className="text-center p-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1E293B]">
+                    {openTrades.map((trade) => {
+                      const pnlPercent = ((trade.price_current / trade.price_entry) - 1) * 100;
+                      const pnlSol = trade.amount_sol * (pnlPercent / 100);
+                      
+                      return (
+                        <tr 
+                          key={trade.id} 
+                          className="hover:bg-[#050505] cursor-pointer transition-colors"
+                          onClick={() => setSelectedTrade(trade)}
+                        >
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-neon-violet/20 flex items-center justify-center text-sm font-bold text-neon-violet">
+                                {trade.token_symbol?.charAt(0) || '?'}
+                              </div>
+                              <div>
+                                <div className="font-medium">{trade.token_symbol}</div>
+                                <div className="text-xs text-muted-foreground">{trade.token_name?.slice(0, 20)}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-right font-mono text-sm">{formatPrice(trade.price_entry)}</td>
+                          <td className="p-3 text-right font-mono text-sm">{formatPrice(trade.price_current)}</td>
+                          <td className="p-3 text-right font-mono text-sm">{trade.amount_sol?.toFixed(4)} SOL</td>
+                          <td className={`p-3 text-right font-mono font-bold ${getPnlColor(pnlSol)}`}>
+                            {pnlSol >= 0 ? '+' : ''}{pnlSol.toFixed(6)} SOL
+                          </td>
+                          <td className={`p-3 text-right font-mono font-bold ${getPnlColor(pnlPercent)}`}>
+                            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                          </td>
+                          <td className="p-3 text-right">
+                            <Badge variant="outline" className={trade.paper_trade ? 'border-neon-cyan/30 text-neon-cyan' : 'border-neon-green/30 text-neon-green'}>
+                              {trade.paper_trade ? t('trades.paper') : t('trades.live')}
                             </Badge>
-                          </div>
-                        </div>
-                        <div className="text-right font-mono text-sm">
-                          {formatPrice(trade.price_entry)}
-                        </div>
-                        <div className="text-right font-mono text-sm">
-                          {formatPrice(trade.price_current)}
-                        </div>
-                        <div className="text-right font-mono text-sm">
-                          {trade.amount_sol.toFixed(4)} SOL
-                        </div>
-                        <div className={`text-right font-mono text-sm font-bold ${getPnlColor(pnlSol)}`}>
-                          {pnlSol >= 0 ? '+' : ''}{pnlSol.toFixed(6)} SOL
-                        </div>
-                        <div className={`text-right font-mono text-sm font-bold ${getPnlColor(pnlPercent)}`}>
-                          {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
-                        </div>
-                        <div className="flex justify-center">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-neon-red hover:bg-neon-red/10"
-                            onClick={() => closeTrade(trade.id, trade.price_current)}
-                          >
-                            Close
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </ScrollArea>
+                          </td>
+                          <td className="p-3 text-center">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-7 w-7"
+                              onClick={(e) => { e.stopPropagation(); closeTrade(trade.id); }}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </ScrollArea>
+            )}
           </TabsContent>
 
+          {/* Closed Trades Tab */}
           <TabsContent value="closed" className="mt-0">
-            <ScrollArea className="h-[400px]">
-              {closedTrades.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
-                  <CheckCircle className="w-8 h-8 mb-2" />
-                  <p>No closed trades yet</p>
+            {/* Closed Trades Summary Stats */}
+            <div className="grid grid-cols-6 gap-3 p-4 border-b border-[#1E293B] bg-[#050505]">
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground mb-1">{t('trades.closedTrades')}</div>
+                <div className="font-mono font-bold text-lg">{closedStats.totalTrades}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground mb-1">{t('trades.totalProfit')}</div>
+                <div className="font-mono font-bold text-lg text-neon-green">
+                  +{closedStats.totalProfit.toFixed(4)} SOL
                 </div>
-              ) : (
-                <div className="divide-y divide-[#1E293B]">
-                  {closedTrades.map((trade, index) => (
-                    <div 
-                      key={trade.id}
-                      className="grid grid-cols-7 gap-2 px-4 py-3 hover:bg-white/5 transition-colors items-center"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${trade.pnl >= 0 ? 'bg-neon-green/20' : 'bg-neon-red/20'}`}>
-                          {trade.pnl >= 0 ? <TrendingUp className="w-4 h-4 text-neon-green" /> : <TrendingDown className="w-4 h-4 text-neon-red" />}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-sm">{trade.token_symbol}</div>
-                          <div className="text-xs text-muted-foreground">{trade.close_reason}</div>
-                        </div>
-                      </div>
-                      <div className="text-right font-mono text-sm">
-                        {formatPrice(trade.price_entry)}
-                      </div>
-                      <div className="text-right font-mono text-sm">
-                        {formatPrice(trade.price_exit)}
-                      </div>
-                      <div className="text-right font-mono text-sm">
-                        {trade.amount_sol.toFixed(4)} SOL
-                      </div>
-                      <div className={`text-right font-mono text-sm font-bold ${getPnlColor(trade.pnl)}`}>
-                        {trade.pnl >= 0 ? '+' : ''}{trade.pnl?.toFixed(6)} SOL
-                      </div>
-                      <div className={`text-right font-mono text-sm font-bold ${getPnlColor(trade.pnl_percent)}`}>
-                        {trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent?.toFixed(2)}%
-                      </div>
-                      <div className="flex justify-center">
-                        {trade.tx_signature && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7"
-                            onClick={() => window.open(`https://solscan.io/tx/${trade.tx_signature}`, '_blank')}
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground mb-1">{t('trades.totalLoss')}</div>
+                <div className="font-mono font-bold text-lg text-neon-red">
+                  -{closedStats.totalLoss.toFixed(4)} SOL
                 </div>
-              )}
-            </ScrollArea>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground mb-1">{t('trades.winRate')}</div>
+                <div className="font-mono font-bold text-lg text-neon-cyan">
+                  {closedStats.winRate.toFixed(0)}%
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground mb-1">{t('trades.avgProfit')}</div>
+                <div className="font-mono font-bold text-neon-green">
+                  +{closedStats.avgProfit.toFixed(6)} SOL
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground mb-1">{t('trades.avgLoss')}</div>
+                <div className="font-mono font-bold text-neon-red">
+                  -{closedStats.avgLoss.toFixed(6)} SOL
+                </div>
+              </div>
+            </div>
+
+            {closedTrades.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>{t('trades.noClosedTrades')}</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-[400px]">
+                <table className="w-full">
+                  <thead className="bg-[#050505] sticky top-0">
+                    <tr className="text-xs uppercase tracking-wider text-muted-foreground">
+                      <th className="text-left p-3">Token</th>
+                      <th className="text-right p-3">{t('trades.entry')}</th>
+                      <th className="text-right p-3">{t('trades.exit')}</th>
+                      <th className="text-right p-3">{t('trades.size')}</th>
+                      <th className="text-right p-3">{t('trades.pnl')}</th>
+                      <th className="text-right p-3">{t('trades.roi')}</th>
+                      <th className="text-center p-3">{t('trades.timeOpened')}</th>
+                      <th className="text-center p-3">{t('trades.timeClosed')}</th>
+                      <th className="text-center p-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1E293B]">
+                    {closedTrades.map((trade) => {
+                      const pnl = trade.pnl || 0;
+                      const roi = trade.pnl_percent || ((trade.price_exit - trade.price_entry) / trade.price_entry * 100);
+                      const isProfitable = pnl >= 0;
+                      
+                      return (
+                        <tr 
+                          key={trade.id} 
+                          className={`hover:bg-[#050505] cursor-pointer transition-colors ${
+                            isProfitable ? 'bg-neon-green/5' : 'bg-neon-red/5'
+                          }`}
+                          onClick={() => setSelectedTrade(trade)}
+                        >
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                                isProfitable ? 'bg-neon-green/20 text-neon-green' : 'bg-neon-red/20 text-neon-red'
+                              }`}>
+                                {isProfitable ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                              </div>
+                              <div>
+                                <div className="font-medium">{trade.token_symbol}</div>
+                                <div className="text-xs text-muted-foreground">{trade.token_name?.slice(0, 20)}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-right font-mono text-sm">{formatPrice(trade.price_entry)}</td>
+                          <td className="p-3 text-right font-mono text-sm">{formatPrice(trade.price_exit)}</td>
+                          <td className="p-3 text-right font-mono text-sm">{trade.amount_sol?.toFixed(4)} SOL</td>
+                          <td className={`p-3 text-right font-mono font-bold ${getPnlColor(pnl)}`}>
+                            {pnl >= 0 ? '+' : ''}{pnl.toFixed(6)} SOL
+                          </td>
+                          <td className={`p-3 text-right font-mono font-bold ${getPnlColor(roi)}`}>
+                            {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="text-xs">
+                              <div>{formatTime(trade.opened_at || trade.created_at)}</div>
+                              <div className="text-muted-foreground">{formatDate(trade.opened_at || trade.created_at)}</div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="text-xs">
+                              <div>{formatTime(trade.closed_at)}</div>
+                              <div className="text-muted-foreground">{formatDate(trade.closed_at)}</div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </ScrollArea>
+            )}
           </TabsContent>
         </Tabs>
       </CardContent>
+      
+      {/* Trade Details Modal */}
+      {selectedTrade && (
+        <TradeDetailsModal 
+          trade={selectedTrade} 
+          onClose={() => setSelectedTrade(null)} 
+          solPrice={solPrice}
+          t={t}
+        />
+      )}
     </Card>
   );
 };
