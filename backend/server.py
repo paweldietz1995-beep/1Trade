@@ -72,13 +72,13 @@ class AuthResponse(BaseModel):
 class BotSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    # AGGRESSIVE MICRO-TRADE CAPITAL MANAGEMENT (100+ trades)
+    # ULTRA-MICRO TRADE CAPITAL MANAGEMENT (120 trades)
     total_budget_sol: float = 3.0
-    max_trade_percent: float = 0.5      # Max 0.5% of budget per trade (micro)
-    min_trade_sol: float = 0.002        # Min 0.002 SOL per trade (lowered)
-    max_parallel_trades: int = 120      # 100-150 simultaneous trades
-    max_trade_amount_sol: float = 0.015 # Max 0.015 SOL per trade
-    max_capital_in_trades_percent: float = 70.0  # Max 70% of wallet (increased)
+    max_trade_percent: float = 0.25     # Max 0.25% of budget per trade (reduced)
+    min_trade_sol: float = 0.002        # Min 0.002 SOL per trade
+    max_parallel_trades: int = 120      # 120 simultaneous trades
+    max_trade_amount_sol: float = 0.008 # Max 0.008 SOL per trade (reduced)
+    max_capital_in_trades_percent: float = 70.0  # Max 70% of wallet
     # QUICK EXIT RISK MANAGEMENT
     take_profit_percent: float = 8.0    # 6-10% take profit (faster exits)
     stop_loss_percent: float = 6.0      # 5-7% stop loss (tighter)
@@ -330,13 +330,13 @@ ENGINE_CONFIG = {
     "early_pump_price_change_1m": 1.5,  # 1.5% price change (lowered from 2)
     "early_pump_min_liquidity": 500,    # $500 min liquidity (lowered from 1000)
     
-    # MICRO-TRADE POSITION SIZING (0.2-0.5% of wallet)
-    "micro_trade_percent": 0.35,        # 0.35% of wallet per trade (very small)
-    "max_micro_trade_sol": 0.015,       # Max 0.015 SOL per micro-trade
-    "min_micro_trade_sol": 0.003,       # Min 0.003 SOL per micro-trade
+    # ULTRA-MICRO POSITION SIZING FOR 120 TRADES
+    "micro_trade_percent": 0.20,        # 0.20% of wallet per trade (reduced from 0.35%)
+    "max_micro_trade_sol": 0.008,       # Max 0.008 SOL per micro-trade (reduced)
+    "min_micro_trade_sol": 0.002,       # Min 0.002 SOL per micro-trade (reduced)
     
-    # CAPITAL CONTROL (max 70% of wallet in active trades - increased)
-    "max_capital_in_trades_percent": 70, # Max 70% of wallet in trades (increased from 60)
+    # CAPITAL CONTROL (max 70% of wallet in active trades)
+    "max_capital_in_trades_percent": 70, # Max 70% of wallet in trades
     "capital_reserve_percent": 30,       # Keep 30% as reserve
     
     # Smart Wallet Tracking
@@ -1694,18 +1694,20 @@ async def check_capital_limits(portfolio, settings) -> tuple:
 
 def calculate_dynamic_trade_size(portfolio, settings):
     """
-    ⚡ ULTRA-MICRO-TRADE SIZING FOR 100+ CONCURRENT TRADES ⚡
+    ⚡ ULTRA-MICRO-TRADE SIZING FOR 120 CONCURRENT TRADES ⚡
     
-    For high-concurrency mode: use 0.2%-0.5% of wallet per trade
-    trade_size = wallet_balance * micro_trade_percent
-    
-    Capital Control: Never exceed max_capital_in_trades_percent of wallet
+    Formula:
+    trade_size = min(
+        wallet_balance * micro_trade_percent,
+        wallet_balance / max_parallel_trades
+    )
     
     Example with 3 SOL wallet:
-    - micro_trade_percent = 0.35%
-    - trade_size = 3 * 0.0035 = 0.0105 SOL per trade
-    - max_capital = 60% = 1.8 SOL
-    - max_trades = 1.8 / 0.0105 = ~171 trades possible
+    - micro_trade_percent = 0.20%
+    - trade_size = 3 * 0.002 = 0.006 SOL per trade
+    - OR: 3 SOL / 120 trades = 0.025 SOL (but capped by percent)
+    - max_capital = 70% = 2.1 SOL
+    - max_trades = 2.1 / 0.006 = 350 trades possible
     """
     # Use user's max_parallel_trades setting
     max_trades = min(settings.max_parallel_trades, ENGINE_CONFIG["max_open_trades"])
@@ -1716,32 +1718,55 @@ def calculate_dynamic_trade_size(portfolio, settings):
     wallet_balance = portfolio.wallet_balance_sol if portfolio.wallet_balance_sol > 0 else settings.total_budget_sol
     
     # Calculate capital limits
-    max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 60) / 100
+    max_capital_percent = ENGINE_CONFIG.get("max_capital_in_trades_percent", 70) / 100
     max_capital_allowed = wallet_balance * max_capital_percent
     capital_in_trades = portfolio.in_trades_sol
     capital_available = max(0, max_capital_allowed - capital_in_trades)
     
-    # MICRO-TRADE SIZING: Use very small percent from config
-    micro_percent = ENGINE_CONFIG.get("micro_trade_percent", 0.35) / 100
-    micro_size = wallet_balance * micro_percent
+    # DYNAMIC TRADE SIZE CALCULATION
+    # Method 1: Percentage-based
+    micro_percent = ENGINE_CONFIG.get("micro_trade_percent", 0.20) / 100
+    percent_based_size = wallet_balance * micro_percent
     
-    # Dynamic allocation based on remaining slots
+    # Method 2: Slot-based (distribute available capital across remaining slots)
+    slot_based_size = wallet_balance / max_trades
+    
+    # Method 3: Available capital based
     dynamic_size = capital_available / remaining_slots if remaining_slots > 0 else 0
     
-    # Apply min/max limits
-    max_micro = ENGINE_CONFIG.get("max_micro_trade_sol", 0.015)
-    min_micro = ENGINE_CONFIG.get("min_micro_trade_sol", 0.003)
+    # Use the SMALLEST of all methods
+    trade_size = min(percent_based_size, slot_based_size, dynamic_size)
+    
+    # Apply min/max limits from config
+    max_micro = ENGINE_CONFIG.get("max_micro_trade_sol", 0.008)
+    min_micro = ENGINE_CONFIG.get("min_micro_trade_sol", 0.002)
     
     # User limits
     max_trade_by_percent = settings.total_budget_sol * (settings.max_trade_percent / 100)
     max_trade = min(max_trade_by_percent, settings.max_trade_amount_sol, max_micro)
     min_trade = max(settings.min_trade_sol, min_micro)
     
-    # Final trade size: smallest of micro-size, dynamic allocation, max limit
-    trade_size = min(max_trade, max(min_trade, min(micro_size, dynamic_size)))
+    # Final trade size with limits
+    trade_size = min(max_trade, max(min_trade, trade_size))
     
     # Ensure we don't exceed available capital
     trade_size = min(trade_size, capital_available)
+    
+    # Calculate max possible trades with this size
+    max_possible_trades = int(capital_available / trade_size) if trade_size > 0 else 0
+    
+    # Log capital debug info (every 10th call to reduce spam)
+    if open_trades % 10 == 0 or open_trades < 5:
+        logger.info("=" * 50)
+        logger.info("💰 CAPITAL DEBUG")
+        logger.info(f"   wallet_balance: {wallet_balance:.4f} SOL")
+        logger.info(f"   capital_in_trades: {capital_in_trades:.4f} SOL")
+        logger.info(f"   capital_available: {capital_available:.4f} SOL")
+        logger.info(f"   trade_size: {trade_size:.4f} SOL")
+        logger.info(f"   max_possible_trades: {max_possible_trades}")
+        logger.info(f"   open_trades: {open_trades}")
+        logger.info(f"   remaining_slots: {remaining_slots}")
+        logger.info("=" * 50)
     
     return round(max(trade_size, 0), 4)
 
