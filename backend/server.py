@@ -491,6 +491,256 @@ class EarlyPumpDetector:
 early_pump_detector = EarlyPumpDetector()
 
 
+# ============== REALTIME LAUNCH SNIPER ==============
+class RealtimeLaunchSniper:
+    """
+    ⚡ REALTIME LAUNCH SNIPER ⚡
+    
+    Detects and prioritizes brand new token launches for first-mover advantage.
+    
+    Features:
+    - Ultra-fast detection of new pools (< 30 seconds old)
+    - Priority scoring for fresh launches
+    - Integration with DexScreener latest tokens API
+    - Pump.fun bonding curve graduation detection
+    - Raydium new pool monitoring
+    
+    Target: Catch new tokens within 10-30 seconds of launch
+    """
+    
+    def __init__(self):
+        self.detected_launches = {}  # token_address -> detection_data
+        self.snipe_queue = []        # Priority queue for new launches
+        self.launch_cooldown = 120   # 2 minutes cooldown per token
+        self.stats = {
+            "total_detections": 0,
+            "successful_snipes": 0,
+            "avg_detection_age_seconds": 0,
+            "last_detection": None
+        }
+        
+        # Sniper thresholds
+        self.ultra_new_seconds = 30      # Ultra-new: < 30 seconds
+        self.very_new_seconds = 60       # Very new: < 1 minute
+        self.new_seconds = 120           # New: < 2 minutes
+        
+        # Min requirements for snipe
+        self.min_liquidity_usd = 500     # $500 minimum
+        self.min_initial_volume = 100    # $100 initial volume
+        
+    def calculate_snipe_priority(self, pair: dict) -> dict:
+        """
+        Calculate snipe priority score for a new token.
+        
+        Returns:
+        - priority_score: 0-200 (higher = more urgent)
+        - is_snipe_candidate: bool
+        - detection_data: detailed analysis
+        """
+        token_address = pair.get("baseToken", {}).get("address", "")
+        symbol = pair.get("baseToken", {}).get("symbol", "???")
+        
+        # Calculate age
+        created_at = pair.get("pairCreatedAt", 0)
+        if created_at:
+            age_seconds = (datetime.now(timezone.utc).timestamp() * 1000 - created_at) / 1000
+        else:
+            age_seconds = 999999
+        
+        # Get metrics
+        liquidity = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+        volume_5m = float(pair.get("volume", {}).get("m5", 0) or 0)
+        price_usd = float(pair.get("priceUsd", 0) or 0)
+        
+        txns_5m = pair.get("txns", {}).get("m5", {})
+        buys_5m = txns_5m.get("buys", 0)
+        sells_5m = txns_5m.get("sells", 0)
+        
+        source = pair.get("source", "unknown")
+        dex_id = pair.get("dexId", "").lower()
+        
+        # Initialize scoring
+        priority_score = 0
+        signals = []
+        is_snipe_candidate = False
+        
+        # ===== AGE SCORING (0-100 points) =====
+        if age_seconds < self.ultra_new_seconds:
+            priority_score += 100
+            signals.append(f"🚨 ULTRA-NEW ({int(age_seconds)}s)")
+        elif age_seconds < self.very_new_seconds:
+            priority_score += 80
+            signals.append(f"🔥 VERY NEW ({int(age_seconds)}s)")
+        elif age_seconds < self.new_seconds:
+            priority_score += 50
+            signals.append(f"🆕 NEW ({int(age_seconds)}s)")
+        elif age_seconds < 300:  # < 5 minutes
+            priority_score += 25
+            signals.append(f"⏰ RECENT ({int(age_seconds/60)}m)")
+        else:
+            # Not new enough for sniper
+            return {
+                "priority_score": 0,
+                "is_snipe_candidate": False,
+                "age_seconds": age_seconds,
+                "signals": ["Too old for sniper"]
+            }
+        
+        # ===== LIQUIDITY CHECK =====
+        if liquidity < self.min_liquidity_usd:
+            return {
+                "priority_score": 0,
+                "is_snipe_candidate": False,
+                "age_seconds": age_seconds,
+                "signals": [f"Low liquidity: ${liquidity:.0f}"]
+            }
+        
+        # Liquidity bonus (prefer medium liquidity for better fills)
+        if 1000 <= liquidity <= 50000:
+            priority_score += 20
+            signals.append(f"💰 Good liquidity: ${liquidity:.0f}")
+        elif liquidity > 50000:
+            priority_score += 10
+            signals.append(f"💎 High liquidity: ${liquidity:.0f}")
+        
+        # ===== EARLY ACTIVITY BONUS (0-40 points) =====
+        if buys_5m > 0:
+            priority_score += min(20, buys_5m * 2)
+            signals.append(f"📈 {buys_5m} buyers")
+        
+        if buys_5m > sells_5m:
+            buy_ratio = buys_5m / max(sells_5m, 1)
+            priority_score += min(20, int(buy_ratio * 5))
+            signals.append(f"🔥 {buy_ratio:.1f}x buy pressure")
+        
+        # ===== SOURCE BONUS (0-20 points) =====
+        if "pump" in source.lower() or "pump" in dex_id:
+            priority_score += 20
+            signals.append("🎯 Pump.fun launch")
+        elif "raydium" in dex_id:
+            priority_score += 15
+            signals.append("💧 Raydium pool")
+        elif "orca" in dex_id:
+            priority_score += 10
+            signals.append("🐳 Orca pool")
+        
+        # ===== VOLUME ACTIVITY (0-20 points) =====
+        if volume_5m >= self.min_initial_volume:
+            priority_score += min(20, int(volume_5m / 100))
+            signals.append(f"📊 Vol: ${volume_5m:.0f}")
+        
+        # Determine if snipe candidate
+        is_snipe_candidate = priority_score >= 80 and age_seconds < self.new_seconds
+        
+        return {
+            "priority_score": priority_score,
+            "is_snipe_candidate": is_snipe_candidate,
+            "age_seconds": int(age_seconds),
+            "liquidity": liquidity,
+            "volume_5m": volume_5m,
+            "buys_5m": buys_5m,
+            "sells_5m": sells_5m,
+            "source": source,
+            "dex_id": dex_id,
+            "signals": signals,
+            "symbol": symbol,
+            "address": token_address
+        }
+    
+    def add_to_snipe_queue(self, pair: dict, snipe_data: dict):
+        """Add a token to the snipe priority queue"""
+        token_address = snipe_data["address"]
+        
+        # Check cooldown
+        if token_address in self.detected_launches:
+            time_since = (datetime.now(timezone.utc) - self.detected_launches[token_address]["detected_at"]).total_seconds()
+            if time_since < self.launch_cooldown:
+                return False
+        
+        # Add to detected launches
+        self.detected_launches[token_address] = {
+            "detected_at": datetime.now(timezone.utc),
+            "snipe_data": snipe_data,
+            "pair": pair,
+            "status": "PENDING"
+        }
+        
+        # Add to queue
+        self.snipe_queue.append({
+            "token_address": token_address,
+            "priority_score": snipe_data["priority_score"],
+            "age_seconds": snipe_data["age_seconds"],
+            "symbol": snipe_data["symbol"],
+            "queued_at": datetime.now(timezone.utc)
+        })
+        
+        # Sort queue by priority (highest first)
+        self.snipe_queue.sort(key=lambda x: x["priority_score"], reverse=True)
+        
+        # Keep only top 50 in queue
+        if len(self.snipe_queue) > 50:
+            self.snipe_queue = self.snipe_queue[:50]
+        
+        # Update stats
+        self.stats["total_detections"] += 1
+        self.stats["last_detection"] = datetime.now(timezone.utc).isoformat()
+        
+        # Update average detection age
+        total = self.stats["total_detections"]
+        old_avg = self.stats["avg_detection_age_seconds"]
+        self.stats["avg_detection_age_seconds"] = ((old_avg * (total - 1)) + snipe_data["age_seconds"]) / total
+        
+        logger.info(f"🎯 SNIPE TARGET: {snipe_data['symbol']} | Score={snipe_data['priority_score']} | Age={snipe_data['age_seconds']}s | {' | '.join(snipe_data['signals'][:3])}")
+        
+        return True
+    
+    def get_top_snipe_targets(self, limit: int = 10) -> List[dict]:
+        """Get top snipe targets from queue"""
+        return self.snipe_queue[:limit]
+    
+    def mark_sniped(self, token_address: str, success: bool):
+        """Mark a token as sniped (attempted trade)"""
+        if token_address in self.detected_launches:
+            self.detected_launches[token_address]["status"] = "SNIPED" if success else "FAILED"
+            if success:
+                self.stats["successful_snipes"] += 1
+        
+        # Remove from queue
+        self.snipe_queue = [t for t in self.snipe_queue if t["token_address"] != token_address]
+    
+    def get_stats(self) -> dict:
+        """Get sniper statistics"""
+        return {
+            **self.stats,
+            "queue_size": len(self.snipe_queue),
+            "active_detections": len(self.detected_launches),
+            "success_rate": (self.stats["successful_snipes"] / max(self.stats["total_detections"], 1)) * 100
+        }
+    
+    def cleanup_old_detections(self, max_age_seconds: int = 600):
+        """Remove old detections from memory"""
+        now = datetime.now(timezone.utc)
+        to_remove = []
+        
+        for addr, data in self.detected_launches.items():
+            age = (now - data["detected_at"]).total_seconds()
+            if age > max_age_seconds:
+                to_remove.append(addr)
+        
+        for addr in to_remove:
+            del self.detected_launches[addr]
+        
+        # Also clean queue
+        self.snipe_queue = [
+            t for t in self.snipe_queue 
+            if t["token_address"] not in to_remove
+        ]
+
+
+# Global sniper instance
+launch_sniper = RealtimeLaunchSniper()
+
+
 # ============== SMART WALLET TRACKER ==============
 class SmartWalletTracker:
     """Tracks profitable wallets and generates copy trade signals"""
@@ -1632,6 +1882,38 @@ async def auto_trading_loop():
             # Use multi-source scanner to get tokens from all DEX sources
             all_pairs_list = await multi_source_scanner.scan_all_sources()
             
+            # ===== REALTIME LAUNCH SNIPER =====
+            # Process all tokens through launch sniper FIRST for ultra-fast detection
+            snipe_candidates = 0
+            for pair in all_pairs_list:
+                try:
+                    snipe_data = launch_sniper.calculate_snipe_priority(pair)
+                    if snipe_data["is_snipe_candidate"]:
+                        launch_sniper.add_to_snipe_queue(pair, snipe_data)
+                        snipe_candidates += 1
+                except Exception as e:
+                    pass
+            
+            # Get top snipe targets for priority trading
+            top_snipe_targets = launch_sniper.get_top_snipe_targets(limit=20)
+            
+            # Cleanup old detections every scan
+            launch_sniper.cleanup_old_detections(max_age_seconds=300)
+            
+            # Log sniper activity
+            if snipe_candidates > 0 or len(top_snipe_targets) > 0:
+                sniper_stats = launch_sniper.get_stats()
+                logger.info("=" * 50)
+                logger.info("🎯 LAUNCH SNIPER STATUS")
+                logger.info(f"   new_candidates: {snipe_candidates}")
+                logger.info(f"   queue_size: {len(top_snipe_targets)}")
+                logger.info(f"   total_detections: {sniper_stats['total_detections']}")
+                logger.info(f"   avg_detection_age: {sniper_stats['avg_detection_age_seconds']:.1f}s")
+                if top_snipe_targets:
+                    top_3 = [f"{t['symbol']}({t['priority_score']})" for t in top_snipe_targets[:3]]
+                    logger.info(f"   top_targets: {', '.join(top_3)}")
+                logger.info("=" * 50)
+            
             # Convert to dict for deduplication
             all_pairs = {}
             for pair in all_pairs_list:
@@ -1795,13 +2077,87 @@ async def auto_trading_loop():
                 active_trade_tokens.add(t.get("token_address"))
             
             # Debug logging
-            logger.info(f"🔄 TRADE EXECUTION | opportunities={len(opportunities)} | available_slots={available_slots} | trade_size={trade_size:.4f} SOL")
+            logger.info(f"🔄 TRADE EXECUTION | opportunities={len(opportunities)} | snipe_targets={len(top_snipe_targets)} | available_slots={available_slots} | trade_size={trade_size:.4f} SOL")
             
             if available_slots <= 0:
                 logger.info(f"⚠️ No slots available (max_parallel_trades={max_parallel}, open={open_trades})")
                 await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
                 continue
             
+            # ===== PHASE 1: EXECUTE SNIPE TARGETS FIRST (PRIORITY) =====
+            snipes_executed = 0
+            for snipe_target in top_snipe_targets:
+                if trades_executed_this_cycle >= available_slots:
+                    break
+                
+                try:
+                    token_address = snipe_target["token_address"]
+                    symbol = snipe_target["symbol"]
+                    
+                    # Skip if already trading
+                    if token_address in active_trade_tokens:
+                        continue
+                    
+                    # Check cooldown
+                    if check_signal_cooldown(token_address):
+                        continue
+                    
+                    # Get the full pair data from sniper
+                    if token_address in launch_sniper.detected_launches:
+                        detection = launch_sniper.detected_launches[token_address]
+                        pair_data = detection.get("pair", {})
+                        snipe_data = detection.get("snipe_data", {})
+                        
+                        # Execute snipe trade with boosted priority
+                        logger.info(f"🎯 SNIPING: {symbol} | Priority={snipe_target['priority_score']} | Age={snipe_target['age_seconds']}s")
+                        
+                        # Create trade using standard flow
+                        trade_data = TradeCreate(
+                            token_address=token_address,
+                            token_symbol=symbol,
+                            token_name=pair_data.get("baseToken", {}).get("name", "Snipe Target"),
+                            pair_address=pair_data.get("pairAddress"),
+                            trade_type="BUY",
+                            amount_sol=trade_size,
+                            price_entry=float(pair_data.get("priceUsd", 0) or 0),
+                            take_profit_percent=ENGINE_CONFIG["take_profit_percent"],
+                            stop_loss_percent=ENGINE_CONFIG["stop_loss_percent"],
+                            trailing_stop_percent=ENGINE_CONFIG["trailing_stop_percent"] if ENGINE_CONFIG["trailing_stop_enabled"] else None,
+                            paper_trade=settings.paper_mode,
+                            auto_trade=True
+                        )
+                        
+                        trade_result = await create_trade(trade_data)
+                        
+                        if trade_result:
+                            trades_executed_this_cycle += 1
+                            snipes_executed += 1
+                            active_trade_tokens.add(token_address)
+                            launch_sniper.mark_sniped(token_address, success=True)
+                            set_signal_cooldown(token_address)
+                            
+                            auto_trading_state["trades_executed"] += 1
+                            auto_trading_state["trades_today"] += 1
+                            
+                            # Log snipe success
+                            activity_feed.add_event("SNIPE", symbol, {
+                                "type": "LAUNCH_SNIPE",
+                                "priority_score": snipe_target["priority_score"],
+                                "age_seconds": snipe_target["age_seconds"],
+                                "amount_sol": trade_size
+                            })
+                            
+                            logger.info(f"✅ SNIPE EXECUTED | {symbol} | size: {trade_size:.4f} SOL | age: {snipe_target['age_seconds']}s")
+                        else:
+                            launch_sniper.mark_sniped(token_address, success=False)
+                            
+                except Exception as e:
+                    logger.warning(f"Snipe execution error: {e}")
+            
+            if snipes_executed > 0:
+                logger.info(f"🎯 SNIPES EXECUTED: {snipes_executed}")
+            
+            # ===== PHASE 2: EXECUTE NORMAL OPPORTUNITIES =====
             for opp in opportunities:
                 # Check if we've filled all available slots
                 if trades_executed_this_cycle >= available_slots:
@@ -4410,6 +4766,131 @@ async def get_early_pumps():
         ],
         "count": len(early_pump_detector.detected_pumps)
     }
+
+
+# ============== REALTIME LAUNCH SNIPER ENDPOINTS ==============
+
+@api_router.get("/sniper/status")
+async def get_sniper_status():
+    """
+    Get Realtime Launch Sniper status and statistics.
+    
+    Returns:
+    - stats: Detection statistics
+    - queue: Current snipe queue
+    - config: Sniper configuration
+    """
+    stats = launch_sniper.get_stats()
+    queue = launch_sniper.get_top_snipe_targets(limit=20)
+    
+    return {
+        "enabled": True,
+        "stats": stats,
+        "queue": queue,
+        "config": {
+            "ultra_new_seconds": launch_sniper.ultra_new_seconds,
+            "very_new_seconds": launch_sniper.very_new_seconds,
+            "new_seconds": launch_sniper.new_seconds,
+            "min_liquidity_usd": launch_sniper.min_liquidity_usd,
+            "launch_cooldown": launch_sniper.launch_cooldown
+        }
+    }
+
+
+@api_router.get("/sniper/targets")
+async def get_snipe_targets():
+    """Get current snipe target queue (priority sorted)"""
+    targets = launch_sniper.get_top_snipe_targets(limit=50)
+    
+    # Enrich with detection data
+    enriched = []
+    for target in targets:
+        addr = target["token_address"]
+        detection = launch_sniper.detected_launches.get(addr, {})
+        snipe_data = detection.get("snipe_data", {})
+        
+        enriched.append({
+            **target,
+            "signals": snipe_data.get("signals", []),
+            "liquidity": snipe_data.get("liquidity", 0),
+            "source": snipe_data.get("source", "unknown"),
+            "detected_at": detection.get("detected_at", "").isoformat() if detection.get("detected_at") else None,
+            "status": detection.get("status", "UNKNOWN")
+        })
+    
+    return {
+        "targets": enriched,
+        "count": len(enriched)
+    }
+
+
+@api_router.post("/sniper/clear")
+async def clear_sniper_queue():
+    """Clear the sniper queue and detections"""
+    launch_sniper.snipe_queue = []
+    launch_sniper.detected_launches = {}
+    launch_sniper.stats = {
+        "total_detections": 0,
+        "successful_snipes": 0,
+        "avg_detection_age_seconds": 0,
+        "last_detection": None
+    }
+    return {"success": True, "message": "Sniper queue cleared"}
+
+
+@api_router.post("/sniper/scan")
+async def trigger_sniper_scan():
+    """
+    Manually trigger a sniper scan for new token launches.
+    Scans DexScreener for the newest tokens.
+    """
+    try:
+        # Fetch latest tokens
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Multiple queries for new tokens
+            all_pairs = []
+            
+            # DexScreener new tokens
+            try:
+                resp = await client.get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": "pump.fun new"}
+                )
+                if resp.status_code == 200:
+                    pairs = resp.json().get("pairs", [])
+                    all_pairs.extend([p for p in pairs if p.get("chainId") == "solana"])
+            except:
+                pass
+            
+            # Raydium new pools
+            try:
+                resp = await client.get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": "raydium new sol"}
+                )
+                if resp.status_code == 200:
+                    pairs = resp.json().get("pairs", [])
+                    all_pairs.extend([p for p in pairs if p.get("chainId") == "solana"])
+            except:
+                pass
+        
+        # Process through sniper
+        candidates = 0
+        for pair in all_pairs:
+            snipe_data = launch_sniper.calculate_snipe_priority(pair)
+            if snipe_data["is_snipe_candidate"]:
+                launch_sniper.add_to_snipe_queue(pair, snipe_data)
+                candidates += 1
+        
+        return {
+            "success": True,
+            "scanned": len(all_pairs),
+            "candidates_found": candidates,
+            "queue_size": len(launch_sniper.snipe_queue)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @api_router.post("/scan-early-pumps")

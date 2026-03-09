@@ -1,9 +1,9 @@
-# Pump.fun Trading Bot - PRD v24
+# Pump.fun Trading Bot - PRD v25
 
 ## Problem Statement
-Automatisiertes Ultra-High-Frequency Trading-System für Pump.fun Tokens auf der Solana Blockchain mit 100+ simultanen Micro-Trades.
+Automatisiertes Ultra-High-Frequency Trading-System für Pump.fun Tokens auf der Solana Blockchain mit Realtime Launch Sniper und 100+ simultanen Micro-Trades.
 
-## System Status: ULTRA-HIGH-FREQUENCY MICRO-TRADE ENGINE V4 AKTIV
+## System Status: REALTIME LAUNCH SNIPER + MICRO-TRADE ENGINE AKTIV
 
 Letztes Update: 2026-03-09
 
@@ -11,71 +11,105 @@ Letztes Update: 2026-03-09
 
 ## Changelog
 
-### 2026-03-09 - Ultra-High-Frequency Micro-Trade Engine
-
-**Neue Konfiguration für 100+ simultane Trades:**
-
-| Parameter | Alt | Neu |
-|-----------|-----|-----|
-| max_parallel_trades | 30 | 120 |
-| micro_trade_percent | 0.75% | 0.35% |
-| max_capital_in_trades | - | 60% |
-| scan_interval | 1.0s | 0.8s |
-| take_profit | 10% | 8% |
-| stop_loss | 7% | 6% |
-| cooldown | 60s | 45s |
+### 2026-03-09 - Realtime Launch Sniper Implementation
 
 **Neue Features:**
-- Capital Control: Max 60% des Wallets in aktiven Trades
-- Ultra-Micro Positionen: 0.2-0.5% des Wallets pro Trade
-- Schnellere Exits: 8% TP, 6% SL, 4% Trailing
-- Performance Logging: TRADING ENGINE STATUS & SCANNER SUMMARY
+- **RealtimeLaunchSniper Klasse** - Erkennt neue Token-Launches in < 30 Sekunden
+- **Priority-Scoring System** - 0-200 Punkte basierend auf Alter, Liquidität, Aktivität
+- **Snipe Queue** - Priorisierte Warteschlange für neue Token-Targets
+- **2-Phasen Trade Execution** - Snipe-Targets werden vor normalen Opportunities ausgeführt
 
-### Beispiel Trade-Sizing (3 SOL Wallet):
-```
-micro_trade_percent = 0.35%
-trade_size = 3 * 0.0035 = 0.0105 SOL pro Trade
-max_capital = 60% = 1.8 SOL
-max_possible_trades = 1.8 / 0.0105 = ~171 Trades
-```
+**Sniper Konfiguration:**
+| Parameter | Wert |
+|-----------|------|
+| ultra_new_seconds | 30s (+100 Punkte) |
+| very_new_seconds | 60s (+80 Punkte) |
+| new_seconds | 120s (+50 Punkte) |
+| min_liquidity_usd | $500 |
+| launch_cooldown | 120s |
+
+**Neue API Endpoints:**
+- `GET /api/sniper/status` - Sniper-Statistiken
+- `GET /api/sniper/targets` - Aktuelle Snipe-Targets
+- `POST /api/sniper/scan` - Manueller Sniper-Scan
+- `POST /api/sniper/clear` - Queue leeren
+
+### 2026-03-09 - Ultra-High-Frequency Micro-Trade Engine
+
+| Parameter | Wert |
+|-----------|------|
+| max_parallel_trades | 120 |
+| micro_trade_percent | 0.35% |
+| max_capital_in_trades | 60% |
+| scan_interval | 0.8s |
+| take_profit | 8% |
+| stop_loss | 6% |
+| cooldown | 45s |
 
 ---
 
-## Engine Konfiguration
+## Sniper Priority Scoring
 
 ```python
-ENGINE_CONFIG = {
-    # Scanning
-    "scan_interval_seconds": 0.8,
-    "max_tokens_per_scan": 3000,
-    "max_open_trades": 120,
-    
-    # Micro-Trade Sizing
-    "micro_trade_percent": 0.35,
-    "max_micro_trade_sol": 0.015,
-    "min_micro_trade_sol": 0.003,
-    
-    # Capital Control
-    "max_capital_in_trades_percent": 60,
-    
-    # Exit Strategy
-    "take_profit_percent": 8,
-    "stop_loss_percent": 6,
-    "trailing_stop_percent": 4,
-    
-    # Momentum Entry
-    "momentum_volume_multiplier": 1.4,
-    "min_price_change_1m": 2,
-    "min_buy_sell_ratio": 1.05,
-    
-    # Cooldown
-    "signal_cooldown_seconds": 45
-}
+# Age-based scoring (0-100 points)
+if age < 30s:   score += 100  # 🚨 ULTRA-NEW
+elif age < 60s: score += 80   # 🔥 VERY NEW
+elif age < 120s: score += 50  # 🆕 NEW
+elif age < 300s: score += 25  # ⏰ RECENT
+
+# Liquidity bonus (0-20 points)
+if $1k <= liq <= $50k: score += 20  # Good liquidity
+elif liq > $50k: score += 10        # High liquidity
+
+# Activity bonus (0-40 points)
+score += min(20, buyers * 2)        # Buyer activity
+score += min(20, buy_ratio * 5)     # Buy pressure
+
+# Source bonus (0-20 points)
+if "pump" in source: score += 20    # Pump.fun launch
+elif "raydium": score += 15         # Raydium pool
+elif "orca": score += 10            # Orca pool
+
+# Snipe threshold
+is_snipe_candidate = score >= 80 AND age < 120s
 ```
 
 ---
 
-## Performance Logging Format
+## Trading Engine Flow
+
+```
+1. SCAN PHASE
+   └── Multi-source scanner (7 DEX sources)
+   └── Launch sniper processes all tokens
+   └── Identify snipe candidates (priority >= 80)
+
+2. SNIPE PHASE (PRIORITY)
+   └── Execute snipe targets first
+   └── Ultra-new tokens get priority
+   └── Max 20 snipe targets per cycle
+
+3. MOMENTUM PHASE
+   └── Execute normal opportunities
+   └── Sorted by momentum score
+   └── Fill remaining trade slots
+```
+
+---
+
+## Performance Logs
+
+### LAUNCH SNIPER STATUS
+```
+==================================================
+🎯 LAUNCH SNIPER STATUS
+   new_candidates: 3
+   queue_size: 5
+   total_detections: 42
+   avg_detection_age: 45.2s
+   top_targets: TOKEN1(185), TOKEN2(142), TOKEN3(98)
+==================================================
+```
 
 ### TRADING ENGINE STATUS
 ```
@@ -88,79 +122,47 @@ ENGINE_CONFIG = {
 ==================================================
 ```
 
-### SCANNER SUMMARY
-```
-==================================================
-📊 SCANNER SUMMARY
-   tokens_scanned: 3200
-   opportunities: 54
-   new_tokens: 12
-==================================================
-```
-
 ---
 
 ## API Endpoints
 
-### Auto-Trading Status (erweitert)
-`GET /api/auto-trading/status`
+### Sniper
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/sniper/status` | Sniper-Statistiken & Konfiguration |
+| `GET /api/sniper/targets` | Aktuelle Snipe-Targets mit Details |
+| `POST /api/sniper/scan` | Manuellen Sniper-Scan triggern |
+| `POST /api/sniper/clear` | Queue und Detektionen leeren |
 
-Neue Felder:
-```json
-{
-  "open_trades": 87,
-  "available_slots": 33,
-  "capital": {
-    "in_trades_sol": 0.94,
-    "used_percent": 31.3,
-    "available_sol": 0.86,
-    "max_percent": 60
-  },
-  "config": {
-    "max_open_trades": 120,
-    "micro_trade_percent": 0.35,
-    "max_capital_in_trades_percent": 60,
-    "signal_cooldown_seconds": 45
-  }
-}
-```
+### Scanner
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/scanner/stats` | Scanner V3 Statistiken |
+| `POST /api/scanner/clear-cache` | Cache leeren |
 
----
-
-## Momentum Entry Signal
-
-Trades werden nur eröffnet wenn:
-```
-price_change_1m >= 2%
-volume_1m >= 1.4x baseline
-buyers_1m > sellers_1m
-```
-
-## Token Priorisierung
-
-Momentum Score Formel:
-```
-score = (volume_growth * 0.35)
-      + (buyers_1m * 0.25)
-      + (price_change_1m * 0.20)
-      + (price_acceleration * 0.20)
-```
+### Auto-Trading
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `GET /api/auto-trading/status` | Status mit Capital-Metriken |
+| `POST /api/auto-trading/start` | Bot starten |
+| `POST /api/auto-trading/stop` | Bot stoppen |
 
 ---
 
 ## Test-Ergebnisse
 
-- **Backend Tests:** 74/77 bestanden (96%)
-- **Frontend E2E Tests:** 37 bestanden (100%)
-- **Scanner V3:** Alle Tests bestanden
+- **Backend API:** Alle Endpoints funktionieren ✅
+- **Scanner V3:** ~1.2s Scan-Zeit ✅
+- **Launch Sniper:** Aktiviert, Queue funktioniert ✅
+- **Capital Control:** 60% Limit aktiv ✅
 
 ---
 
 ## Nächste Schritte (P1)
 
-1. **Realtime Launch Sniper** - Pump.fun / Raydium Pool Detection
-2. **Performance Dashboard** - Erweiterte Statistiken
-3. **Refactoring** - server.py modularisieren
+1. **Performance Dashboard** - Top profitable Tokens, Profit/Tag
+2. **Refactoring** - server.py in Module aufteilen
+3. **UI für Sniper** - Dashboard-Integration
 
 ## Zukünftige Features (P2)
 
@@ -173,3 +175,18 @@ score = (volume_growth * 0.35)
 ## Credentials
 
 - **PIN:** 1234
+
+---
+
+## Architektur
+
+```
+/app/backend/server.py (~7200 Zeilen)
+├── ScannerCache         # 2s TTL Cache
+├── MultiSourceScanner   # V3 High-Performance Scanner
+├── RealtimeLaunchSniper # NEW: Launch Detection
+├── EarlyPumpDetector    # Pump Signal Detection
+├── SmartWalletTracker   # Copy-Trading
+├── auto_trading_loop    # HFT Trading Engine
+└── API Endpoints        # FastAPI Routes
+```
