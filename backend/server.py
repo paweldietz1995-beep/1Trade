@@ -1674,18 +1674,35 @@ async def start_auto_trading(background_tasks: BackgroundTasks):
     else:
         logger.warning("⚠️ Starting in degraded mode - RPC not available")
     
-    # Step 2: Check wallet sync status
+    # Step 2: Check wallet sync status using WalletSyncManager
+    can_start, block_reason = wallet_sync_manager.can_start_auto_trading()
     wallet_synced = wallet_state.get("sync_status") == "synced"
     wallet_address = wallet_state.get("address")
     
+    # Log wallet status
     if wallet_synced:
         logger.info(f"WALLET_SYNCED: {wallet_address[:12]}... = {wallet_state.get('balance_sol', 0):.4f} SOL")
+        logger.info(f"TRADING_ENGINE_WALLET: {wallet_address}")
     else:
         logger.info("ℹ️ No wallet connected - using paper trading budget")
     
     # Step 3: Get bot settings to check test mode
     settings = await get_bot_settings()
     test_mode = settings.paper_mode
+    
+    # In live mode (not test), require wallet sync
+    if not test_mode and not wallet_synced:
+        logger.error("AUTO_TRADING_BLOCKED_WALLET_SYNC_FAILED: Live mode requires synced wallet")
+        return {
+            "success": False,
+            "message": "Live trading requires a synced wallet. Please connect your wallet first.",
+            "error_code": "WALLET_NOT_SYNCED",
+            "wallet_status": {
+                "synced": False,
+                "sync_status": wallet_state.get("sync_status"),
+                "sync_error": wallet_state.get("sync_error")
+            }
+        }
     
     if test_mode:
         logger.info("TEST_MODE_ACTIVE: Transactions will be simulated")
@@ -3506,6 +3523,10 @@ class WalletSyncManager:
         """
         global wallet_state
         
+        logger.info("=" * 50)
+        logger.info("WALLET_SYNC_SEQUENCE_STARTED")
+        logger.info("=" * 50)
+        
         self.diagnostics = []
         results = {
             "success": False,
@@ -3632,6 +3653,15 @@ class WalletSyncManager:
             results["wallet_type"] = wallet_type
             results["synced_at"] = datetime.now(timezone.utc).isoformat()
             results["message"] = "Wallet successfully synced with trading engine"
+            
+            # Log final success
+            logger.info("=" * 50)
+            logger.info("WALLET_SYNC_SUCCESS")
+            logger.info(f"   Address: {address}")
+            logger.info(f"   Balance: {balance_sol:.6f} SOL")
+            logger.info(f"   Type: {wallet_type}")
+            logger.info("   Trading Engine: READY")
+            logger.info("=" * 50)
             
             activity_feed.add_event("INFO", "WALLET", {
                 "message": f"✅ Full sync complete: {balance_sol:.6f} SOL"
@@ -4142,22 +4172,45 @@ async def rpc_health_monitor():
 
 @app.on_event("startup")
 async def start_rpc_monitor():
-    """Start RPC health monitor on app startup"""
+    """Start RPC health monitor and initialize wallet manager on app startup"""
     global rpc_monitor_task, auto_trading_state, auto_trading_task
     
-    # IMPORTANT: Reset auto trading state on startup to prevent "already running" error
+    logger.info("=" * 60)
+    logger.info("🚀 TRADING BOT STARTUP SEQUENCE")
+    logger.info("=" * 60)
+    
+    # STEP 1: Reset auto trading state on startup to prevent "already running" error
     auto_trading_state["is_running"] = False
     auto_trading_state["is_paused"] = False
     auto_trading_state["pause_reason"] = None
     auto_trading_task = None
-    logger.info("🔄 Auto trading state reset on startup")
+    logger.info("✅ AUTO_TRADING_STATE_RESET")
     
-    # Initial connection test
+    # STEP 2: Initialize WalletSyncManager
+    logger.info("WALLET_MANAGER_INITIALIZED")
+    logger.info(f"   - Max retries: {WALLET_SYNC_CONFIG['max_retries']}")
+    logger.info(f"   - Min balance: {WALLET_SYNC_CONFIG['min_balance_sol']} SOL")
+    
+    # STEP 3: Initial RPC connection test
+    logger.info("🔌 Initializing RPC connection...")
     await get_working_rpc()
     
-    # Start background monitor
+    if rpc_state.get("connected"):
+        logger.info(f"RPC_CONNECTED: {rpc_state.get('current_endpoint', 'unknown')[:40]}...")
+    else:
+        logger.warning("⚠️ RPC_CONNECTION_FAILED - will retry on first request")
+    
+    # STEP 4: Start background RPC monitor
     rpc_monitor_task = asyncio.create_task(rpc_health_monitor())
-    logger.info("🔌 RPC Health Monitor started")
+    logger.info("✅ RPC_HEALTH_MONITOR_STARTED")
+    
+    # Log startup complete
+    logger.info("=" * 60)
+    logger.info("✅ TRADING BOT STARTUP COMPLETE")
+    logger.info("   - Wallet: Waiting for connection")
+    logger.info("   - RPC: " + ("Connected" if rpc_state.get("connected") else "Pending"))
+    logger.info("   - Auto-Trading: Stopped (ready to start)")
+    logger.info("=" * 60)
 
 @app.on_event("shutdown")
 async def stop_rpc_monitor():
