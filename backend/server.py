@@ -270,22 +270,50 @@ auto_trading_state = {
 }
 
 # Engine Configuration - High Capacity
+# Engine Configuration - Optimized for Scalping Strategy
 ENGINE_CONFIG = {
     "scan_interval_seconds": 2,        # 2 second scans
     "max_tokens_per_scan": 200,        # Process up to 200 tokens
-    "max_signals_per_scan": 100,       # Analyze top 100 signals
-    "max_open_trades": 30,             # Allow up to 30 simultaneous trades
-    "min_signal_score": 50,            # Minimum score to trigger trade
-    "take_profit_percent": 10,         # 10% take profit
-    "stop_loss_percent": 6,            # 6% stop loss
+    "max_signals_per_scan": 150,       # Analyze top 150 signals
+    "max_open_trades": 20,             # Allow up to 20 simultaneous trades
+    "max_trades_per_token": 1,         # Only 1 trade per token
+    "signal_cooldown_seconds": 60,     # 60 second cooldown per token
+    "min_signal_score": 45,            # Minimum score to trigger trade
+    "take_profit_percent": 10,         # 8-12% take profit (scalping)
+    "stop_loss_percent": 6,            # 5-7% stop loss
     "trailing_stop_enabled": True,
     "trailing_stop_percent": 5,        # 5% trailing stop
+    "trailing_stop_activation": 6,     # Activate after 6% profit
     "daily_loss_limit_percent": 15,    # 15% max daily loss
     "loss_streak_limit": 5,            # 5 consecutive losses
-    "min_liquidity_usd": 10000,        # $10k minimum liquidity
-    "min_volume_surge_percent": 50,    # 50% volume surge
-    "min_buy_sell_ratio": 1.2          # 1.2x buy pressure
+    "min_liquidity_usd": 3000,         # $3k minimum liquidity (relaxed)
+    "min_volume_usd": 5000,            # $5k minimum volume
+    "min_volume_surge_percent": 30,    # 30% volume surge (relaxed)
+    "min_buy_sell_ratio": 1.1,         # 1.1x buy pressure (relaxed)
+    "price_update_interval": 3         # Update prices every 3 seconds
 }
+
+# Token Cache to reduce API calls
+class TokenCache:
+    def __init__(self, ttl_seconds: int = 30):
+        self.tokens = []
+        self.last_updated = None
+        self.ttl_seconds = ttl_seconds
+    
+    def is_valid(self) -> bool:
+        if not self.last_updated:
+            return False
+        age = (datetime.now(timezone.utc) - self.last_updated).total_seconds()
+        return age < self.ttl_seconds
+    
+    def set(self, tokens: list):
+        self.tokens = tokens
+        self.last_updated = datetime.now(timezone.utc)
+    
+    def get(self) -> list:
+        return self.tokens if self.is_valid() else []
+
+token_cache = TokenCache(ttl_seconds=15)  # Cache tokens for 15 seconds
 
 class AutoTradingStatus(BaseModel):
     is_running: bool
@@ -1050,15 +1078,22 @@ async def auto_trading_loop():
             
             # Execute trades for available slots
             trades_executed_this_cycle = 0
+            max_trades_per_token = ENGINE_CONFIG.get("max_trades_per_token", 1)
             
             for opp in opportunities[:available_slots]:
                 try:
-                    # Check if we already have a trade for this token
-                    existing = await db.trades.find_one({
-                        "token_address": opp["address"],
+                    token_address = opp["address"]
+                    
+                    # DUPLICATE PROTECTION: Check if we already have a trade for this token
+                    existing_count = await db.trades.count_documents({
+                        "token_address": token_address,
                         "status": "OPEN"
                     })
-                    if existing:
+                    if existing_count >= max_trades_per_token:
+                        continue
+                    
+                    # COOLDOWN CHECK: Skip if token is in cooldown
+                    if check_signal_cooldown(token_address):
                         continue
                     
                     # Calculate trade size
@@ -1069,7 +1104,7 @@ async def auto_trading_loop():
                     
                     # Execute trade
                     trade_data = TradeCreate(
-                        token_address=opp["address"],
+                        token_address=token_address,
                         token_symbol=opp["symbol"],
                         token_name=opp["name"],
                         pair_address=opp.get("pair_address"),
@@ -1088,6 +1123,9 @@ async def auto_trading_loop():
                     auto_trading_state["trades_executed"] += 1
                     auto_trading_state["trades_today"] += 1
                     
+                    # Set cooldown for this token
+                    set_signal_cooldown(token_address)
+                    
                     logger.info(f"✅ TRADE: {opp['symbol']} | {trade_amount} SOL | Score: {opp['signal_score']:.0f} | B/S: {opp['buy_sell_ratio']:.1f}x")
                     
                 except Exception as e:
@@ -1097,9 +1135,10 @@ async def auto_trading_loop():
             remaining_opps = opportunities[available_slots:available_slots + 20]  # Queue up to 20
             for opp in remaining_opps:
                 if len(auto_trading_state["signal_queue"]) < ENGINE_CONFIG.get("queue_max_size", 100):
-                    # Don't queue duplicates
+                    # Don't queue duplicates or tokens in cooldown
                     if not any(q["address"] == opp["address"] for q in auto_trading_state["signal_queue"]):
-                        auto_trading_state["signal_queue"].append(opp)
+                        if not check_signal_cooldown(opp["address"]):
+                            auto_trading_state["signal_queue"].append(opp)
             
             # Log cycle summary
             cycle_time = (datetime.now(timezone.utc) - cycle_start).total_seconds()
@@ -1327,20 +1366,22 @@ async def get_sol_price() -> float:
     return sol_price_cache["price"]
 
 async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
-    """Fetch trending Solana tokens from DEX Screener"""
+    """Fetch trending Solana tokens from DEX Screener with rate limiting"""
+    
+    # Check cache first
+    cached = token_cache.get()
+    if cached:
+        logger.info(f"📊 Using cached tokens: {len(cached)} pairs")
+        return cached[:limit]
+    
     all_pairs = []
     
     try:
         async with httpx.AsyncClient(timeout=15.0) as client_http:
-            # Search for multiple queries to get diverse results
-            search_queries = [
-                "solana SOL",
-                "raydium",
-                "jupiter SOL",
-                "orca solana"
-            ]
+            # Use search endpoint for diverse Solana tokens
+            search_queries = ["solana", "sol meme"]
             
-            for query in search_queries:
+            for query in search_queries[:1]:  # Only 1 query to reduce rate limits
                 try:
                     response = await client_http.get(
                         "https://api.dexscreener.com/latest/dex/search",
@@ -1350,52 +1391,26 @@ async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
                         data = response.json()
                         pairs = data.get("pairs", [])
                         
-                        # Filter for Solana pairs with reasonable values
                         for p in pairs:
                             if p.get("chainId") != "solana":
                                 continue
-                            
-                            # Filter out unrealistic liquidity (likely fake/test tokens)
+                                
                             liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
                             vol = float(p.get("volume", {}).get("h24", 0) or 0)
                             
-                            # Skip if liquidity is unrealistically high (>$100M for memecoins)
+                            # Skip unrealistic values
                             if liq > 100000000:
                                 continue
                             
-                            # Only include pairs with some activity
                             if liq >= 1000 or vol >= 100:
                                 all_pairs.append(p)
-                                
-                except Exception as e:
-                    logger.warning(f"Search query '{query}' failed: {e}")
-                    continue
-            
-            # Also try token profiles for latest tokens
-            try:
-                response = await client_http.get(
-                    "https://api.dexscreener.com/token-profiles/latest/v1"
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    solana_profiles = [p for p in data if p.get("chainId") == "solana"]
-                    
-                    if solana_profiles:
-                        token_addresses = [p.get("tokenAddress") for p in solana_profiles[:20] if p.get("tokenAddress")]
                         
-                        if token_addresses:
-                            tokens_str = ",".join(token_addresses[:20])
-                            detail_response = await client_http.get(
-                                f"https://api.dexscreener.com/latest/dex/tokens/{tokens_str}"
-                            )
-                            if detail_response.status_code == 200:
-                                detail_data = detail_response.json()
-                                for p in detail_data.get("pairs", []):
-                                    liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
-                                    if 1000 <= liq < 100000000:
-                                        all_pairs.append(p)
-            except Exception as e:
-                logger.warning(f"Token profiles failed: {e}")
+                        logger.info(f"📊 Search '{query}': {len(pairs)} pairs, {len(all_pairs)} valid")
+                    elif response.status_code == 429:
+                        logger.warning("DEX Screener rate limited (429)")
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    logger.warning(f"DEX search failed: {e}")
             
             # Deduplicate by pair address
             seen = set()
@@ -1409,6 +1424,9 @@ async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
             # Sort by volume descending
             unique_pairs.sort(key=lambda x: float(x.get("volume", {}).get("h24", 0) or 0), reverse=True)
             
+            # Cache the results
+            token_cache.set(unique_pairs)
+            
             logger.info(f"📊 Loaded {len(unique_pairs)} valid Solana pairs from DEX Screener")
             return unique_pairs[:limit]
             
@@ -1417,31 +1435,46 @@ async def fetch_dex_screener_tokens(limit: int = 50) -> List[Dict]:
     return []
 
 async def fetch_pump_fun_tokens() -> List[Dict]:
-    """Fetch new tokens from Pump.fun via DEX Screener"""
+    """Fetch new tokens from Pump.fun and trending memes via DEX Screener"""
+    all_pairs = []
+    
     try:
         async with httpx.AsyncClient(timeout=15.0) as client_http:
-            # Search for Pump.fun tokens
-            response = await client_http.get(
-                "https://api.dexscreener.com/latest/dex/search",
-                params={"q": "pump.fun"}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                pairs = data.get("pairs", [])
-                solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
-                logger.info(f"🚀 Loaded {len(solana_pairs)} Pump.fun pairs")
-                return solana_pairs[:30]
-                
-            # Alternative: Search for raydium pairs
-            response = await client_http.get(
-                "https://api.dexscreener.com/latest/dex/search",
-                params={"q": "raydium SOL"}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                pairs = data.get("pairs", [])
-                solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
-                return solana_pairs[:30]
+            # Multiple search queries for diverse tokens
+            queries = ["pump.fun", "meme solana", "degen SOL"]
+            
+            for query in queries:
+                try:
+                    response = await client_http.get(
+                        "https://api.dexscreener.com/latest/dex/search",
+                        params={"q": query}
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        pairs = data.get("pairs", [])
+                        for p in pairs:
+                            if p.get("chainId") == "solana":
+                                liq = float(p.get("liquidity", {}).get("usd", 0) or 0)
+                                if 1000 <= liq < 100000000:
+                                    all_pairs.append(p)
+                    elif response.status_code == 429:
+                        await asyncio.sleep(1)
+                        break  # Stop on rate limit
+                except Exception as e:
+                    logger.warning(f"Pump query '{query}' failed: {e}")
+                    continue
+            
+            # Deduplicate
+            seen = set()
+            unique = []
+            for p in all_pairs:
+                addr = p.get("baseToken", {}).get("address", "")
+                if addr and addr not in seen:
+                    seen.add(addr)
+                    unique.append(p)
+            
+            logger.info(f"🚀 Loaded {len(unique)} Pump.fun/meme pairs")
+            return unique[:50]
                 
     except Exception as e:
         logger.error(f"Error fetching Pump.fun data: {e}")
@@ -1707,18 +1740,22 @@ async def scan_tokens(limit: int = 30):
     """Scan for new and trending tokens with full analysis"""
     settings = await get_bot_settings()
     
+    # Get filter config at the start
+    min_liq = ENGINE_CONFIG.get("min_liquidity_usd", 3000)
+    min_vol = ENGINE_CONFIG.get("min_volume_usd", 5000)
+    
     # Fetch from multiple sources
     pump_pairs = await fetch_pump_fun_tokens()
     dex_pairs = await fetch_dex_screener_tokens(limit)
     
-    # Combine and dedupe with strict filtering
+    # Combine and dedupe with relaxed filtering
     all_pairs = {}
     for pair in dex_pairs + pump_pairs:  # DEX pairs first (better quality)
         address = pair.get("baseToken", {}).get("address", "")
         if not address or address in all_pairs:
             continue
         
-        # Apply strict filters
+        # Apply filters
         liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
         vol_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
         
@@ -1726,13 +1763,13 @@ async def scan_tokens(limit: int = 30):
         if liq > 100000000:
             continue
         
-        # FILTER: Minimum liquidity requirement
-        if liq < settings.min_liquidity_usd and vol_24h < settings.min_volume_usd:
+        # RELAXED FILTER: Minimum liquidity $3k OR volume $5k
+        if liq < min_liq and vol_24h < min_vol:
             continue
         
         all_pairs[address] = pair
     
-    logger.info(f"📊 Processing {len(all_pairs)} tokens after filtering")
+    logger.info(f"📊 Scanner: {len(all_pairs)} tokens after filtering (min liq: ${min_liq}, min vol: ${min_vol})")
     
     tokens = []
     for address, pair in list(all_pairs.items())[:limit]:
@@ -2224,6 +2261,158 @@ async def update_trade_price(trade_id: str, current_price: float):
         return await close_trade(trade_id, current_price, close_reason)
     
     return {"updated": True, "should_close": False}
+
+
+@api_router.post("/trades/update-all-prices")
+async def update_all_trade_prices():
+    """
+    Bulk update current prices for all open trades.
+    Fetches live prices from DEX Screener and updates each trade.
+    Also checks TP/SL conditions and auto-closes if triggered.
+    """
+    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).to_list(100)
+    
+    if not open_trades:
+        return {"updated": 0, "closed": 0, "trades": []}
+    
+    # Collect unique token addresses
+    token_addresses = list(set([
+        t.get("pair_address") or t.get("token_address") 
+        for t in open_trades 
+        if t.get("pair_address") or t.get("token_address")
+    ]))
+    
+    # Fetch all prices in batch
+    price_map = {}
+    if token_addresses:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client_http:
+                # Batch request to DEX Screener (max 30 addresses per request)
+                for i in range(0, len(token_addresses), 30):
+                    batch = token_addresses[i:i+30]
+                    addresses_str = ",".join(batch)
+                    response = await client_http.get(
+                        f"https://api.dexscreener.com/latest/dex/tokens/{addresses_str}"
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        for pair in data.get("pairs", []):
+                            pair_addr = pair.get("pairAddress", "")
+                            base_addr = pair.get("baseToken", {}).get("address", "")
+                            price = float(pair.get("priceUsd", 0) or 0)
+                            if price > 0:
+                                if pair_addr:
+                                    price_map[pair_addr] = price
+                                if base_addr:
+                                    price_map[base_addr] = price
+        except Exception as e:
+            logger.error(f"Error fetching bulk prices: {e}")
+    
+    # Update each trade
+    updated_count = 0
+    closed_count = 0
+    trade_updates = []
+    settings = await get_bot_settings()
+    
+    for trade in open_trades:
+        try:
+            # Get current price
+            pair_addr = trade.get("pair_address")
+            token_addr = trade.get("token_address")
+            current_price = price_map.get(pair_addr) or price_map.get(token_addr) or trade.get("price_current", 0)
+            
+            if current_price <= 0:
+                continue
+            
+            # Calculate P&L
+            entry_price = trade.get("price_entry", current_price)
+            pnl_percent = ((current_price / entry_price) - 1) * 100 if entry_price > 0 else 0
+            pnl_sol = trade.get("amount_sol", 0) * (pnl_percent / 100)
+            
+            # Check TP/SL - ensure None values are handled
+            should_close = False
+            close_reason = None
+            
+            tp_price = trade.get("take_profit") or 0
+            sl_price = trade.get("stop_loss") or 0
+            trailing = trade.get("trailing_stop") or 0
+            
+            if tp_price > 0 and current_price >= tp_price:
+                should_close = True
+                close_reason = "TP_HIT"
+            elif sl_price > 0 and current_price <= sl_price:
+                should_close = True
+                close_reason = "SL_HIT"
+            elif trailing > 0 and current_price <= trailing:
+                should_close = True
+                close_reason = "TRAILING_STOP"
+            
+            # Update trade
+            update_data = {
+                "price_current": current_price,
+                "pnl": round(pnl_sol, 6),
+                "pnl_percent": round(pnl_percent, 2)
+            }
+            
+            # Update peak price for trailing stop
+            peak = trade.get("price_peak") or entry_price
+            if peak is not None and current_price > peak:
+                update_data["price_peak"] = current_price
+                # Activate trailing stop after 6% profit
+                if pnl_percent >= ENGINE_CONFIG.get("trailing_stop_activation", 6):
+                    new_trailing = current_price * (1 - settings.trailing_stop_percent / 100)
+                    if new_trailing > (trailing or 0):
+                        update_data["trailing_stop"] = new_trailing
+            
+            await db.trades.update_one({"id": trade["id"]}, {"$set": update_data})
+            updated_count += 1
+            
+            trade_update = {
+                "id": trade["id"],
+                "symbol": trade.get("token_symbol", "???"),
+                "price_current": current_price,
+                "pnl": round(pnl_sol, 6),
+                "pnl_percent": round(pnl_percent, 2),
+                "should_close": should_close
+            }
+            trade_updates.append(trade_update)
+            
+            # Auto-close if TP/SL hit
+            if should_close:
+                try:
+                    await close_trade(trade["id"], current_price, close_reason)
+                    closed_count += 1
+                    logger.info(f"📈 Auto-closed {trade.get('token_symbol')}: {close_reason} at {pnl_percent:.2f}%")
+                except Exception as e:
+                    logger.error(f"Error auto-closing trade: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error updating trade {trade.get('id', '?')}: {e}")
+    
+    logger.info(f"💹 Price update: {updated_count} trades updated, {closed_count} auto-closed")
+    
+    return {
+        "updated": updated_count,
+        "closed": closed_count,
+        "trades": trade_updates
+    }
+
+
+# Signal cooldown tracker
+signal_cooldowns = {}
+
+def check_signal_cooldown(token_address: str) -> bool:
+    """Check if token is in cooldown period"""
+    if token_address in signal_cooldowns:
+        cooldown_until = signal_cooldowns[token_address]
+        if datetime.now(timezone.utc) < cooldown_until:
+            return True  # Still in cooldown
+    return False
+
+def set_signal_cooldown(token_address: str):
+    """Set cooldown for a token after trade execution"""
+    cooldown_seconds = ENGINE_CONFIG.get("signal_cooldown_seconds", 60)
+    signal_cooldowns[token_address] = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
 
 # ============== PORTFOLIO ENDPOINTS ==============
 

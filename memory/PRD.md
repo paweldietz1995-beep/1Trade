@@ -1,4 +1,4 @@
-# Pump.fun Trading Bot - PRD v10
+# Pump.fun Trading Bot - PRD v11
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mit vollständiger deutscher Benutzeroberfläche.
@@ -6,146 +6,101 @@ Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain mi
 ## Vollständig Implementiert ✅
 
 ### 1. High-Capacity Trading Engine ✅
+**Optimiert für Scalping-Strategie (März 2026)**
 - **Scan-Intervall:** 2 Sekunden
 - **Max Tokens pro Scan:** 200
-- **Max offene Trades:** 30
-- **Parallele Signal-Verarbeitung**
-- **Signal-Queue für Überlauf**
-- **Dynamische Kapitalallokation**
+- **Max offene Trades:** 20
+- **Max Trades pro Token:** 1 (Duplikat-Schutz)
+- **Signal Cooldown:** 60 Sekunden pro Token
+- **Min Signal Score:** 45
 
-### 2. Geschlossene Trades Historie ✅ (März 2026)
-**Vollständig implementiert und getestet**
+**Scalping-Parameter:**
+- Take Profit: 10% (8-12%)
+- Stop Loss: 6% (5-7%)
+- Trailing Stop: 5% (aktiviert nach 6% Profit)
+- Tagesverlust-Limit: 15%
+- Verlust-Streak-Limit: 5
 
-**Backend-Endpoint:** `GET /api/trades?status=CLOSED`
+### 2. Echtzeit-Preisverfolgung ✅ (März 2026)
+**Neuer Endpoint:** `POST /api/trades/update-all-prices`
+- Bulk-Preisaktualisierung für alle offenen Trades
+- Update-Intervall: 3 Sekunden
+- Automatische TP/SL/Trailing-Stop-Prüfung
+- Auto-Close bei Limit-Erreichung
 
-Jeder geschlossene Trade enthält:
-- `id` - Eindeutige Trade-ID
-- `token_symbol` - Token-Symbol (z.B. H2O)
-- `token_name` - Token-Name
-- `price_entry` - Einstiegspreis
-- `price_exit` - Ausstiegspreis
-- `amount_sol` - Trade-Größe in SOL
-- `pnl` - Gewinn/Verlust in SOL
-- `pnl_percent` / ROI - Prozentuale Rendite
-- `opened_at` - Eröffnungszeitpunkt
-- `closed_at` - Schließungszeitpunkt
-- `close_reason` - Grund (TAKE_PROFIT, STOP_LOSS, MANUAL)
-- `paper_trade` - Test/Live-Modus
+### 3. Token Scanner Stabilität ✅ (März 2026)
+**Verbesserte API-Aufrufe mit Rate-Limiting:**
+- Token-Cache (15 Sekunden TTL)
+- Relaxierte Filter: Liq ≥ $3k ODER Vol ≥ $5k
+- Diverse Quellen: pump.fun, meme, degen
+- 24+ Tokens pro Scan
 
-**Frontend-Komponente:** `/app/frontend/src/components/LiveTradesPanel.jsx`
+### 4. Duplikat-Trade-Schutz ✅
+- Max 1 Trade pro Token
+- Signal-Cooldown nach Trade-Ausführung
+- Automatische Überspringung bei existierenden Trades
 
-Features:
-- Tabellen-Ansicht aller geschlossenen Trades
-- Statistik-Zusammenfassung (Gesamtgewinn, Gesamtverlust, Trefferquote, Ø Gewinn/Verlust)
-- P&L-Farbcodierung (grün für Gewinn, rot für Verlust)
-- Trade-Detail-Modal mit allen Informationen
-- Deutsche Übersetzungen via react-i18next
+### 5. Kapitalmanagement ✅
+- Dynamische Trade-Größe: `walletBalance / maxOpenTrades`
+- Beispiel: 3 SOL / 20 = 0.15 SOL pro Trade
+- Liquiditätsprüfung vor Ausführung
 
-### 3. Trade-Schließ-System ✅ (März 2026)
-**Bug behoben: "trade failed" Fehler**
+### 6. Geschlossene Trades Historie ✅
+**Backend:** `GET /api/trades?status=CLOSED`
+**Frontend:** `LiveTradesPanel.jsx`
+- Tabelle mit P&L-Farbcodierung
+- Statistik-Zusammenfassung
+- Trade-Detail-Modal
 
-**Lösung:**
-- Neuer `POST /api/trades/{trade_id}/close` Endpoint
-- Automatische Preisabfrage via DEX Screener
-- Paper Mode: Simulierte Schließung ohne echten Swap
-- Live Mode: Bereit für Jupiter-Swap-Integration
-- Verbessertes Frontend-Feedback mit P&L-Anzeige
-
+### 7. Trade-Schließ-System ✅
 **Endpoint:** `POST /api/trades/{trade_id}/close`
+- Paper Mode: Simulierte Schließung
+- Live Mode: Jupiter-Swap (vorbereitet)
+- Automatische Preisabfrage
 
-Response:
-```json
-{
-  "success": true,
-  "pnl": 0.031886,
-  "pnl_percent": 31.89,
-  "exit_price": 0.0000239,
-  "mode": "paper"
-}
-```
+### 8. Deutsche Benutzeroberfläche ✅
 
-### 4. Deutsche Benutzeroberfläche ✅
-Vollständig übersetzt via `react-i18next`:
-
-| Englisch | Deutsch |
-|----------|---------|
-| Closed Trades | Geschlossene Trades |
+| Feature | Deutsch |
+|---------|---------|
+| Scanner | Token Scanner |
+| Live P&L | Live P&L |
 | Active Trades | Aktive Trades |
+| Closed Trades | Geschlossene Trades |
 | Win Rate | Trefferquote |
-| Total Profit | Gesamtgewinn |
-| Total Loss | Gesamtverlust |
-| Entry | Einstieg |
-| Exit | Ausstieg |
-| Size | Größe |
-| Duration | Dauer |
-| Time Opened | Eröffnet |
-| Time Closed | Geschlossen |
-
-### 5. RPC-Architektur ✅
-- Alle RPC-Aufrufe über Backend
-- Automatisches Failover
-- Health Monitoring
-
-### 6. Risikomanagement ✅
-- Max Daily Loss: 15%
-- Loss Streak Limit: 5
-- Auto-Pause bei Limit-Erreichen
-
-## Test-Ergebnisse (März 2026)
-- **Backend:** 100% Tests PASS
-- **Frontend:** 100% Tests PASS
-- **Trade-Schließ-System:** Verifiziert
+| Signal | SIGNAL |
+| Risk | RISK |
+| Trade | Trade |
 
 ## API Endpoints
 
 | Endpoint | Methode | Beschreibung |
 |----------|---------|-------------|
-| `/api/trades?status=OPEN` | GET | Offene Trades abrufen |
-| `/api/trades?status=CLOSED` | GET | Geschlossene Trades abrufen |
-| `/api/trades/{id}/close` | POST | Trade schließen (auto-price) |
-| `/api/trades/{id}/close?exit_price=x` | PUT | Trade mit Preis schließen |
+| `/api/tokens/scan` | GET | Token-Scanner mit Caching |
+| `/api/trades?status=OPEN` | GET | Offene Trades |
+| `/api/trades?status=CLOSED` | GET | Geschlossene Trades |
+| `/api/trades/{id}/close` | POST | Trade schließen |
+| `/api/trades/update-all-prices` | POST | Bulk-Preisaktualisierung |
 | `/api/portfolio` | GET | Portfolio-Statistiken |
-| `/api/auto-trading/start` | POST | Trading Engine starten |
-| `/api/auto-trading/stop` | POST | Trading Engine stoppen |
-
-## Code-Architektur
-
-```
-/app/
-├── backend/
-│   ├── server.py           # FastAPI mit Trading Engine
-│   ├── requirements.txt
-│   └── tests/
-│       └── test_closed_trades.py
-├── frontend/
-│   └── src/
-│       ├── i18n/
-│       │   ├── de.json     # Deutsche Übersetzungen
-│       │   └── en.json     # Englische Übersetzungen
-│       ├── components/
-│       │   ├── LiveTradesPanel.jsx  # Trade Historie + Close
-│       │   └── ...
-│       └── pages/
-│           └── Dashboard.jsx
-└── tests/
-    └── e2e/
-        └── closed-trades-history.spec.ts
-```
+| `/api/auto-trading/start` | POST | Engine starten |
+| `/api/auto-trading/stop` | POST | Engine stoppen |
 
 ## Nächste Schritte (Phase 2)
 
-1. **Performance Dashboard** (P1)
-   - Erweiterte Statistiken
+1. **Jupiter Swap Integration** (P1)
+   - Live Mode Swap-Ausführung
+
+2. **Performance Dashboard** (P1)
    - Top profitable Tokens
    - Profit per Hour/Day
-
-2. **Jupiter Swap Integration** (P1)
-   - Live Mode Swap-Ausführung
-   - Route-Validierung
 
 3. **Liquiditäts-Migration Detektor** (P1)
    - Pump.fun → Raydium/Orca
 
+## Backlog (Phase 3)
+
+- Ultra-Fast Sniper Modul
+- MEV-Schutz
+- Telegram Benachrichtigungen
+
 ## Credentials
-- **PIN:** Vom Benutzer gesetzt (Standard: 1234)
-- **RPC:** Ankr (Primary), Solana Mainnet (Fallback)
+- **PIN:** 1234 (anpassbar)

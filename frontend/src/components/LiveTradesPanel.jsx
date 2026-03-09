@@ -304,11 +304,74 @@ const LiveTradesPanel = ({ solPrice = 150, compact = false, onTradeUpdate }) => 
     }
   }, [API_URL, onTradeUpdate]);
 
+  // Real-time price update for open trades
+  const updatePrices = useCallback(async () => {
+    if (openTrades.length === 0) return;
+    
+    try {
+      const response = await axios.post(`${API_URL}/trades/update-all-prices`);
+      const data = response.data;
+      
+      if (data.updated > 0) {
+        // Update local state with new prices
+        const updatedTrades = openTrades.map(trade => {
+          const update = data.trades?.find(u => u.id === trade.id);
+          if (update) {
+            return {
+              ...trade,
+              price_current: update.price_current,
+              pnl: update.pnl,
+              pnl_percent: update.pnl_percent
+            };
+          }
+          return trade;
+        });
+        
+        // Filter out closed trades
+        const stillOpen = updatedTrades.filter(t => {
+          const update = data.trades?.find(u => u.id === t.id);
+          return !update?.should_close;
+        });
+        
+        setOpenTrades(stillOpen);
+        
+        // Recalculate stats
+        const invested = stillOpen.reduce((sum, t) => sum + t.amount_sol, 0);
+        const currentValue = stillOpen.reduce((sum, t) => {
+          const pnlPercent = ((t.price_current / t.price_entry) - 1) * 100;
+          return sum + t.amount_sol * (1 + pnlPercent / 100);
+        }, 0);
+        
+        setStats({
+          totalInvested: invested,
+          currentValue: currentValue,
+          totalPnl: currentValue - invested,
+          totalPnlPercent: invested > 0 ? ((currentValue - invested) / invested) * 100 : 0
+        });
+        
+        // If any trades were auto-closed, refresh closed trades
+        if (data.closed > 0) {
+          const closedRes = await axios.get(`${API_URL}/trades`, { params: { status: 'CLOSED' } });
+          setClosedTrades(closedRes.data);
+        }
+      }
+    } catch (error) {
+      console.error('Price update error:', error);
+    }
+  }, [API_URL, openTrades]);
+
   useEffect(() => {
     fetchTrades();
-    const interval = setInterval(fetchTrades, 5000);
-    return () => clearInterval(interval);
+    // Fetch trades every 5 seconds
+    const fetchInterval = setInterval(fetchTrades, 5000);
+    return () => clearInterval(fetchInterval);
   }, [fetchTrades]);
+
+  // Real-time price updates every 3 seconds
+  useEffect(() => {
+    const priceInterval = setInterval(updatePrices, 3000);
+    return () => clearInterval(priceInterval);
+  }, [updatePrices]);
 
   const closeTrade = async (tradeId) => {
     try {
