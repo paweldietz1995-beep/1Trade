@@ -57,6 +57,7 @@ import LiveTradesPanel from '../components/LiveTradesPanel';
 import DebugPanel from '../components/DebugPanel';
 import ActivityFeed from '../components/ActivityFeed';
 import PerformanceStats from '../components/PerformanceStats';
+import WalletStats from '../components/WalletStats';
 import { toast } from 'sonner';
 
 const TRADING_MODES = {
@@ -754,6 +755,7 @@ const Dashboard = () => {
 
           <TabsContent value="trades">
             <div className="space-y-4">
+              <WalletStats solPrice={solPrice} />
               <PerformanceStats solPrice={solPrice} />
               <LiveTradesPanel solPrice={solPrice} />
             </div>

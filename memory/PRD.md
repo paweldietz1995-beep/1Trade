@@ -1,12 +1,12 @@
-# Pump.fun Trading Bot - PRD v34
+# Pump.fun Trading Bot - PRD v35
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **MULTI-WALLET HIGH-CAPACITY ENGINE: Bis zu 1200 parallele Trades (10 Wallets x 120 Trades)**
 
-## System Status: MULTI-WALLET ENGINE V1 IMPLEMENTIERT ✅
+## System Status: MULTI-WALLET ENGINE V1 KOMPLETT ✅
 
-Letztes Update: 2026-03-09 18:30
+Letztes Update: 2026-03-09 18:48
 
 ---
 
@@ -18,11 +18,13 @@ Letztes Update: 2026-03-09 18:30
 - **Verteilung nach freiem Kapital** (konfigurierbar: round_robin, least_trades)
 - **Strikte Doppelkauf-Sperre** - ein Token wird nur von einem Wallet gehandelt
 - **1200 parallele Trades möglich** (10 x 120)
+- **Dashboard mit Wallet-Filter** - Einzelne oder alle Wallets anzeigen
 
 ### Neue Dateien
 - `/app/backend/multi_wallet.py` - MultiWalletManager Klasse
 - `/app/backend/wallets_config.json` - Wallet-Konfiguration (10 Keys)
 - `/app/backend/wallets_config.example.json` - Beispiel-Konfiguration
+- `/app/frontend/src/components/WalletStats.jsx` - Dashboard-Komponente
 
 ### API Endpoints
 | Endpoint | Beschreibung |
@@ -47,6 +49,12 @@ Letztes Update: 2026-03-09 18:30
 class Trade:
     wallet_id: int = 0  # NEU: Index des Wallets (0-9)
 ```
+
+### Dashboard WalletStats-Komponente
+- Dropdown zur Wallet-Auswahl (Alle / Einzeln)
+- Aggregierte Statistiken für alle Wallets
+- Pro-Wallet: Balance, P&L, Win Rate, offene Trades
+- Gesperrte Tokens anzeigen (Doppelkauf-Sperre)
 
 ---
 

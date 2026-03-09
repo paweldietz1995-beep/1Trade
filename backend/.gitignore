@@ -1,0 +1,6 @@
+
+# Multi-Wallet Konfiguration (sensible Daten)
+wallets_config.json
+wallets.json
+*.key
+*.pem
