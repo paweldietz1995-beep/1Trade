@@ -30,6 +30,7 @@ class WalletState:
     last_balance_update: Optional[datetime] = None
     is_active: bool = True
     max_trades: int = 120  # Max Trades pro Wallet
+    consecutive_losses: int = 0  # NEU: Verlustserie pro Wallet
     
     @property
     def available_capital(self) -> float:
@@ -52,6 +53,12 @@ class WalletState:
             self.available_capital > 0.005  # Mindestens 0.005 SOL frei
         )
     
+    @property
+    def loss_streak_reached(self) -> bool:
+        """Prüft ob Loss-Streak-Limit erreicht (wird extern gesetzt)"""
+        # Wird vom MultiWalletManager geprüft
+        return False
+    
     def to_dict(self) -> Dict:
         """Serialisiert Wallet-Daten (ohne Private Key!)"""
         return {
@@ -68,7 +75,8 @@ class WalletState:
             "win_rate": round(self.win_rate, 2),
             "is_active": self.is_active,
             "max_trades": self.max_trades,
-            "can_trade": self.can_trade
+            "can_trade": self.can_trade,
+            "consecutive_losses": self.consecutive_losses
         }
 
 
@@ -92,6 +100,7 @@ class MultiWalletManager:
         )
         self.is_initialized: bool = False
         self.distribution_strategy: str = "free_capital"  # round_robin, free_capital, least_trades
+        self.loss_streak_limit: int = 50  # NEU: Pro-Wallet Loss-Streak-Limit
         
         # Statistiken
         self.total_trades_executed: int = 0
@@ -140,6 +149,7 @@ class MultiWalletManager:
             wallet_keys = config.get("wallets", [])
             max_trades_per_wallet = config.get("max_trades_per_wallet", 120)
             self.distribution_strategy = config.get("distribution_strategy", "free_capital")
+            self.loss_streak_limit = config.get("loss_streak_limit", 50)  # NEU: Aus Config laden
             
             for i, key_data in enumerate(wallet_keys):
                 if isinstance(key_data, str):
@@ -257,11 +267,26 @@ class MultiWalletManager:
             logger.debug(f"🔒 Token {token_mint[:8]}... bereits von Wallet {self.active_tokens[token_mint]} gehalten")
             return None
         
-        # Filtere verfügbare Wallets
-        available_wallets = [w for w in self.wallets.values() if w.can_trade]
+        # Filtere verfügbare Wallets (inkl. Loss-Streak-Prüfung)
+        available_wallets = [
+            w for w in self.wallets.values() 
+            if w.can_trade and w.consecutive_losses < self.loss_streak_limit
+        ]
+        
+        # Logge Wallets die wegen Loss-Streak ausgeschlossen sind
+        excluded_by_loss_streak = [
+            w for w in self.wallets.values()
+            if w.can_trade and w.consecutive_losses >= self.loss_streak_limit
+        ]
+        if excluded_by_loss_streak:
+            for w in excluded_by_loss_streak:
+                logger.warning(f"⚠️ Wallet {w.wallet_id} wegen Loss-Streak ausgeschlossen ({w.consecutive_losses}/{self.loss_streak_limit})")
         
         if not available_wallets:
-            logger.warning("⚠️ Keine Wallets verfügbar für neuen Trade")
+            if excluded_by_loss_streak:
+                logger.warning(f"⚠️ Alle Wallets haben Loss-Streak-Limit erreicht – keine neuen Trades")
+            else:
+                logger.warning("⚠️ Keine Wallets verfügbar für neuen Trade")
             return None
         
         if self.distribution_strategy == "free_capital":
@@ -278,7 +303,7 @@ class MultiWalletManager:
             # Default: Free Capital
             selected = max(available_wallets, key=lambda w: w.available_capital)
         
-        logger.debug(f"📍 Wallet {selected.wallet_id} ausgewählt (Strategy: {self.distribution_strategy}, Capital: {selected.available_capital:.4f} SOL)")
+        logger.debug(f"📍 Wallet {selected.wallet_id} ausgewählt (Strategy: {self.distribution_strategy}, Capital: {selected.available_capital:.4f} SOL, LossStreak: {selected.consecutive_losses}/{self.loss_streak_limit})")
         return selected
     
     def lock_token(self, token_mint: str, wallet_id: int):
@@ -311,8 +336,12 @@ class MultiWalletManager:
             wallet.total_trades += 1
             if trade_result.get("is_win", False):
                 wallet.wins += 1
+                wallet.consecutive_losses = 0  # NEU: Bei Gewinn Verlustserie zurücksetzen
+                logger.info(f"✅ Wallet {wallet_id}: Gewinn! Verlustserie zurückgesetzt")
             else:
                 wallet.losses += 1
+                wallet.consecutive_losses += 1  # NEU: Bei Verlust erhöhen
+                logger.info(f"⚠️ Wallet {wallet_id}: Verlust! Verlustserie jetzt bei {wallet.consecutive_losses}/{self.loss_streak_limit}")
             wallet.total_pnl_sol += trade_result.get("pnl_sol", 0)
             
             # Globale Statistiken
@@ -334,6 +363,41 @@ class MultiWalletManager:
             wallet.open_trades_count = max(0, wallet.open_trades_count - 1)
             wallet.capital_in_trades = max(0, wallet.capital_in_trades - trade_amount)
             self.unlock_token(token_mint)
+    
+    def reset_wallet_loss_streak(self, wallet_id: int) -> bool:
+        """
+        Setzt die Verlustserie eines einzelnen Wallets zurück.
+        Ermöglicht es, ein pausiertes Wallet wieder zu aktivieren.
+        """
+        wallet = self.wallets.get(wallet_id)
+        if wallet:
+            previous = wallet.consecutive_losses
+            wallet.consecutive_losses = 0
+            logger.info(f"🔄 Wallet {wallet_id}: Verlustserie manuell zurückgesetzt ({previous} -> 0)")
+            return True
+        return False
+    
+    def reset_all_loss_streaks(self) -> int:
+        """
+        Setzt die Verlustserie aller Wallets zurück.
+        Returns: Anzahl der zurückgesetzten Wallets
+        """
+        count = 0
+        for wallet_id, wallet in self.wallets.items():
+            if wallet.consecutive_losses > 0:
+                wallet.consecutive_losses = 0
+                count += 1
+        logger.info(f"🔄 Verlustserie für {count} Wallets zurückgesetzt")
+        return count
+    
+    def get_wallets_at_loss_limit(self) -> List[WalletState]:
+        """
+        Gibt alle Wallets zurück, die ihr Loss-Streak-Limit erreicht haben.
+        """
+        return [
+            w for w in self.wallets.values()
+            if w.consecutive_losses >= self.loss_streak_limit
+        ]
     
     async def update_all_balances(self, rpc_client=None) -> Dict:
         """
@@ -396,10 +460,15 @@ class MultiWalletManager:
         total_wins = sum(w.wins for w in self.wallets.values())
         total_losses = sum(w.losses for w in self.wallets.values())
         total_pnl = sum(w.total_pnl_sol for w in self.wallets.values())
+        wallets_at_loss_limit = self.get_wallets_at_loss_limit()
+        tradeable_wallets = [w for w in self.wallets.values() if w.can_trade and w.consecutive_losses < self.loss_streak_limit]
         
         return {
             "wallet_count": len(self.wallets),
             "active_wallets": len([w for w in self.wallets.values() if w.is_active]),
+            "tradeable_wallets": len(tradeable_wallets),
+            "wallets_at_loss_limit": len(wallets_at_loss_limit),
+            "loss_streak_limit": self.loss_streak_limit,
             "total_balance_sol": round(total_balance, 6),
             "total_capital_in_trades": round(total_capital_in_trades, 6),
             "total_available_capital": round(total_balance - total_capital_in_trades, 6),

@@ -1,16 +1,55 @@
-# Pump.fun Trading Bot - PRD v35
+# Pump.fun Trading Bot - PRD v36
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **MULTI-WALLET HIGH-CAPACITY ENGINE: Bis zu 1200 parallele Trades (10 Wallets x 120 Trades)**
 
-## System Status: MULTI-WALLET ENGINE V1 KOMPLETT ✅
+## System Status: MULTI-WALLET ENGINE V1.1 - PRO-WALLET LOSS-STREAK ✅
 
-Letztes Update: 2026-03-09 18:48
+Letztes Update: 2026-03-09 20:45
 
 ---
 
-## NEU: Multi-Wallet System (10 Wallets)
+## NEU: Pro-Wallet Loss-Streak Management (v1.1)
+
+### Problem gelöst
+Der Bot pausierte global wegen "Loss streak limit reached" auf einem Wallet, was **alle** Wallets am Handeln hinderte.
+
+### Lösung
+- **Loss-Streak-Zähler pro Wallet** statt global
+- **Einzelne Wallets** werden bei zu vielen Verlusten pausiert, **nicht** der ganze Bot
+- **Andere Wallets** können weiter handeln
+- **Reset-Funktionen** für einzelne oder alle Wallets
+
+### Neue Attribute (WalletState)
+```python
+consecutive_losses: int = 0  # Zähler pro Wallet
+```
+
+### Neue API Endpoints
+| Endpoint | Beschreibung |
+|----------|--------------|
+| `POST /api/trading/reset-loss-streak` | Reset für ALLE Wallets |
+| `POST /api/trading/reset-wallet-loss-streak/{wallet_id}` | Reset für EIN Wallet |
+
+### Konfiguration (wallets_config.json)
+```json
+{
+  "distribution_strategy": "free_capital",
+  "max_trades_per_wallet": 120,
+  "loss_streak_limit": 50,  // NEU
+  "wallets": ["privkey1...", "privkey2...", ...]
+}
+```
+
+### Aggregierte Stats erweitert
+- `tradeable_wallets`: Anzahl der Wallets, die handeln können
+- `wallets_at_loss_limit`: Anzahl der pausierten Wallets
+- `loss_streak_limit`: Konfiguriertes Limit
+
+---
+
+## Multi-Wallet System (10 Wallets)
 
 ### Features
 - **10 unabhängige Wallets** mit eigenen Balances

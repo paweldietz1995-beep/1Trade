@@ -2013,9 +2013,9 @@ async def check_risk_limits(portfolio, settings) -> tuple:
     if auto_trading_state["daily_pnl"] < 0 and daily_loss_pct >= ENGINE_CONFIG["daily_loss_limit_percent"]:
         return True, f"Daily loss limit reached ({daily_loss_pct:.1f}%)"
     
-    # Loss streak check
-    if portfolio.loss_streak >= ENGINE_CONFIG["loss_streak_limit"]:
-        return True, f"Loss streak limit reached ({portfolio.loss_streak} consecutive losses)"
+    # Loss streak check - ENTFERNT: Wird jetzt pro Wallet in MultiWalletManager geprüft
+    # Die globale Pausierung wurde durch pro-Wallet Loss-Streak-Limits ersetzt
+    # Wenn alle Wallets ihr Limit erreicht haben, wird select_wallet_for_trade() None zurückgeben
     
     # Portfolio pause check
     if portfolio.is_paused:
@@ -4476,12 +4476,8 @@ async def create_trade(trade_data: TradeCreate, wallet_id: int = None):
                 detail=f"Daily loss limit reached ({settings.max_daily_loss_sol} SOL). Live trading paused."
             )
         
-        # Check loss streak
-        if portfolio.loss_streak >= settings.max_loss_streak:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Loss streak limit reached ({settings.max_loss_streak}). Consider reviewing your strategy."
-            )
+        # Loss-Streak wird jetzt PRO WALLET in MultiWalletManager geprüft
+        # select_wallet_for_trade() gibt None zurück wenn das Wallet sein Limit erreicht hat
         
         # Log live trade warning
         logger.warning(f"🔴 LIVE TRADE: {trade_data.token_symbol} - {trade_data.amount_sol} SOL (Wallet {selected_wallet_id})")
@@ -5206,9 +5202,8 @@ async def get_portfolio_summary():
     if daily_loss_percent >= settings.max_daily_loss_percent:
         is_paused = True
         pause_reason = f"Daily loss limit reached ({daily_loss_percent:.1f}%)"
-    elif loss_streak >= settings.max_loss_streak:
-        is_paused = True
-        pause_reason = f"Loss streak limit reached ({loss_streak} consecutive losses)"
+    # Loss-Streak wird jetzt PRO WALLET in MultiWalletManager geprüft
+    # Der Bot pausiert nicht mehr global wegen Loss-Streak
     
     total_pnl_percent = (total_pnl / settings.total_budget_sol * 100) if settings.total_budget_sol > 0 else 0
     
@@ -8664,11 +8659,13 @@ async def reset_loss_streak():
     """
     Reset loss streak counter and unpause trading
     Called when user wants to resume trading after losses
+    
+    NEU: Setzt jetzt auch die pro-Wallet Loss-Streaks zurück
     """
     # Get settings and add reset marker
     settings = await get_bot_settings()
     
-    # Store reset timestamp to ignore previous losses
+    # Store reset timestamp to ignore previous losses (für Abwärtskompatibilität)
     await db.trading_state.update_one(
         {"type": "loss_streak_reset"},
         {"$set": {
@@ -8679,14 +8676,41 @@ async def reset_loss_streak():
         upsert=True
     )
     
-    logger.info(f"🔄 Loss streak reset by user")
+    # NEU: Setze alle Wallet-Loss-Streaks zurück
+    wallets_reset = multi_wallet_manager.reset_all_loss_streaks()
+    
+    logger.info(f"🔄 Loss streak reset by user - {wallets_reset} Wallets zurückgesetzt")
     
     return {
         "success": True,
         "previous_streak": await calculate_current_loss_streak(),
+        "wallets_reset": wallets_reset,
         "message": "Loss streak reset. Trading can resume.",
-        "note": "Consider reviewing your strategy before continuing"
+        "note": "Alle Wallet-Verlustserien wurden zurückgesetzt"
     }
+
+@api_router.post("/trading/reset-wallet-loss-streak/{wallet_id}")
+async def reset_wallet_loss_streak(wallet_id: int):
+    """
+    Reset loss streak for a specific wallet.
+    Ermöglicht es, ein einzelnes Wallet wieder zum Handeln freizugeben.
+    """
+    success = multi_wallet_manager.reset_wallet_loss_streak(wallet_id)
+    
+    if success:
+        wallet = multi_wallet_manager.get_wallet(wallet_id)
+        return {
+            "success": True,
+            "wallet_id": wallet_id,
+            "message": f"Wallet {wallet_id} Verlustserie zurückgesetzt",
+            "current_loss_streak": wallet.consecutive_losses if wallet else 0
+        }
+    else:
+        return {
+            "success": False,
+            "wallet_id": wallet_id,
+            "message": f"Wallet {wallet_id} nicht gefunden"
+        }
 
 async def calculate_current_loss_streak() -> int:
     """Calculate current loss streak, respecting reset markers"""
@@ -8747,9 +8771,10 @@ async def can_enable_live_trading():
     if portfolio.is_paused:
         blockers.append(f"Trading paused: {portfolio.pause_reason}")
     
-    # Check Loss Streak
-    if portfolio.loss_streak >= settings.max_loss_streak:
-        warnings.append(f"High loss streak ({portfolio.loss_streak}). Consider resetting.")
+    # Check Loss Streak - Jetzt mit Multi-Wallet Info
+    wallets_at_limit = multi_wallet_manager.get_wallets_at_loss_limit()
+    if wallets_at_limit:
+        warnings.append(f"{len(wallets_at_limit)} Wallet(s) haben Loss-Streak-Limit erreicht. Reset möglich via API.")
     
     # Check Daily Loss
     daily_loss_percent = abs(portfolio.daily_pnl / settings.total_budget_sol * 100) if portfolio.daily_pnl < 0 else 0

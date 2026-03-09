@@ -3,163 +3,150 @@ The user, a Senior Blockchain Architect, requires a complete, production-ready, 
 
 **Core Requirements:**
 *   **Modular Architecture:** The system must run multiple independent, asynchronous loops for different tasks.
-*   **High-Frequency Trading:** The goal is to evolve the system into a high-frequency momentum scalping bot that can scan thousands of tokens per minute, detect rapid trading activity, and execute many small, quick trades for 5-12% profit.
-*   **Advanced Features:** Implement rug-pull protection, smart wallet copy-trading, API failover, and crash recovery.
-*   **Real-Time UI:** A dark-themed trading dashboard that displays live P&L, a detailed bot activity feed, portfolio stats, a comprehensive token scanner with pagination, and closed trades history.
-*   **Risk Management:** Enforce rules for position sizing, max open trades, take-profit, stop-loss, and daily loss limits.
+*   **High-Frequency Trading:** Evolve the system into a high-frequency momentum scalping bot that can scan thousands of tokens per minute, detect rapid trading activity, and execute 100+ small, quick trades for 5-12% profit.
+*   **Multi-Wallet Scalability:** The bot must be able to trade with 10 different wallets simultaneously to scale capital and trade volume. Each wallet should be managed independently but coordinated by a central logic to avoid redundant trades.
+*   **Advanced Features:** Implement rug-pull protection, smart wallet copy-trading, API failover, crash recovery, and a real-time launch sniper.
+*   **Real-Time UI:** A dark-themed trading dashboard that displays live P&L, a detailed bot activity feed, portfolio stats, a comprehensive token scanner, and closed trades history, with per-wallet and aggregated views.
+*   **Risk Management:** Enforce rules for position sizing, max open trades, take-profit, stop-loss, and capital allocation, both per-trade and globally.
 *   **Full German Localization:** The entire user interface must be in German.
 
 **User's preferred language**: German. The next agent **MUST** respond in German.
 
 **what currently exists?**
-A full-stack application with a React frontend and a large, monolithic FastAPI backend ().
+A full-stack application with a React frontend and a FastAPI backend. The bot was successfully scaled to handle 120 concurrent trades, fixing the previous insufficient trade volume issue. An advanced, multi-level dynamic trailing stop-loss was implemented to secure profits more effectively. A fast, 2-second price monitoring loop runs in the background.
 
--   **Frontend:** A complete, dark-themed trading dashboard fully localized in German (). It correctly syncs its state with the backend via a  endpoint. The token scanner component now features pagination to handle a large number of tokens.
--   **Backend:** The backend has been significantly refactored into a high-frequency momentum scalping bot. It uses a multi-source, asynchronous scanner engine () to fetch tokens from 7 different sources (though most sources are currently mocked). The trading logic prioritizes tokens based on a new momentum score (), supports up to 30 parallel micro-trades, and operates on a sub-second scan interval. The initial wallet sync and network stability issues are fully resolved.
+A full multi-wallet architecture has been implemented, allowing the bot to manage and trade from multiple Solana wallets defined in a  file. Three test wallets provided by the user have been configured, and the system correctly reads their non-zero SOL balances.
+
+The frontend has been updated with a Multi-Wallet Panel to display the status and balance of each configured wallet. The main backend logic, however, still resides in a large monolithic file, .
 
 **Last working item**:
--   **Last item agent was working:** The agent began a major architectural upgrade of the token scanner to process 1,000-5,000 tokens per cycle. The goal is to replace the current scanner with a distributed, high-performance async system incorporating parallel API calls, caching, and batch processing. The agent started by creating the function shell for this new system ().
+-   **Last item agent was working:** The agent was diagnosing why the three newly configured and funded test wallets were not executing any trades, following a detailed diagnostic prompt from the user. The agent successfully identified the root cause from the logs.
 -   **Status:** IN PROGRESS
 -   **Agent Testing Done:** N
--   **Which testing method agent to use?** backend testing agent. First, manually verify the new scanner's output and performance using  and by observing logs. Once the integration is complete and appears functional, invoke the testing agent with  to create a comprehensive test suite for the new high-performance scanner and run a full regression test.
+-   **Which testing method agent to use?** Manual testing by checking logs and using .
 -   **User Testing Done:** N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Complete High-Performance Scanner Upgrade (P0)**
-    -   **Description:** The current task is to finish building the new high-performance scanner. The function  was created but is just a shell. It needs to be fully implemented to handle 1000s of tokens efficiently.
+-   **Issue 1: Bot is PAUSED due to Loss streak limit reached (P0)**
+    -   **Description:** The diagnostic check revealed that the entire trading engine is paused because the original single wallet hit its consecutive loss limit. This global pause state prevents any new trades from being opened by **any** wallet, including the three new, funded test wallets.
+    -   **Attempted fixes:** None yet. The problem was just identified.
     -   **Next debug checklist:**
-        1.  In , complete the implementation of the  function.
-        2.  Implement true parallel data fetching using  for all 7 data sources.
-        3.  Add a short-term caching mechanism (e.g., 2-second TTL) to avoid redundant API calls.
-        4.  Implement batch processing (e.g., in chunks of 200) for enriching the large, merged token list to avoid overwhelming APIs or the CPU.
-        5.  Integrate the new  function into the main , replacing the previous scanner logic.
-        6.  Add the requested SCANNER PERFORMANCE log to measure , , , and .
-        7.  Test to ensure the scanner can achieve the target of 1000-5000 tokens per cycle within the ~1-second interval.
-    -   **Why fix this issue and what will be achieved with the fix?** This is critical for transforming the bot into a true high-frequency system. A faster, more comprehensive scanner will find more trading opportunities, which is the core goal of the recent user requests.
+        1.  Locate the  logic in .
+        2.  Determine if this limit should be global or per-wallet. The user's goal implies it should be per-wallet.
+        3.  Refactor the logic to track loss streaks for each wallet individually.
+        4.  Implement a way to reset the loss streak counter for a wallet (e.g., after a winning trade or a manual reset).
+        5.  As a temporary fix to unblock the bot, consider increasing the global limit or resetting the current counter in the bot's state.
+    -   **Why fix this issue and what will be achieved with the fix?** This is a critical blocker. Fixing it will un-pause the trading engine and allow the newly configured multi-wallet system to finally start opening trades, proving the scalability of the architecture.
     -   **Status:** IN PROGRESS
     -   **Is recurring issue?** N
-    -   **Should Test frontend/backend/both after fix?** backend
-    -   **Blocked on other issue:** None.
+    -   **Should Test frontend/backend/both after fix?** Backend. Monitor logs to confirm new trades are being opened by the different wallets.
+    -   **Blocked on other issue:** None. This is the highest priority.
 
 **In progress Task List**:
--   **Task 1: High-Performance Scanner Implementation (P0)**
-    -   **Where to resume:** . Resume by fleshing out the  function.
-    -   **What will be achieved with this?** A scanner capable of processing thousands of tokens per second, which is essential for a competitive sniper bot.
-    -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** backend
-    -   **Blocked on something:** None.
+-   None.
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks:**
-    -   **P1: Refactor Monolithic :** This file is now extremely large (likely over 6000 lines) and contains all backend logic. It urgently needs to be broken down into a modular structure (e.g., , , , ) for maintainability.
-    -   **P1: Implement Real Scanner Data Sources:** The current scanner functions (, , etc.) are mostly placeholders. They need to be implemented with actual API/SDK calls to the respective DEXs and data providers.
-    -   **P1: Enhanced Performance Dashboard:** Expand analytics to include Top profitable tokens, Worst trades, Profit per hour, and Profit per day.
-    -   **P1: UI for Smart Wallet Tracking:** Create a UI to add/manage tracked wallets and view their activity.
+    -   **P1: Refactor Monolithic :** This file has grown to over 8,300 lines and is a major liability. It must be broken down into a modular structure (e.g., , , , ). This is the most significant technical debt.
+    -   **P1: Implement Intelligent Wallet Copying:** As requested by the user, Wallet 1 and 2 should intelligently copy the successful trades of Wallet 0, but only under specific conditions (e.g., trade is already X% in profit).
 
 -   **Future Tasks:**
-    -   **P2: MEV Protection:** Integrate strategies (e.g., priority fees) to protect trades from sandwich attacks.
-    -   **P2: Notification System:** Add a module to send trade alerts via a Telegram bot.
+    -   **P2: MEV Protection:** Integrate strategies like Jito or priority fees.
+    -   **P2: Notification System:** Add a Telegram bot for trade alerts.
+    -   **P2: Smart Wallet Copy-Trading:** A more advanced version of the copy-trading feature.
+    -   **P2: Encrypt :** Add a security layer where the wallet keys file is encrypted and requires a password on startup.
 
 **Completed work in this session**
--   **Fixed Wallet State Synchronization:** Resolved the Unable to sync wallet UI error by creating a  endpoint and updating the frontend to use it.
--   **Enabled Multi-Trade Execution:** Refactored the  to support opening multiple trades concurrently, respecting the  setting.
--   **Upgraded to High-Frequency Scalping Bot:** Iteratively transformed the bot's strategy and architecture through multiple user requests:
-    -   Relaxed scanner filters to find more trading opportunities.
-    -   Implemented a multi-source scanner using  to fetch data from 7 sources.
-    -   Created an aggressive momentum scoring system () that rewards new tokens and high volume.
-    -   Configured the bot for micro-trades (e.g., 0.5% of budget) and high concurrency ( set to 30).
--   **Scaled Frontend for Large Datasets:** Added pagination to the frontend's  component, allowing it to display hundreds of tokens without performance issues.
--   **Passed Regression Tests:** Successfully used the testing agent to verify the wallet synchronization fix, with all backend and frontend tests passing at that time.
+-   **Resolved Insufficient Trade Volume:** Scaled the bot from ~6 to the max target of 120 concurrent trades by fixing a  bug and tuning multiple strategy parameters (, , ).
+-   **Implemented Advanced Exit Strategy:** Deployed a multi-level, dynamic trailing stop-loss to secure profits at different thresholds (e.g., sell 30% at +500%, another 30% at +1000%).
+-   **Built Fast Price Monitor:** Created a separate, asynchronous 2-second loop that fetches prices for all open trades in a single batch call, improving reaction time for exit strategies.
+-   **Implemented Full Multi-Wallet Architecture:**
+    -   Created  and  classes.
+    -   Refactored trade execution logic to select wallets based on a chosen strategy (e.g., free_capital).
+    -   Implemented a global token lock to prevent multiple wallets from buying the same token.
+    -   Added API endpoints (, ) to manage and monitor wallets.
+-   **Fixed Wallet Balance Reading:** Corrected the logic to ensure the bot periodically fetches and correctly displays the SOL balances for all configured wallets.
+-   **Enhanced Frontend Dashboard:** Added a Multi-Wallet Panel showing the status, balance, and stats for each individual wallet and an aggregated view.
 
 **Earlier issues found/mentioned but not fixed**
--   **Mocked Data Sources:** The multi-source scanner relies on placeholder functions that do not fetch real, comprehensive data from DEXs like Raydium, Orca, or Meteora. This severely limits the bot's real-world effectiveness.
--   **Monolithic Backend:** The  file has grown uncontrollably and is a major technical debt that hinders development and increases the risk of bugs.
+-   **Monolithic Backend ():** This remains the largest source of technical debt and risk.
 
 **Known issue recurrence from previous fork**
--   **Issue recurrence in previous fork:** RPC Connection Instability.
--   **Recurrence count:** 0 in this session.
--   **Status:** RESOLVED. The  and  integration have proven to be stable.
+-   None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 -   **Frontend:** React, Tailwind CSS, Shadcn/UI, 
--   **Backend:** FastAPI (Python),  for high-concurrency scanning, .
--   **Trading Strategy:** High-Frequency Trading (HFT), Momentum Scalping, Multi-Source Data Aggregation.
--   **Blockchain:** Solana
+-   **Backend:** FastAPI, , 
+-   **Trading Strategy:** High-Frequency Trading (HFT), Momentum Scalping, Multi-Level Take-Profit/Stop-Loss.
+-   **Architecture:** Multi-Wallet Management, Centralized Trading Logic.
+-   **Blockchain:** Solana, 
+-   **Data Sources:** DexScreener, Birdeye, Jupiter.
 
 **key DB schema**
--   : 
--   : 
+-   No database is used. State is stored in-memory and persisted to .
 
 **changes in tech stack**
--   No new technologies added, but a much heavier and more advanced use of Python's  library for performance is now central to the application.
+-   No new libraries were added, but the backend architecture was significantly extended to support multi-wallet functionality.
 
 **All files of reference**
--   : The single most important and most modified file. All new logic resides here.
--   : Modified to add pagination for the token list.
--   : Modified to use the  endpoint.
--   : Modified to reflect backend wallet status.
--   : Has been updated throughout the session to reflect completed work.
+-   : The central monolithic file. All recent changes (exit logic, price monitor, trade execution) were made here.
+-   : The core of the new multi-wallet logic.
+-   : The data model for a single wallet.
+-   : The configuration file for wallet keys.
+-   : The main dashboard file where new components were integrated.
+-   : The new UI component for wallet monitoring.
 
 **Areas that need refactoring**:
--   **:** This is the highest priority for refactoring. The file is a monolith containing multiple competing implementations of scanners and scoring functions. It must be broken down into a modular structure (e.g., , , ) to be maintainable.
+-   **:** URGENT. This file is over 8300 lines long and unmaintainable. It must be broken down into a proper Python package.
 
 **key api endpoints**
--   : (New) Returns the backend's wallet sync status, address, and balance.
--   : (Updated) Now returns a much larger list of tokens (limit increased from 30 to 500).
--   : Used to update trading parameters like .
--   : Starts the main .
+-   : Returns the detailed status of the trading engine.
+-   : NEW - Provides all data for the frontend dashboard.
+-   : NEW - Returns the status of all configured wallets.
+-   : NEW - Manually triggers a balance update for all wallets.
 
 **Critical Info for New Agent**
 -   **You MUST respond in German.**
--   The bot's strategy has been completely changed to a high-frequency momentum scalper. The core logic is in  and the various  functions in .
--   Your immediate task is to complete the high-performance scanner () to handle thousands of tokens per cycle. This is a continuation of the previous agent's work.
--   Be aware that most of the scanner data sources are mocked. A key future task will be to implement real data fetching.
--   The monolithic nature of  is a major risk. Proposing a refactoring plan after completing the current scanner task is highly recommended.
+-   **IMMEDIATE PRIORITY (P0):** The entire bot is **PAUSED** because of a Loss streak limit reached on the original wallet. Your first action is to fix this. The logic should likely be per-wallet, not global. Investigate and implement a fix to un-pause the trading engine so the new wallets can start trading.
+-   The multi-wallet architecture is in place, and 3 test wallets are configured and funded. Once the pause is lifted, they should begin trading.
+-   After fixing the P0 blocker, the next most critical task is to begin refactoring the  monolith.
 
 **documents and test reports created in this job**
--    (Updated multiple times)
--    (Created by testing agent)
--    (Created by testing agent)
+-    (Updated)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **Task:** Fix frontend/backend state mismatch for wallet sync. **(Completed)**
-2.  **Task:** Enable the bot to open multiple trades simultaneously. **(Completed)**
-3.  **Task:** Re-verify multi-trade logic and add logging. **(Completed)**
-4.  **Task:** Loosen scanner filters to produce more trading opportunities. **(Completed)**
-5.  **Task:** Upgrade to a multi-source momentum scalping strategy. **(Completed)**
-6.  **Task:** Scale the scanner to handle hundreds of tokens and add frontend pagination. **(Completed)**
-7.  **Task:** Upgrade the system to an ultra-fast sniper bot with micro-trades. **(Completed)**
-8.  **Task:** Further optimize the bot for high-frequency momentum scalping with refined settings. **(Completed)**
-9.  **Task:** Upgrade the scanner architecture to handle 1000-5000 tokens per cycle. **(In Progress)**
+1.  **User:** Provided a detailed diagnostic prompt to figure out why the new wallets aren't trading.
+2.  **User:** Confirmed their 3 test wallet private keys to be used in .
+3.  **User:** Asked to enable the multi-wallet mode.
+4.  **User:** Asked why the SOL balances are not showing up in the app.
+5.  **User:** Confirmed the wallet balances are now showing correctly and asked what the final result is.
+6.  **User:** Received confirmation that the multi-wallet system is active with correct balances, but noted the new wallets have 0 P&L and are not trading.
+7.  **User:** Provided another detailed diagnostic prompt to figure out why the funded wallets are not trading.
+8.  **Agent:** Began executing the diagnostic prompt.
+9.  **Agent:** Checked the bot status via logs.
+10. **Agent:** Found the log entry: , identifying the root cause of the problem.
 
 **Project Health Check:**
--   **Broken:** None. The application is running.
--   **Mocked:** The core of the multi-source scanner is mocked. Functions like , , , , and  return hardcoded or minimally processed data, not real-time data from the actual protocols. This is a critical limitation for real-world trading.
+-   **Broken:** Partially. The core trading engine is functional but currently **PAUSED** due to a risk-management rule, blocking all trading activity.
+-   **Mocked:** No.
 
 **3rd Party Integrations**
--   **DexScreener API:** Used as one of the primary (and one of the few real) data sources for token scanning.
--   **Birdeye API:** Intended to be used, but the implementation is likely a mock.
--   ** library:** Used for all native Solana RPC communication.
--   **Solana Web3.js & @solana/wallet-adapter:** Core Solana interaction on the frontend.
--   **Helius RPC / Ankr RPC:** Used as RPC providers.
--   **react-i18next:** Frontend localization.
+-   **DexScreener, Birdeye, Jupiter APIs:** Actively used for scanning and real-time price data.
+-   ** library:** Used for all on-chain interactions.
+-   **:** Used for frontend localization.
 
 **Testing status**
--   **Testing agent used after significant changes:** YES, but only for the initial wallet sync fix. The numerous subsequent, complex changes to the trading logic have only been tested manually.
+-   **Testing agent used after significant changes:** NO
 -   **Troubleshoot agent used after agent stuck in loop:** NO
--   **Test files created:**
-    -   
-    -   
--   **Known regressions:** None confirmed, but the risk is high due to major, manually-tested changes to the core trading logic.
+-   **Test files created:** None
+-   **Known regressions:** None
 
 **Credentials to test flow:**
--   An environment variable  is required in  format in the  file.
--   A user-set PIN () is used for the frontend application.
+-   Wallet private keys are now stored in . The file contains 3 test keys.
+-   The frontend uses a PIN set to .
 
 **What agent forgot to execute**
--   The agent has not implemented real data fetching for most of the scanner sources (Raydium, Orca, Meteora, Jupiter, Pump.fun). The current implementation uses placeholder functions that do not provide the comprehensive, real-time data needed for an effective trading bot.
--   The full regression test mentioned in the initial handoff was not performed after the numerous trading strategy changes, increasing the risk of hidden bugs.
--   The concepts of caching and batch processing, requested by the user for the high-performance scanner, were not yet implemented in the code.</analysis>
+-   The agent was in the middle of following the user's detailed diagnostic guide. It successfully identified that the bot is paused but has not yet implemented the fix. The next step is to continue with the user's plan: investigate the loss-streak logic and make it per-wallet instead of global.</analysis>
