@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import axios from 'axios';
 import { 
   Wallet, 
@@ -12,7 +13,8 @@ import {
   TrendingUp,
   AlertCircle,
   Wifi,
-  WifiOff
+  WifiOff,
+  SwitchCamera
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -20,10 +22,13 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
+import { useWalletChange } from '../context/SolanaWalletProvider';
 
 const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
   const { t } = useTranslation();
   const { connected, publicKey, disconnect, connecting, wallet } = useWallet();
+  const { setVisible } = useWalletModal();
+  const { changeWallet, isChangingWallet } = useWalletChange();
   const { API_URL } = useApp();
   const [balance, setBalance] = useState(0);
   const [tokens, setTokens] = useState([]);
@@ -413,15 +418,47 @@ const WalletPanel = ({ solPrice = 150, onBalanceUpdate }) => {
           </div>
         )}
 
-        {/* Disconnect */}
-        <Button 
-          variant="outline" 
-          className="w-full border-neon-red/30 text-neon-red hover:bg-neon-red/10"
-          onClick={disconnect}
-          data-testid="disconnect-wallet"
-        >
-          {t('wallet.disconnectWallet')}
-        </Button>
+        {/* Change Wallet & Disconnect Buttons */}
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            className="flex-1 border-neon-purple/30 text-neon-purple hover:bg-neon-purple/10"
+            onClick={changeWallet}
+            disabled={isChangingWallet}
+            data-testid="change-wallet"
+          >
+            {isChangingWallet ? (
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <SwitchCamera className="w-4 h-4 mr-2" />
+            )}
+            {t('wallet.changeWallet') || 'Wallet wechseln'}
+          </Button>
+          <Button 
+            variant="outline" 
+            className="flex-1 border-neon-red/30 text-neon-red hover:bg-neon-red/10"
+            onClick={async () => {
+              // Full disconnect with cache clear
+              try {
+                await disconnect();
+                // Clear localStorage
+                Object.keys(localStorage).forEach(key => {
+                  if (key.toLowerCase().includes('wallet')) {
+                    localStorage.removeItem(key);
+                  }
+                });
+                // Notify backend
+                await axios.post(`${API_URL}/wallet/disconnect`).catch(() => {});
+                toast.success('Wallet getrennt');
+              } catch (e) {
+                console.error('Disconnect error:', e);
+              }
+            }}
+            data-testid="disconnect-wallet"
+          >
+            {t('wallet.disconnectWallet')}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

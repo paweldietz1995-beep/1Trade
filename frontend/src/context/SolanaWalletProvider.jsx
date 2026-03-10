@@ -1,7 +1,7 @@
-import React, { useMemo, createContext, useContext, useState } from 'react';
-import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
+import React, { useMemo, createContext, useContext, useState, useCallback } from 'react';
+import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
-import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
+import { WalletModalProvider, useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import '@solana/wallet-adapter-react-ui/styles.css';
 
@@ -12,12 +12,96 @@ const WALLET_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 // RPC Context - simplified since all RPC calls go through backend
 const RPCContext = createContext(null);
 
+// Wallet Change Context - for handling wallet switching
+const WalletChangeContext = createContext(null);
+
 export const useRPC = () => {
   const context = useContext(RPCContext);
   if (!context) {
     throw new Error('useRPC must be used within SolanaWalletProvider');
   }
   return context;
+};
+
+export const useWalletChange = () => {
+  const context = useContext(WalletChangeContext);
+  if (!context) {
+    throw new Error('useWalletChange must be used within SolanaWalletProvider');
+  }
+  return context;
+};
+
+// Inner component to handle wallet change logic
+const WalletChangeProvider = ({ children }) => {
+  const { disconnect, wallet } = useWallet();
+  const { setVisible } = useWalletModal();
+  const [isChangingWallet, setIsChangingWallet] = useState(false);
+
+  const changeWallet = useCallback(async () => {
+    console.log('🔄 Starting wallet change process...');
+    setIsChangingWallet(true);
+    
+    try {
+      // 1. Disconnect current wallet
+      if (wallet) {
+        console.log('📤 Disconnecting current wallet:', wallet.adapter?.name);
+        await disconnect();
+      }
+      
+      // 2. Clear ALL localStorage wallet data
+      const keysToRemove = [
+        'walletName',
+        'walletAdapter', 
+        'connectedWallet',
+        'walletAddress',
+        'phantom.lastUsedAccount',
+        'phantom.autoConnect',
+        'solflare.autoConnect'
+      ];
+      
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      });
+      
+      // Also clear any keys that contain 'wallet' (case insensitive)
+      Object.keys(localStorage).forEach(key => {
+        if (key.toLowerCase().includes('wallet')) {
+          localStorage.removeItem(key);
+        }
+      });
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.toLowerCase().includes('wallet')) {
+          sessionStorage.removeItem(key);
+        }
+      });
+      
+      console.log('🧹 Cleared all wallet cache data');
+      
+      // 3. Small delay to ensure disconnect is complete
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // 4. Open wallet selection modal
+      console.log('📱 Opening wallet selection modal...');
+      setVisible(true);
+      
+    } catch (error) {
+      console.error('❌ Error during wallet change:', error);
+    } finally {
+      setIsChangingWallet(false);
+    }
+  }, [disconnect, wallet, setVisible]);
+
+  const contextValue = useMemo(() => ({
+    changeWallet,
+    isChangingWallet
+  }), [changeWallet, isChangingWallet]);
+
+  return (
+    <WalletChangeContext.Provider value={contextValue}>
+      {children}
+    </WalletChangeContext.Provider>
+  );
 };
 
 export const SolanaWalletProvider = ({ children }) => {
@@ -66,9 +150,11 @@ export const SolanaWalletProvider = ({ children }) => {
   return (
     <RPCContext.Provider value={rpcContextValue}>
       <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
-        <WalletProvider wallets={wallets} autoConnect>
+        <WalletProvider wallets={wallets} autoConnect={false}>
           <WalletModalProvider>
-            {children}
+            <WalletChangeProvider>
+              {children}
+            </WalletChangeProvider>
           </WalletModalProvider>
         </WalletProvider>
       </ConnectionProvider>

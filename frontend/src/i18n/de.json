@@ -50,6 +50,7 @@
     "connecting": "Verbindung wird hergestellt...",
     "connectWallet": "Wallet verbinden",
     "disconnectWallet": "Wallet trennen",
+    "changeWallet": "Wallet wechseln",
     "connectToTrade": "Wallet verbinden zum Handeln",
     "balance": "Guthaben",
     "solBalance": "SOL Guthaben",
