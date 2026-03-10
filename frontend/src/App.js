@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { AppProvider, useApp } from "./context/AppContext";
 import { SolanaWalletProvider } from "./context/SolanaWalletProvider";
+import { PhantomWalletProvider } from "./context/PhantomWalletContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import Dashboard from "./pages/Dashboard";
@@ -102,17 +103,19 @@ function App() {
         <BrowserRouter>
           <AppProvider>
             <SolanaWalletProvider>
-              <AppRoutes />
-              <Toaster 
-                position="bottom-right"
-                toastOptions={{
-                  style: {
-                    background: '#0A0A0A',
-                    border: '1px solid #1E293B',
-                    color: '#E2E8F0',
-                  },
-                }}
-              />
+              <PhantomWalletProvider>
+                <AppRoutes />
+                <Toaster 
+                  position="bottom-right"
+                  toastOptions={{
+                    style: {
+                      background: '#0A0A0A',
+                      border: '1px solid #1E293B',
+                      color: '#E2E8F0',
+                    },
+                  }}
+                />
+              </PhantomWalletProvider>
             </SolanaWalletProvider>
           </AppProvider>
         </BrowserRouter>

@@ -51,6 +51,7 @@ import TokenScanner from '../components/TokenScanner';
 import TradingOpportunities from '../components/TradingOpportunities';
 import BotSettingsPanel from '../components/BotSettingsPanel';
 import WalletPanel from '../components/WalletPanel';
+import WalletConnect from '../components/WalletConnect';
 import TokenSearch from '../components/TokenSearch';
 import TradingViewWidget from '../components/TradingViewWidget';
 import LiveTradesPanel from '../components/LiveTradesPanel';
@@ -59,6 +60,7 @@ import ActivityFeed from '../components/ActivityFeed';
 import PerformanceStats from '../components/PerformanceStats';
 import WalletStats from '../components/WalletStats';
 import WithdrawModal from '../components/WithdrawModal';
+import { usePhantomWallet } from '../context/PhantomWalletContext';
 import { toast } from 'sonner';
 
 const TRADING_MODES = {
@@ -77,6 +79,7 @@ const Dashboard = () => {
   const { logout, API_URL } = useApp();
   const { connected, publicKey, connecting } = useWallet();
   const { connection } = useConnection();
+  const { walletAddress: phantomWalletAddress, isConnected: phantomConnected } = usePhantomWallet();
   
   const [walletBalance, setWalletBalance] = useState(0);
   const [solPrice, setSolPrice] = useState(150);
@@ -584,7 +587,9 @@ const Dashboard = () => {
             </div>
 
             {/* Wallet */}
-            <WalletMultiButton />
+            <div className="min-w-[200px]">
+              <WalletConnect />
+            </div>
 
             {/* Settings */}
             <Button 
