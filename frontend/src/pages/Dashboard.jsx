@@ -58,6 +58,7 @@ import DebugPanel from '../components/DebugPanel';
 import ActivityFeed from '../components/ActivityFeed';
 import PerformanceStats from '../components/PerformanceStats';
 import WalletStats from '../components/WalletStats';
+import WithdrawModal from '../components/WithdrawModal';
 import { toast } from 'sonner';
 
 const TRADING_MODES = {
@@ -90,6 +91,7 @@ const Dashboard = () => {
   const [tradingMode, setTradingMode] = useState(TRADING_MODES.PAPER);
   const [showLiveModeWarning, setShowLiveModeWarning] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [rpcStatus, setRpcStatus] = useState({ healthy: true, endpoint: null });
   const autoTradingIntervalRef = useRef(null);
   const currentRpcIndexRef = useRef(0);
@@ -536,6 +538,18 @@ const Dashboard = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Withdraw Button */}
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowWithdrawModal(true)}
+              className="border-neon-green/30 text-neon-green hover:bg-neon-green/10"
+              data-testid="withdraw-button"
+            >
+              <DollarSign className="w-4 h-4 mr-2" />
+              Auszahlen
+            </Button>
+
             {/* Debug Panel Button */}
             <Button 
               variant="outline" 
@@ -857,6 +871,12 @@ const Dashboard = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Withdraw Modal */}
+      <WithdrawModal 
+        isOpen={showWithdrawModal} 
+        onClose={() => setShowWithdrawModal(false)} 
+      />
     </div>
   );
 };

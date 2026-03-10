@@ -8818,6 +8818,225 @@ async def close_all_trades():
     """
     return await take_profit_all(min_profit_percent=-100, include_losses=True)
 
+# ============================================================
+# 💸 WITHDRAW / AUSZAHLUNG FUNKTION
+# ============================================================
+
+class WithdrawRequest(BaseModel):
+    """Request-Modell für Auszahlungen"""
+    target_wallet: str  # Ziel-Wallet-Adresse (Base58)
+    amount_sol: Optional[float] = None  # Optional: Betrag in SOL (None = gesamter Gewinn)
+    pin: str  # Sicherheits-PIN
+    wallet_id: int = 0  # Von welchem Wallet auszahlen (default: Wallet 0)
+
+@api_router.post("/withdraw")
+async def withdraw_profit(request: WithdrawRequest):
+    """
+    💸 Gewinn auf externe Wallet auszahlen
+    
+    - Prüft PIN
+    - Berechnet verfügbaren Gewinn
+    - Führt Solana-Transfer durch
+    """
+    # PIN-Prüfung
+    correct_pin = os.environ.get("DASHBOARD_PIN", "1234")
+    if request.pin != correct_pin:
+        raise HTTPException(status_code=403, detail="Falscher PIN")
+    
+    # Wallet-Validierung
+    wallet = multi_wallet_manager.get_wallet(request.wallet_id)
+    if not wallet:
+        raise HTTPException(status_code=404, detail=f"Wallet {request.wallet_id} nicht gefunden")
+    
+    # Ziel-Wallet validieren
+    try:
+        target_pubkey = Pubkey.from_string(request.target_wallet)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Ungültige Ziel-Wallet-Adresse: {e}")
+    
+    # Aktuellen Kontostand abrufen
+    try:
+        balance_lamports = await get_wallet_balance_lamports(str(wallet.public_key))
+        current_balance_sol = balance_lamports / 1_000_000_000
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Abrufen des Kontostands: {e}")
+    
+    # Portfolio-Daten für P&L-Berechnung
+    portfolio = await get_portfolio_summary()
+    
+    # Berechne verfügbaren Gewinn
+    # Verwende realisierten P&L aus der Datenbank
+    realized_pnl = portfolio.total_pnl
+    
+    # Kapital in offenen Trades
+    capital_in_trades = sum(
+        t.get("amount_sol", 0) for t in await db.trades.find({"status": "OPEN"}, {"_id": 0, "amount_sol": 1}).to_list(500)
+    )
+    
+    # Berechne auszahlbaren Betrag
+    # Minimum: 0.001 SOL (für Transaktionsgebühren übrig lassen)
+    min_reserve = 0.005  # Reserve für Gebühren
+    max_withdrawable = max(0, current_balance_sol - capital_in_trades - min_reserve)
+    
+    # Bestimme Auszahlungsbetrag
+    if request.amount_sol is not None:
+        withdraw_amount = min(request.amount_sol, max_withdrawable)
+    else:
+        # Gesamten verfügbaren Gewinn auszahlen
+        withdraw_amount = min(realized_pnl, max_withdrawable) if realized_pnl > 0 else 0
+    
+    if withdraw_amount <= 0:
+        return {
+            "success": False,
+            "message": "Kein Gewinn zum Auszahlen verfügbar",
+            "current_balance_sol": current_balance_sol,
+            "capital_in_trades": capital_in_trades,
+            "realized_pnl": realized_pnl,
+            "max_withdrawable": max_withdrawable
+        }
+    
+    # Solana-Transfer durchführen
+    try:
+        # Keypair aus Private Key erstellen
+        from solders.keypair import Keypair
+        keypair = Keypair.from_base58_string(wallet.private_key_b58)
+        
+        # Lamports berechnen
+        lamports_to_send = int(withdraw_amount * 1_000_000_000)
+        
+        # Transfer-Instruktion erstellen
+        transfer_ix = transfer(
+            TransferParams(
+                from_pubkey=keypair.pubkey(),
+                to_pubkey=target_pubkey,
+                lamports=lamports_to_send
+            )
+        )
+        
+        # Blockhash abrufen
+        rpc_url = await get_working_rpc()
+        async with httpx.AsyncClient(timeout=30) as client:
+            blockhash_response = await client.post(
+                rpc_url,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "finalized"}]
+                }
+            )
+            blockhash_data = blockhash_response.json()
+            blockhash = blockhash_data["result"]["value"]["blockhash"]
+        
+        # Transaktion erstellen und signieren
+        from solders.hash import Hash
+        from solders.message import Message
+        
+        message = Message.new_with_blockhash(
+            [transfer_ix],
+            keypair.pubkey(),
+            Hash.from_string(blockhash)
+        )
+        tx = Transaction.new_unsigned(message)
+        tx.sign([keypair], Hash.from_string(blockhash))
+        
+        # Transaktion senden
+        tx_bytes = bytes(tx)
+        import base64
+        tx_base64 = base64.b64encode(tx_bytes).decode('utf-8')
+        
+        async with httpx.AsyncClient(timeout=60) as client:
+            send_response = await client.post(
+                rpc_url,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "sendTransaction",
+                    "params": [
+                        tx_base64,
+                        {"encoding": "base64", "skipPreflight": False, "preflightCommitment": "confirmed"}
+                    ]
+                }
+            )
+            send_data = send_response.json()
+        
+        if "error" in send_data:
+            raise Exception(f"RPC Error: {send_data['error']}")
+        
+        tx_signature = send_data.get("result")
+        
+        # Log the withdrawal
+        logger.info(f"💸 WITHDRAWAL: {withdraw_amount:.6f} SOL von Wallet {request.wallet_id} an {request.target_wallet[:8]}...{request.target_wallet[-8:]}")
+        logger.info(f"   TX: {tx_signature}")
+        
+        # Speichere Auszahlung in DB
+        await db.withdrawals.insert_one({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "wallet_id": request.wallet_id,
+            "from_wallet": str(wallet.public_key),
+            "to_wallet": request.target_wallet,
+            "amount_sol": withdraw_amount,
+            "tx_signature": tx_signature,
+            "status": "CONFIRMED"
+        })
+        
+        return {
+            "success": True,
+            "message": f"Auszahlung erfolgreich!",
+            "amount_sol": withdraw_amount,
+            "tx_signature": tx_signature,
+            "explorer_url": f"https://solscan.io/tx/{tx_signature}",
+            "from_wallet": str(wallet.public_key),
+            "to_wallet": request.target_wallet
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Withdrawal failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Auszahlung fehlgeschlagen: {str(e)}")
+
+@api_router.get("/withdraw/status")
+async def get_withdraw_status():
+    """
+    📊 Zeigt verfügbaren Gewinn und Auszahlungshistorie
+    """
+    portfolio = await get_portfolio_summary()
+    
+    # Wallet-Balances abrufen
+    wallet_balances = []
+    for wallet_id, wallet in multi_wallet_manager.wallets.items():
+        try:
+            balance_lamports = await get_wallet_balance_lamports(str(wallet.public_key))
+            balance_sol = balance_lamports / 1_000_000_000
+        except:
+            balance_sol = wallet.balance_sol
+        
+        wallet_balances.append({
+            "wallet_id": wallet_id,
+            "public_key": str(wallet.public_key),
+            "balance_sol": balance_sol
+        })
+    
+    # Kapital in Trades
+    open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0, "amount_sol": 1}).to_list(500)
+    capital_in_trades = sum(t.get("amount_sol", 0) for t in open_trades)
+    
+    # Auszahlungshistorie
+    withdrawals = await db.withdrawals.find({}, {"_id": 0}).sort("timestamp", -1).to_list(50)
+    
+    total_balance = sum(w["balance_sol"] for w in wallet_balances)
+    min_reserve = 0.005
+    max_withdrawable = max(0, total_balance - capital_in_trades - min_reserve)
+    
+    return {
+        "realized_pnl": portfolio.total_pnl,
+        "total_balance_sol": total_balance,
+        "capital_in_trades": capital_in_trades,
+        "max_withdrawable": max_withdrawable,
+        "min_reserve": min_reserve,
+        "wallets": wallet_balances,
+        "withdrawal_history": withdrawals
+    }
+
 async def calculate_current_loss_streak() -> int:
     """Calculate current loss streak, respecting reset markers"""
     # Check for reset marker
