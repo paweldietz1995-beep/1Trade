@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { useApp } from '../context/AppContext';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { usePhantomWallet } from '../context/PhantomWalletContext';
 import {
   Activity,
   Wifi,
@@ -29,11 +30,25 @@ const DebugPanel = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
   const { API_URL } = useApp();
   const { connected, publicKey, wallet } = useWallet();
+  const { 
+    isConnected: phantomConnected, 
+    walletAddress: phantomWalletAddress,
+    backendSynced 
+  } = usePhantomWallet();
   
   const [systemHealth, setSystemHealth] = useState(null);
   const [liveCheckResult, setLiveCheckResult] = useState(null);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  
+  // Backend wallet state - source of truth for wallet connection
+  const [backendWalletState, setBackendWalletState] = useState({
+    wallet_connected: false,
+    wallet_session: false,
+    wallet_signer: null,
+    diagnostics_status: 'Disconnected',
+    address: null
+  });
 
   const addLog = (type, message) => {
     const log = {
@@ -43,6 +58,54 @@ const DebugPanel = ({ isOpen, onClose }) => {
     };
     setLogs(prev => [...prev.slice(-49), log]);
   };
+
+  // Fetch backend wallet state - this is the source of truth
+  const fetchBackendWalletState = useCallback(async () => {
+    try {
+      addLog('wallet', 'Checking backend wallet state...');
+      const response = await axios.get(`${API_URL}/wallet/state`, { timeout: 5000 });
+      const data = response.data;
+      
+      setBackendWalletState({
+        wallet_connected: data.wallet_connected || false,
+        wallet_session: data.wallet_session || false,
+        wallet_signer: data.wallet_signer || data.address || null,
+        diagnostics_status: data.diagnostics_status || 'Disconnected',
+        address: data.address
+      });
+      
+      // Log the result
+      const isConnected = data.wallet_connected || data.wallet_session || data.wallet_signer;
+      if (isConnected) {
+        addLog('success', `Wallet: Connected (${data.diagnostics_status})`);
+        if (data.address) {
+          addLog('wallet', `Address: ${data.address.substring(0, 12)}...`);
+        }
+      } else {
+        addLog('warning', 'Wallet: Disconnected (backend session inactive)');
+      }
+      
+      return data;
+    } catch (error) {
+      addLog('error', `Backend wallet check failed: ${error.message}`);
+      return null;
+    }
+  }, [API_URL]);
+
+  // Unified wallet connection check - uses backend state as source of truth
+  const isWalletConnected = 
+    backendWalletState.wallet_connected ||
+    backendWalletState.wallet_session ||
+    backendWalletState.wallet_signer !== null ||
+    phantomConnected ||
+    connected ||
+    backendSynced;
+
+  const walletDisplayAddress = 
+    backendWalletState.address || 
+    backendWalletState.wallet_signer ||
+    phantomWalletAddress ||
+    publicKey?.toBase58();
 
   const fetchSystemHealth = useCallback(async () => {
     try {
@@ -77,15 +140,16 @@ const DebugPanel = ({ isOpen, onClose }) => {
   }, [API_URL]);
 
   const fetchWalletBalance = useCallback(async () => {
-    if (!connected || !publicKey) {
-      addLog('warning', 'Wallet not connected');
+    // Use backend wallet state as source of truth
+    if (!isWalletConnected || !walletDisplayAddress) {
+      addLog('warning', 'Wallet not connected (no backend session)');
       return;
     }
     
     try {
       addLog('wallet', 'Fetching wallet balance via backend...');
       const response = await axios.get(`${API_URL}/wallet/balance`, {
-        params: { address: publicKey.toBase58() }
+        params: { address: walletDisplayAddress }
       });
       
       if (response.data.success) {
@@ -96,7 +160,7 @@ const DebugPanel = ({ isOpen, onClose }) => {
     } catch (error) {
       addLog('error', `Wallet balance error: ${error.message}`);
     }
-  }, [API_URL, connected, publicKey]);
+  }, [API_URL, isWalletConnected, walletDisplayAddress]);
 
   const resetLossStreak = async () => {
     try {
@@ -122,14 +186,17 @@ const DebugPanel = ({ isOpen, onClose }) => {
     setLoading(true);
     addLog('system', 'Refreshing all diagnostics...');
     
+    // Fetch backend wallet state FIRST - this is the source of truth
+    await fetchBackendWalletState();
+    
     await Promise.all([
       fetchSystemHealth(),
       fetchLiveCheckResult(),
-      connected && publicKey ? fetchWalletBalance() : Promise.resolve()
+      isWalletConnected && walletDisplayAddress ? fetchWalletBalance() : Promise.resolve()
     ]);
     
     setLoading(false);
-  }, [fetchSystemHealth, fetchLiveCheckResult, fetchWalletBalance, connected, publicKey]);
+  }, [fetchSystemHealth, fetchLiveCheckResult, fetchWalletBalance, fetchBackendWalletState, isWalletConnected, walletDisplayAddress]);
 
   useEffect(() => {
     if (isOpen) {
@@ -212,20 +279,26 @@ const DebugPanel = ({ isOpen, onClose }) => {
 
           {/* Status Grid */}
           <div className="grid grid-cols-2 gap-3">
-            {/* Wallet */}
+            {/* Wallet - Uses backend state as source of truth */}
             <div className="p-3 bg-[#050505] rounded-sm border border-[#1E293B]">
               <div className="flex items-center gap-2 mb-2">
                 <Wallet className="w-4 h-4 text-neon-cyan" />
                 <span className="text-xs uppercase tracking-wider text-muted-foreground">Wallet</span>
               </div>
               <StatusIndicator 
-                ok={connected} 
-                label={connected ? 'Connected' : 'Disconnected'}
-                details={connected ? wallet?.adapter?.name : null}
+                ok={isWalletConnected} 
+                label={isWalletConnected ? 'Connected' : 'Disconnected'}
+                details={isWalletConnected ? (backendWalletState.diagnostics_status === 'Connected' ? 'Backend Synced' : 'Phantom') : null}
               />
-              {connected && publicKey && (
+              {isWalletConnected && walletDisplayAddress && (
                 <div className="mt-2 text-xs text-muted-foreground font-mono">
-                  {publicKey.toBase58().substring(0, 12)}...
+                  {walletDisplayAddress.substring(0, 12)}...
+                </div>
+              )}
+              {/* Show backend session details */}
+              {backendWalletState.wallet_session && (
+                <div className="mt-1 text-xs text-neon-green">
+                  ✓ Backend Session Active
                 </div>
               )}
             </div>
@@ -395,11 +468,20 @@ const DebugPanel = ({ isOpen, onClose }) => {
               variant="outline" 
               size="sm"
               onClick={fetchWalletBalance}
-              disabled={!connected}
+              disabled={!isWalletConnected}
               className="border-neon-cyan/30 text-neon-cyan"
             >
               <Wallet className="w-4 h-4 mr-2" />
               Test Balance Fetch
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={fetchBackendWalletState}
+              className="border-neon-green/30 text-neon-green"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Wallet State
             </Button>
           </div>
         </CardContent>
