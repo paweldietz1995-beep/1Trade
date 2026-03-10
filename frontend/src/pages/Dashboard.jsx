@@ -79,7 +79,16 @@ const Dashboard = () => {
   const { logout, API_URL } = useApp();
   const { connected, publicKey, connecting } = useWallet();
   const { connection } = useConnection();
-  const { walletAddress: phantomWalletAddress, isConnected: phantomConnected } = usePhantomWallet();
+  const { 
+    walletAddress: phantomWalletAddress, 
+    isConnected: phantomConnected,
+    backendSynced,
+    tradingEngineReady
+  } = usePhantomWallet();
+  
+  // Use Phantom connection status as primary, fall back to wallet-adapter
+  const isWalletConnected = phantomConnected || connected;
+  const activeWalletAddress = phantomWalletAddress || publicKey?.toBase58();
   
   const [walletBalance, setWalletBalance] = useState(0);
   const [solPrice, setSolPrice] = useState(150);
@@ -102,13 +111,16 @@ const Dashboard = () => {
   // Debug wallet state
   useEffect(() => {
     console.log('📊 Dashboard Wallet State:', {
-      connected,
+      isWalletConnected,
+      phantomConnected,
       connecting,
-      publicKey: publicKey?.toBase58(),
+      activeWalletAddress,
       walletBalance,
+      backendSynced,
+      tradingEngineReady,
       rpcEndpoint: RPC_ENDPOINTS[currentRpcIndexRef.current]?.substring(0, 30)
     });
-  }, [connected, connecting, publicKey, walletBalance]);
+  }, [isWalletConnected, phantomConnected, connecting, activeWalletAddress, walletBalance, backendSynced, tradingEngineReady]);
 
   // Create connection with specific endpoint
   const createConnection = useCallback((endpointIndex) => {
@@ -121,7 +133,7 @@ const Dashboard = () => {
 
   // Fetch wallet balance from backend status endpoint
   const fetchWalletBalance = useCallback(async () => {
-    if (!connected || !publicKey) {
+    if (!isWalletConnected || !activeWalletAddress) {
       setWalletBalance(0);
       return;
     }
@@ -139,7 +151,7 @@ const Dashboard = () => {
         // Wallet not yet synced with backend, try to sync
         console.log('⚠️ Wallet not synced with backend, triggering sync...');
         const syncResponse = await axios.post(`${API_URL}/wallet/sync`, null, {
-          params: { address: publicKey.toBase58() },
+          params: { address: activeWalletAddress },
           timeout: 15000
         });
         
@@ -152,7 +164,9 @@ const Dashboard = () => {
     } catch (error) {
       console.warn('⚠️ Could not fetch wallet balance from backend:', error.message);
       
-      // Fallback to direct RPC only if backend fails
+      // Fallback to direct RPC only if backend fails and publicKey is available
+      if (!publicKey) return;
+      
       for (let i = 0; i < RPC_ENDPOINTS.length; i++) {
         const endpointIndex = (currentRpcIndexRef.current + i) % RPC_ENDPOINTS.length;
         
@@ -184,7 +198,7 @@ const Dashboard = () => {
         }
       }
     }
-  }, [connected, publicKey, API_URL, createConnection]);
+  }, [isWalletConnected, activeWalletAddress, API_URL, createConnection, publicKey]);
 
   // Fetch portfolio and settings
   const fetchData = useCallback(async () => {
@@ -626,10 +640,10 @@ const Dashboard = () => {
                 <Wallet className="w-4 h-4 text-neon-cyan" />
               </div>
               <div className="font-mono text-xl font-bold text-neon-cyan" data-testid="wallet-balance-display">
-                {connected ? formatSOL(walletBalance) : (connecting ? t('wallet.connecting') : t('wallet.notConnected'))}
+                {isWalletConnected ? formatSOL(walletBalance) : (connecting ? t('wallet.connecting') : t('wallet.notConnected'))}
               </div>
               <div className="text-xs text-muted-foreground">
-                {connected ? formatUSD(walletBalance * solPrice) : t('wallet.connectToTrade')}
+                {isWalletConnected ? formatUSD(walletBalance * solPrice) : t('wallet.connectToTrade')}
               </div>
             </CardContent>
           </Card>

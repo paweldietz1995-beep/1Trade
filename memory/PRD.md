@@ -1,4 +1,4 @@
-# Pump.fun Trading Bot - PRD v38
+# Pump.fun Trading Bot - PRD v39
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
@@ -6,7 +6,64 @@ Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 
 ## System Status: BOT AKTIVIERT & HANDELT! ✅
 
-Letztes Update: 2026-03-09 21:10
+Letztes Update: 2026-03-10 15:58
+
+---
+
+## P0 FIX: Wallet-Backend-Synchronisation (v1.4)
+
+### Problem gelöst
+Nach dem Refactoring der Frontend-Wallet-Logik (von `wallet-adapter` zu eigenem `PhantomWalletProvider`) wurde das Backend nicht mehr über Wallet-Verbindungen informiert. Dies führte dazu, dass:
+- System-Diagnose zeigte "Wallet: Disconnected" obwohl das Frontend "Connected" zeigte
+- Trading Engine startete nicht automatisch nach Wallet-Verbindung
+- Live-Trades wurden nicht ausgeführt
+
+### Lösung
+1. **Frontend `PhantomWalletContext.jsx`:** Nach erfolgreicher Phantom-Verbindung wird automatisch `/api/wallet/sync` aufgerufen
+2. **Automatischer Engine-Start:** Nach erfolgreichem Sync prüft das Frontend `/api/wallet/can-trade` und startet die Trading Engine via `/api/auto-trading/start`
+3. **Dashboard aktualisiert:** Nutzt jetzt `isWalletConnected` (Kombination aus PhantomWallet und WalletAdapter Status)
+4. **UI-Feedback:** WalletConnect-Komponente zeigt Backend-Sync-Status und Trading-Engine-Status
+
+### Code-Änderungen
+```javascript
+// PhantomWalletContext.jsx - Sync nach Verbindung
+const connectWallet = useCallback(async () => {
+  // ... Phantom-Verbindung ...
+  if (response.publicKey) {
+    const address = response.publicKey.toString();
+    // KRITISCH: Backend synchronisieren
+    await syncWithBackend(address);
+  }
+});
+
+const syncWithBackend = useCallback(async (address) => {
+  await fetch(`${API_URL}/api/wallet/sync?address=${address}&force=true`, {
+    method: 'POST'
+  });
+  // Auto-Start Trading Engine
+  await autoStartTradingEngine();
+});
+```
+
+### Neue Features
+- **Backend-Sync-Status:** WalletConnect zeigt "Backend: Synchronisiert/Nicht verbunden"
+- **Engine-Status:** WalletConnect zeigt "Engine: Aktiv/Inaktiv"
+- **Toast-Benachrichtigungen:** Feedback bei Verbindung, Sync und Engine-Start
+
+### Verifizierung
+```bash
+# Wallet Sync Test
+curl -X POST "/api/wallet/sync?address=<ADDRESS>&force=true"
+# Erwartetes Ergebnis: {"success": true, "status": "synced"}
+
+# Can Trade Check
+curl "/api/wallet/can-trade"
+# Erwartetes Ergebnis: {"can_start": true, "wallet_synced": true}
+
+# Trading Status
+curl "/api/auto-trading/status"
+# Erwartetes Ergebnis: {"is_running": true, "scan_count": >0}
+```
 
 ---
 

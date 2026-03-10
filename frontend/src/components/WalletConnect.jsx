@@ -8,7 +8,9 @@ import {
   Copy, 
   LogOut,
   SwitchCamera,
-  AlertCircle
+  AlertCircle,
+  CheckCircle,
+  Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -22,7 +24,9 @@ const WalletConnect = ({ className = '' }) => {
     disconnectWallet,
     changeWallet,
     shortAddress,
-    isPhantomInstalled
+    isPhantomInstalled,
+    backendSynced,
+    tradingEngineReady
   } = usePhantomWallet();
 
   const [copied, setCopied] = React.useState(false);
@@ -30,9 +34,15 @@ const WalletConnect = ({ className = '' }) => {
   const handleConnect = async () => {
     const result = await connectWallet();
     if (result.success) {
-      toast.success('Wallet verbunden', {
-        description: `${result.address.slice(0, 8)}...${result.address.slice(-8)}`
-      });
+      if (result.backendSynced) {
+        toast.success('Wallet verbunden & synchronisiert', {
+          description: `Trading Engine bereit - ${result.address.slice(0, 8)}...`
+        });
+      } else {
+        toast.success('Wallet verbunden', {
+          description: `${result.address.slice(0, 8)}...${result.address.slice(-8)}`
+        });
+      }
     } else if (result.error) {
       toast.error('Verbindung fehlgeschlagen', {
         description: result.error
@@ -51,9 +61,15 @@ const WalletConnect = ({ className = '' }) => {
     toast.info('Wechsle Wallet...', { duration: 2000 });
     const result = await changeWallet();
     if (result.success) {
-      toast.success('Wallet gewechselt', {
-        description: `Neue Adresse: ${result.address.slice(0, 8)}...`
-      });
+      if (result.backendSynced) {
+        toast.success('Wallet gewechselt & synchronisiert', {
+          description: `Trading Engine bereit - ${result.address.slice(0, 8)}...`
+        });
+      } else {
+        toast.success('Wallet gewechselt', {
+          description: `Neue Adresse: ${result.address.slice(0, 8)}...`
+        });
+      }
     } else if (result.error && result.error !== 'User rejected the request.') {
       toast.error('Wechsel fehlgeschlagen', {
         description: result.error
@@ -151,6 +167,30 @@ const WalletConnect = ({ className = '' }) => {
           >
             <ExternalLink className="w-3 h-3" />
           </Button>
+        </div>
+      </div>
+
+      {/* Backend Sync Status */}
+      <div className="flex items-center justify-between text-xs px-1">
+        <div className="flex items-center gap-1">
+          {backendSynced ? (
+            <CheckCircle className="w-3 h-3 text-green-500" />
+          ) : (
+            <AlertCircle className="w-3 h-3 text-yellow-500" />
+          )}
+          <span className={backendSynced ? 'text-green-400' : 'text-yellow-400'}>
+            Backend: {backendSynced ? 'Synchronisiert' : 'Nicht verbunden'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          {tradingEngineReady ? (
+            <Zap className="w-3 h-3 text-green-500" />
+          ) : (
+            <Zap className="w-3 h-3 text-gray-500" />
+          )}
+          <span className={tradingEngineReady ? 'text-green-400' : 'text-gray-400'}>
+            Engine: {tradingEngineReady ? 'Aktiv' : 'Inaktiv'}
+          </span>
         </div>
       </div>
 

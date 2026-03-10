@@ -3,7 +3,7 @@ import { dismissToasts, loginWithPin } from '../fixtures/helpers';
 
 const VALID_PIN = '1234';
 // Use explicit URL since process.env isn't available in Playwright context
-const API_BASE = 'https://momentum-sniper-1.preview.emergentagent.com';
+const API_BASE = 'https://hft-launcher.preview.emergentagent.com';
 
 test.describe('Token Scanner', () => {
   test.beforeEach(async ({ page }) => {

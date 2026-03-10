@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
+const API_URL = process.env.REACT_APP_BACKEND_URL || '';
+
 // Direct Phantom Wallet Context - bypasses wallet-adapter for simpler, more reliable connection
 const PhantomWalletContext = createContext(null);
 
@@ -17,6 +19,126 @@ export const PhantomWalletProvider = ({ children }) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [provider, setProvider] = useState(null);
   const [error, setError] = useState(null);
+  const [backendSynced, setBackendSynced] = useState(false);
+  const [tradingEngineReady, setTradingEngineReady] = useState(false);
+
+  // Sync wallet with backend trading engine
+  const syncWithBackend = useCallback(async (address) => {
+    if (!address) {
+      console.log('⚠️ No address to sync');
+      return { success: false, error: 'No address provided' };
+    }
+    
+    try {
+      console.log('🔄 Syncing wallet with backend:', address);
+      
+      const response = await fetch(`${API_URL}/api/wallet/sync?address=${address}&force=true`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const data = await response.json();
+      console.log('📡 Backend sync response:', data);
+      
+      if (data.success) {
+        setBackendSynced(true);
+        console.log('✅ Wallet synced with backend trading engine');
+        
+        // Automatically start trading engine if conditions are met
+        await autoStartTradingEngine();
+        
+        return { success: true, data };
+      } else {
+        console.error('❌ Backend sync failed:', data.error);
+        setBackendSynced(false);
+        return { success: false, error: data.error };
+      }
+    } catch (err) {
+      console.error('❌ Backend sync error:', err);
+      setBackendSynced(false);
+      return { success: false, error: err.message };
+    }
+  }, []);
+
+  // Auto-start trading engine when wallet is synced
+  const autoStartTradingEngine = useCallback(async () => {
+    try {
+      console.log('🚀 Checking if trading engine can start...');
+      
+      // First check if we can start
+      const canTradeResponse = await fetch(`${API_URL}/api/wallet/can-trade`);
+      const canTradeData = await canTradeResponse.json();
+      console.log('📊 Can trade status:', canTradeData);
+      
+      if (!canTradeData.can_start) {
+        console.log('⚠️ Cannot start trading:', canTradeData.reason);
+        return { success: false, reason: canTradeData.reason };
+      }
+      
+      // Check current trading status
+      const statusResponse = await fetch(`${API_URL}/api/auto-trading/status`);
+      const statusData = await statusResponse.json();
+      
+      if (statusData.is_running) {
+        console.log('✅ Trading engine already running');
+        setTradingEngineReady(true);
+        return { success: true, already_running: true };
+      }
+      
+      // Start the trading engine
+      console.log('🔥 Starting trading engine...');
+      const startResponse = await fetch(`${API_URL}/api/auto-trading/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const startData = await startResponse.json();
+      console.log('📡 Trading engine start response:', startData);
+      
+      if (startData.success || startData.is_running) {
+        setTradingEngineReady(true);
+        console.log('✅ Trading engine started successfully');
+        return { success: true, data: startData };
+      } else {
+        console.error('❌ Failed to start trading engine:', startData.error);
+        return { success: false, error: startData.error };
+      }
+    } catch (err) {
+      console.error('❌ Error starting trading engine:', err);
+      return { success: false, error: err.message };
+    }
+  }, []);
+
+  // Disconnect from backend
+  const disconnectFromBackend = useCallback(async () => {
+    try {
+      console.log('📤 Disconnecting wallet from backend...');
+      
+      const response = await fetch(`${API_URL}/api/wallet/disconnect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const data = await response.json();
+      console.log('📡 Backend disconnect response:', data);
+      
+      setBackendSynced(false);
+      setTradingEngineReady(false);
+      
+      return { success: true };
+    } catch (err) {
+      console.error('❌ Backend disconnect error:', err);
+      setBackendSynced(false);
+      setTradingEngineReady(false);
+      return { success: false, error: err.message };
+    }
+  }, []);
 
   // Check for Phantom on mount
   useEffect(() => {
@@ -60,10 +182,13 @@ export const PhantomWalletProvider = ({ children }) => {
   }, []);
 
   // Internal disconnect handler
-  const handleDisconnect = useCallback(() => {
+  const handleDisconnect = useCallback(async () => {
     setWalletAddress(null);
     setIsConnected(false);
     setIsConnecting(false);
+    
+    // Notify backend about disconnect
+    await disconnectFromBackend();
     
     // Clear all wallet-related storage
     const keysToRemove = [
@@ -83,7 +208,7 @@ export const PhantomWalletProvider = ({ children }) => {
         localStorage.removeItem(key);
       }
     });
-  }, []);
+  }, [disconnectFromBackend]);
 
   // Connect wallet - called when user clicks "Connect Wallet"
   const connectWallet = useCallback(async () => {
@@ -117,7 +242,17 @@ export const PhantomWalletProvider = ({ children }) => {
         // Store in localStorage for display purposes only (not for auto-connect)
         localStorage.setItem('lastConnectedWallet', address);
         
-        return { success: true, address };
+        // CRITICAL: Sync with backend trading engine
+        console.log('🔄 Syncing with backend trading engine...');
+        const syncResult = await syncWithBackend(address);
+        
+        if (syncResult.success) {
+          console.log('✅ Full wallet sync complete - trading engine ready');
+        } else {
+          console.warn('⚠️ Backend sync failed, but wallet is connected:', syncResult.error);
+        }
+        
+        return { success: true, address, backendSynced: syncResult.success };
       }
       
     } catch (err) {
@@ -134,7 +269,7 @@ export const PhantomWalletProvider = ({ children }) => {
     } finally {
       setIsConnecting(false);
     }
-  }, []);
+  }, [syncWithBackend]);
 
   // Disconnect wallet
   const disconnectWallet = useCallback(async () => {
@@ -180,8 +315,8 @@ export const PhantomWalletProvider = ({ children }) => {
         await phantomProvider.disconnect();
       }
       
-      // Step 2: Clear ALL cached data
-      handleDisconnect();
+      // Step 2: Clear ALL cached data and notify backend
+      await handleDisconnect();
       
       // Step 3: Wait for disconnect to complete
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -199,7 +334,11 @@ export const PhantomWalletProvider = ({ children }) => {
         
         localStorage.setItem('lastConnectedWallet', address);
         
-        return { success: true, address };
+        // CRITICAL: Sync new wallet with backend
+        console.log('🔄 Syncing new wallet with backend...');
+        const syncResult = await syncWithBackend(address);
+        
+        return { success: true, address, backendSynced: syncResult.success };
       }
       
     } catch (err) {
@@ -215,7 +354,7 @@ export const PhantomWalletProvider = ({ children }) => {
     } finally {
       setIsConnecting(false);
     }
-  }, [handleDisconnect]);
+  }, [handleDisconnect, syncWithBackend]);
 
   // Sign message (for verification)
   const signMessage = useCallback(async (message) => {
@@ -240,12 +379,16 @@ export const PhantomWalletProvider = ({ children }) => {
     isConnecting,
     provider,
     error,
+    backendSynced,
+    tradingEngineReady,
     
     // Actions
     connectWallet,
     disconnectWallet,
     changeWallet,
     signMessage,
+    syncWithBackend,
+    autoStartTradingEngine,
     
     // Helpers
     shortAddress: walletAddress 
