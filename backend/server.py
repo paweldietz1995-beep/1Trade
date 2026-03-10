@@ -4558,6 +4558,73 @@ async def get_trades(status: Optional[str] = None, limit: int = 100):
     
     return [Trade(**t) for t in trades]
 
+
+@api_router.get("/trades/live")
+async def get_live_trades():
+    """
+    Get real-time live trades data for dashboard display.
+    Returns open trades with current prices and P&L calculations.
+    This endpoint is optimized for real-time dashboard updates.
+    """
+    try:
+        # Get all open trades with latest data
+        open_trades = await db.trades.find({"status": "OPEN"}, {"_id": 0}).sort("opened_at", -1).to_list(150)
+        
+        if not open_trades:
+            return {
+                "success": True,
+                "trades": [],
+                "count": 0,
+                "total_pnl": 0.0,
+                "total_pnl_percent": 0.0,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        
+        # Calculate aggregates
+        total_pnl = sum(t.get("pnl", 0) or 0 for t in open_trades)
+        total_invested = sum(t.get("amount_sol", 0) or 0 for t in open_trades)
+        avg_pnl_percent = (total_pnl / total_invested * 100) if total_invested > 0 else 0
+        
+        # Format trades for frontend
+        formatted_trades = []
+        for trade in open_trades:
+            formatted_trades.append({
+                "id": trade.get("id"),
+                "token_symbol": trade.get("token_symbol"),
+                "token_address": trade.get("token_address"),
+                "wallet_id": trade.get("wallet_id", 0),
+                "amount_sol": trade.get("amount_sol", 0),
+                "price_entry": trade.get("price_entry", 0),
+                "price_current": trade.get("price_current", trade.get("price_entry", 0)),
+                "pnl": trade.get("pnl", 0),
+                "pnl_percent": trade.get("pnl_percent", 0),
+                "status": trade.get("status"),
+                "opened_at": trade.get("opened_at"),
+                "take_profit": trade.get("take_profit"),
+                "stop_loss": trade.get("stop_loss"),
+                "paper_trade": trade.get("paper_trade", True)
+            })
+        
+        return {
+            "success": True,
+            "trades": formatted_trades,
+            "count": len(formatted_trades),
+            "total_pnl": round(total_pnl, 6),
+            "total_pnl_percent": round(avg_pnl_percent, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching live trades: {e}")
+        return {
+            "success": False,
+            "trades": [],
+            "count": 0,
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+
 @api_router.put("/trades/{trade_id}/close")
 async def close_trade(trade_id: str, exit_price: float, reason: str = "MANUAL"):
     """Close a trade with specified exit price"""
@@ -8451,6 +8518,213 @@ async def disconnect_wallet():
     return {"success": True, "message": "Wallet state cleared", "status": "disconnected"}
 
 
+# ============== BROWSER WALLET LIST & SELECTION ==============
+# These endpoints manage browser-connected wallets (Phantom, etc.)
+
+# In-memory store for browser-connected wallets
+browser_wallets_store = {
+    "wallets": {},  # address -> wallet_data
+    "active_wallet": None  # Currently selected wallet address
+}
+
+@api_router.get("/wallet/list")
+async def get_wallet_list():
+    """
+    Get list of all connected browser wallets.
+    Returns both browser-connected wallets and configured multi-wallets.
+    """
+    try:
+        # Get browser-connected wallets
+        browser_wallets = []
+        for address, data in browser_wallets_store["wallets"].items():
+            browser_wallets.append({
+                "address": address,
+                "short_address": f"{address[:4]}...{address[-4:]}",
+                "balance_sol": data.get("balance_sol", 0),
+                "is_active": address == browser_wallets_store["active_wallet"],
+                "connected_at": data.get("connected_at"),
+                "wallet_type": "browser"
+            })
+        
+        # Get configured multi-wallets (from wallets_config.json)
+        multi_wallets = []
+        if multi_wallet_manager and multi_wallet_manager.is_initialized:
+            for wallet_id, wallet in multi_wallet_manager.wallets.items():
+                multi_wallets.append({
+                    "wallet_id": wallet_id,
+                    "address": wallet.public_key,
+                    "short_address": f"{wallet.public_key[:4]}...{wallet.public_key[-4:]}",
+                    "balance_sol": wallet.balance_sol,
+                    "is_active": wallet.is_active,
+                    "open_trades": wallet.open_trades_count,
+                    "can_trade": wallet.can_trade,
+                    "wallet_type": "configured"
+                })
+        
+        # Get currently synced wallet from wallet_state
+        synced_wallet = None
+        if wallet_state.get("address"):
+            synced_wallet = {
+                "address": wallet_state["address"],
+                "balance_sol": wallet_state.get("balance_sol", 0),
+                "sync_status": wallet_state.get("sync_status"),
+                "is_active": True
+            }
+        
+        return {
+            "success": True,
+            "browser_wallets": browser_wallets,
+            "multi_wallets": multi_wallets,
+            "synced_wallet": synced_wallet,
+            "active_wallet": browser_wallets_store["active_wallet"],
+            "total_wallets": len(browser_wallets) + len(multi_wallets)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting wallet list: {e}")
+        return {
+            "success": False,
+            "browser_wallets": [],
+            "multi_wallets": [],
+            "error": str(e)
+        }
+
+
+class WalletSelectRequest(BaseModel):
+    wallet: str  # Wallet address to select as active
+
+
+@api_router.post("/wallet/select")
+async def select_wallet(request: WalletSelectRequest = None, wallet: str = None):
+    """
+    Select a wallet as the active trading wallet.
+    This wallet will be used for new trades.
+    
+    Args:
+        wallet: Wallet address to select (from JSON body or query param)
+    """
+    try:
+        wallet_address = request.wallet if request else wallet
+        
+        if not wallet_address:
+            return {
+                "success": False,
+                "error": "No wallet address provided"
+            }
+        
+        # Validate the wallet exists in our stores
+        is_browser_wallet = wallet_address in browser_wallets_store["wallets"]
+        is_multi_wallet = False
+        
+        if multi_wallet_manager and multi_wallet_manager.is_initialized:
+            for w in multi_wallet_manager.wallets.values():
+                if w.public_key == wallet_address:
+                    is_multi_wallet = True
+                    break
+        
+        if not is_browser_wallet and not is_multi_wallet:
+            # Add as new browser wallet
+            browser_wallets_store["wallets"][wallet_address] = {
+                "address": wallet_address,
+                "balance_sol": 0,
+                "connected_at": datetime.now(timezone.utc).isoformat()
+            }
+            logger.info(f"📝 New browser wallet registered: {wallet_address[:8]}...")
+        
+        # Set as active wallet
+        browser_wallets_store["active_wallet"] = wallet_address
+        
+        # Sync with trading engine
+        sync_result = await wallet_sync_manager.sync_wallet_with_engine(wallet_address, force=True)
+        
+        logger.info(f"✅ Wallet selected as active: {wallet_address[:8]}...")
+        
+        return {
+            "success": True,
+            "active_wallet": wallet_address,
+            "synced": sync_result.get("success", False),
+            "balance_sol": sync_result.get("balance", 0),
+            "message": f"Wallet {wallet_address[:8]}... is now active"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error selecting wallet: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@api_router.post("/wallet/add")
+async def add_browser_wallet(request: WalletSelectRequest = None, wallet: str = None):
+    """
+    Add a browser wallet to the wallet list without selecting it.
+    """
+    try:
+        wallet_address = request.wallet if request else wallet
+        
+        if not wallet_address:
+            return {"success": False, "error": "No wallet address provided"}
+        
+        if wallet_address in browser_wallets_store["wallets"]:
+            return {
+                "success": True,
+                "message": "Wallet already registered",
+                "wallet": wallet_address
+            }
+        
+        # Fetch balance
+        balance = 0
+        try:
+            balance_result = await wallet_sync_manager._fetch_balance_with_retry(wallet_address)
+            if balance_result.get("success"):
+                balance = balance_result.get("balance", 0)
+        except:
+            pass
+        
+        browser_wallets_store["wallets"][wallet_address] = {
+            "address": wallet_address,
+            "balance_sol": balance,
+            "connected_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.info(f"➕ Browser wallet added: {wallet_address[:8]}... (Balance: {balance} SOL)")
+        
+        return {
+            "success": True,
+            "message": "Wallet added successfully",
+            "wallet": wallet_address,
+            "balance_sol": balance
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding wallet: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@api_router.delete("/wallet/remove/{address}")
+async def remove_browser_wallet(address: str):
+    """
+    Remove a browser wallet from the wallet list.
+    """
+    try:
+        if address in browser_wallets_store["wallets"]:
+            del browser_wallets_store["wallets"][address]
+            
+            # If this was the active wallet, clear it
+            if browser_wallets_store["active_wallet"] == address:
+                browser_wallets_store["active_wallet"] = None
+            
+            logger.info(f"➖ Browser wallet removed: {address[:8]}...")
+            return {"success": True, "message": "Wallet removed"}
+        
+        return {"success": False, "error": "Wallet not found"}
+        
+    except Exception as e:
+        logger.error(f"Error removing wallet: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @api_router.get("/wallet/state")
 async def get_wallet_state():
     """Get current wallet state synced with trading engine"""
@@ -8726,6 +9000,43 @@ async def system_health_check():
     )
     
     return SystemHealthStatus(**status)
+
+
+@api_router.get("/system/status")
+async def system_status():
+    """
+    Get complete system status including all subsystems.
+    Alias for /system/health with additional information.
+    """
+    # Get health status
+    health = await system_health_check()
+    
+    # Add additional real-time status
+    return {
+        "health": health.model_dump() if hasattr(health, 'model_dump') else health,
+        "wallet": {
+            "connected": wallet_state.get("sync_status") == "synced",
+            "address": wallet_state.get("address"),
+            "balance_sol": wallet_state.get("balance_sol", 0)
+        },
+        "trading_engine": {
+            "running": auto_trading_state["is_running"],
+            "scan_count": auto_trading_state["scan_count"],
+            "trades_executed": auto_trading_state["trades_executed"],
+            "open_trades": await db.trades.count_documents({"status": "OPEN"})
+        },
+        "multi_wallet": {
+            "initialized": multi_wallet_manager.is_initialized if multi_wallet_manager else False,
+            "wallet_count": len(multi_wallet_manager.wallets) if multi_wallet_manager and multi_wallet_manager.is_initialized else 0,
+            "strategy": multi_wallet_manager.distribution_strategy if multi_wallet_manager else "none"
+        },
+        "scanner": {
+            "active": multi_source_scanner is not None,
+            "sources": list(multi_source_scanner.sources.keys()) if multi_source_scanner else []
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
 
 @api_router.post("/trading/reset-loss-streak")
 async def reset_loss_streak():
