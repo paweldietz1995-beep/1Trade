@@ -8940,7 +8940,14 @@ async def withdraw_profit(request: WithdrawRequest):
         )
         
         # Blockhash abrufen
-        rpc_url = await get_working_rpc()
+        rpc_result = await get_working_rpc()
+        if not rpc_result.get("success"):
+            raise Exception(f"RPC nicht verfügbar: {rpc_result.get('error', 'Unknown')}")
+        
+        rpc_url = rpc_result.get("endpoint") or rpc_state.get("current_endpoint")
+        if not rpc_url:
+            raise Exception("Keine RPC-URL verfügbar")
+        
         async with httpx.AsyncClient(timeout=30) as client:
             blockhash_response = await client.post(
                 rpc_url,
@@ -8952,6 +8959,8 @@ async def withdraw_profit(request: WithdrawRequest):
                 }
             )
             blockhash_data = blockhash_response.json()
+            if "error" in blockhash_data:
+                raise Exception(f"Blockhash Fehler: {blockhash_data['error']}")
             blockhash = blockhash_data["result"]["value"]["blockhash"]
         
         # Transaktion erstellen und signieren
