@@ -21,6 +21,12 @@ export const PhantomWalletProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [backendSynced, setBackendSynced] = useState(false);
   const [tradingEngineReady, setTradingEngineReady] = useState(false);
+  
+  // NEW: Additional state variables for full synchronization
+  const [walletSession, setWalletSession] = useState(false);
+  const [walletSigner, setWalletSigner] = useState(null);
+  const [activeWallet, setActiveWallet] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(0);
 
   // Sync wallet with backend trading engine
   const syncWithBackend = useCallback(async (address) => {
@@ -48,8 +54,20 @@ export const PhantomWalletProvider = ({ children }) => {
       console.log('📡 Backend sync response:', data);
       
       if (data.success) {
+        // Update ALL state variables
         setBackendSynced(true);
-        console.log('✅ Wallet synced with backend trading engine');
+        setWalletSession(true);
+        setWalletSigner(address);
+        setActiveWallet(address);
+        setWalletBalance(data.balance || 0);
+        
+        console.log('✅ Wallet FULLY synced with backend trading engine');
+        console.log('   wallet_connected: true | wallet_session: true | wallet_signer:', address.slice(0, 8));
+        
+        // Check if trading engine is ready
+        if (data.engine_wallet_connected || data.trading_ready) {
+          setTradingEngineReady(true);
+        }
         
         // Automatically start trading engine if conditions are met
         await autoStartTradingEngine();
@@ -58,6 +76,7 @@ export const PhantomWalletProvider = ({ children }) => {
       } else {
         console.error('❌ Backend sync failed:', data.error);
         setBackendSynced(false);
+        setWalletSession(false);
         return { success: false, error: data.error };
       }
     } catch (err) {
@@ -133,14 +152,24 @@ export const PhantomWalletProvider = ({ children }) => {
       const data = await response.json();
       console.log('📡 Backend disconnect response:', data);
       
+      // Reset ALL state variables
       setBackendSynced(false);
       setTradingEngineReady(false);
+      setWalletSession(false);
+      setWalletSigner(null);
+      setActiveWallet(null);
+      setWalletBalance(0);
       
       return { success: true };
     } catch (err) {
       console.error('❌ Backend disconnect error:', err);
+      // Reset state even on error
       setBackendSynced(false);
       setTradingEngineReady(false);
+      setWalletSession(false);
+      setWalletSigner(null);
+      setActiveWallet(null);
+      setWalletBalance(0);
       return { success: false, error: err.message };
     }
   }, []);
@@ -386,6 +415,15 @@ export const PhantomWalletProvider = ({ children }) => {
     error,
     backendSynced,
     tradingEngineReady,
+    
+    // NEW: Additional state variables
+    walletSession,
+    walletSigner,
+    activeWallet,
+    walletBalance,
+    
+    // Computed states
+    walletConnected: isConnected && backendSynced,
     
     // Actions
     connectWallet,

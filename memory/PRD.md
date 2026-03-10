@@ -1,12 +1,88 @@
-# Pump.fun Trading Bot - PRD v41
+# Pump.fun Trading Bot - PRD v42
 
 ## Problem Statement
 Automatisiertes Trading-System für Pump.fun Tokens auf der Solana Blockchain.
 **MULTI-WALLET HIGH-CAPACITY ENGINE: Bis zu 1200 parallele Trades (10 Wallets x 120 Trades)**
 
-## System Status: ALLE SYSTEME OPERATIONAL ✅
+## System Status: ALLE STATE-VARIABLEN SYNCHRONISIERT ✅
 
-Letztes Update: 2026-03-10 16:12
+Letztes Update: 2026-03-10 16:20
+
+---
+
+## WALLET STATE SYNCHRONIZATION FIX (v1.6)
+
+### Problem gelöst
+Die Wallet-Verbindung war nur im Frontend-State gespeichert, wurde aber nicht mit Backend-Session-Variablen, dem Wallet-Manager und der Trading-Engine synchronisiert.
+
+### Implementierte Lösung
+
+#### 1. Neue Backend State-Variablen
+```python
+# wallet_state - erweitert mit neuen Variablen
+wallet_state = {
+    "address": None,
+    "balance_sol": 0.0,
+    "sync_status": "disconnected",
+    "wallet_connected": False,      # NEU
+    "wallet_session": False,        # NEU
+    "wallet_signer": None,          # NEU
+    "active_wallet": None,          # NEU
+    "trading_enabled": False        # NEU
+}
+
+# engine_wallet_state - NEU
+engine_wallet_state = {
+    "engine_wallet": None,
+    "engine_signer": None,
+    "engine_wallet_connected": False,
+    "trading_ready": False
+}
+
+# connected_wallets_registry - NEU
+connected_wallets_registry = {
+    "wallets": {},
+    "active_wallet": None,
+    "sessions": {}
+}
+```
+
+#### 2. Aktualisierter `/api/wallet/sync` Endpoint
+Nach erfolgreichem Sync werden ALLE State-Variablen aktualisiert:
+- `wallet_state` - alle Variablen auf "connected"
+- `engine_wallet_state` - Trading Engine Wallet
+- `connected_wallets_registry` - Multi-Wallet Registry
+- `browser_wallets_store` - Browser Wallet Store
+
+#### 3. Auto-Start Trading Engine
+```python
+async def check_and_start_trading_engine():
+    if wallet_connected and rpc_connected and scanner_active:
+        auto_trading_state["is_running"] = True
+        asyncio.create_task(auto_trading_loop())
+```
+
+#### 4. Aktualisierte Diagnostics
+Alle Endpoints lesen jetzt von Backend-Variablen:
+- `/api/wallet/state` - vollständiger State
+- `/api/wallet/diagnostics` - detaillierte Diagnose
+- `/api/system/health` - Wallet-Status im Health-Check
+- `/api/system/status` - vollständiger System-Status
+
+### Verifizierung
+```bash
+# Vor Sync
+wallet_connected: False
+engine_wallet_connected: False
+diagnostics_status: Disconnected
+
+# Nach Sync
+wallet_connected: True ✅
+engine_wallet_connected: True ✅
+diagnostics_status: Connected ✅
+trading_ready: True ✅
+overall_ready: True ✅
+```
 
 ---
 

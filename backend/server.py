@@ -2622,6 +2622,86 @@ async def auto_trading_loop():
         # Wait for next scan
         await asyncio.sleep(ENGINE_CONFIG["scan_interval_seconds"])
 
+
+async def check_and_start_trading_engine():
+    """
+    Check if all conditions are met to auto-start the trading engine.
+    
+    Conditions required:
+    1. wallet_connected == True
+    2. rpc_connected == True  
+    3. scanner_active == True (implied by RPC)
+    
+    If all conditions are met, start the trading engine automatically.
+    """
+    global auto_trading_state, engine_wallet_state
+    
+    # Check if already running
+    if auto_trading_state.get("is_running"):
+        logger.info("ℹ️ Trading engine already running")
+        return {"success": True, "already_running": True}
+    
+    # Check wallet connected
+    wallet_connected = (
+        wallet_state.get("wallet_connected") or 
+        wallet_state.get("sync_status") == "synced" or
+        engine_wallet_state.get("engine_wallet_connected")
+    )
+    
+    # Check RPC connected
+    rpc_connected = rpc_state.get("connected", False)
+    if not rpc_connected:
+        # Try to get RPC connection
+        await get_working_rpc()
+        rpc_connected = rpc_state.get("connected", False)
+    
+    # Scanner is active if RPC is connected
+    scanner_active = rpc_connected
+    
+    logger.info(f"🔍 Auto-start check: wallet={wallet_connected}, rpc={rpc_connected}, scanner={scanner_active}")
+    
+    # If all conditions met, start the engine
+    if wallet_connected and rpc_connected and scanner_active:
+        logger.info("✅ All conditions met - auto-starting trading engine")
+        
+        # Update engine state
+        engine_wallet_state["trading_ready"] = True
+        
+        # Start the engine
+        auto_trading_state["is_running"] = True
+        auto_trading_state["scan_count"] = 0
+        auto_trading_state["trades_executed"] = 0
+        auto_trading_state["high_frequency_mode"] = True
+        
+        # Create background task
+        asyncio.create_task(auto_trading_loop())
+        
+        activity_feed.add_event("INFO", "ENGINE", {
+            "message": "🚀 Trading engine auto-started after wallet sync"
+        })
+        
+        return {
+            "success": True,
+            "auto_started": True,
+            "message": "Trading engine started automatically"
+        }
+    else:
+        missing = []
+        if not wallet_connected:
+            missing.append("wallet")
+        if not rpc_connected:
+            missing.append("rpc")
+        if not scanner_active:
+            missing.append("scanner")
+        
+        logger.info(f"⏸️ Auto-start skipped - missing: {', '.join(missing)}")
+        return {
+            "success": False,
+            "auto_started": False,
+            "missing_conditions": missing
+        }
+
+
 @api_router.post("/auto-trading/start")
 async def start_auto_trading(background_tasks: BackgroundTasks):
     """
@@ -6834,7 +6914,29 @@ wallet_state = {
     "last_sync_attempt": None,
     "public_key_valid": False,
     "wallet_type": None,  # phantom, solflare, backpack, server
-    "adapter_conflict": False
+    "adapter_conflict": False,
+    # NEW: Additional state variables for full synchronization
+    "wallet_connected": False,
+    "wallet_session": False,
+    "wallet_signer": None,
+    "active_wallet": None,
+    "trading_enabled": True
+}
+
+# Trading Engine Wallet State - synchronized with wallet_state
+engine_wallet_state = {
+    "engine_wallet": None,
+    "engine_signer": None,
+    "engine_wallet_connected": False,
+    "trading_ready": False,
+    "last_sync": None
+}
+
+# Connected Wallets Registry (for multi-wallet)
+connected_wallets_registry = {
+    "wallets": {},  # wallet_address -> wallet_info
+    "active_wallet": None,
+    "sessions": {}  # wallet_address -> session_info
 }
 
 # Wallet sync configuration
@@ -8486,19 +8588,88 @@ async def sync_wallet(
     # Use the wallet sync manager
     result = await wallet_sync_manager.sync_wallet_with_engine(wallet_address, force=force)
     
-    # If sync successful, also set the active wallet for trading
+    # If sync successful, update ALL state variables across the system
     if result.get("success"):
-        logger.info(f"✅ Wallet {wallet_address[:12]}... synced and ready for trading")
+        global wallet_state, engine_wallet_state, connected_wallets_registry, browser_wallets_store
+        
+        balance = result.get("balance", 0)
+        
+        # 1. Update wallet_state with all required variables
+        wallet_state.update({
+            "address": wallet_address,
+            "balance_sol": balance,
+            "sync_status": "synced",
+            "validation_passed": True,
+            "public_key_valid": True,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+            # NEW variables for full synchronization
+            "wallet_connected": True,
+            "wallet_session": True,
+            "wallet_signer": wallet_address,
+            "active_wallet": wallet_address,
+            "trading_enabled": True
+        })
+        
+        # 2. Update engine wallet state
+        engine_wallet_state.update({
+            "engine_wallet": wallet_address,
+            "engine_signer": wallet_address,
+            "engine_wallet_connected": True,
+            "trading_ready": True,
+            "last_sync": datetime.now(timezone.utc).isoformat()
+        })
+        
+        # 3. Update connected wallets registry
+        connected_wallets_registry["wallets"][wallet_address] = {
+            "status": "connected",
+            "signer": wallet_address,
+            "trading_enabled": True,
+            "balance_sol": balance,
+            "connected_at": datetime.now(timezone.utc).isoformat()
+        }
+        connected_wallets_registry["active_wallet"] = wallet_address
+        connected_wallets_registry["sessions"][wallet_address] = {
+            "active": True,
+            "started_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # 4. Update browser wallets store
+        browser_wallets_store["wallets"][wallet_address] = {
+            "address": wallet_address,
+            "balance_sol": balance,
+            "connected_at": datetime.now(timezone.utc).isoformat()
+        }
+        browser_wallets_store["active_wallet"] = wallet_address
+        
+        logger.info(f"✅ Wallet {wallet_address[:12]}... FULLY synced - All state variables updated")
+        logger.info(f"   wallet_connected: True | engine_wallet_connected: True | trading_ready: True")
+        
+        # 5. Check if trading engine should auto-start
+        await check_and_start_trading_engine()
+        
+        # Return enhanced response
+        return {
+            "success": True,
+            "status": "connected",
+            "wallet": wallet_address,
+            "balance": balance,
+            "wallet_connected": True,
+            "engine_wallet_connected": True,
+            "trading_ready": True,
+            "message": "Wallet successfully synced with trading engine"
+        }
     
     return result
 
 
 @api_router.post("/wallet/disconnect")
 async def disconnect_wallet():
-    """Clear wallet state when wallet disconnects"""
-    global wallet_state
+    """Clear wallet state when wallet disconnects - resets ALL state variables"""
+    global wallet_state, engine_wallet_state, connected_wallets_registry, browser_wallets_store
     
     old_address = wallet_state.get("address")
+    
+    # 1. Reset wallet_state
     wallet_state.update({
         "address": None,
         "balance_sol": 0.0,
@@ -8506,16 +8677,52 @@ async def disconnect_wallet():
         "sync_status": "disconnected",
         "sync_error": None,
         "validation_passed": False,
-        "retry_count": 0
+        "retry_count": 0,
+        "wallet_connected": False,
+        "wallet_session": False,
+        "wallet_signer": None,
+        "active_wallet": None,
+        "trading_enabled": False
     })
     
+    # 2. Reset engine wallet state
+    engine_wallet_state.update({
+        "engine_wallet": None,
+        "engine_signer": None,
+        "engine_wallet_connected": False,
+        "trading_ready": False,
+        "last_sync": None
+    })
+    
+    # 3. Remove from connected wallets registry
     if old_address:
-        logger.info(f"🔌 Wallet disconnected: {old_address[:8]}...")
+        if old_address in connected_wallets_registry["wallets"]:
+            del connected_wallets_registry["wallets"][old_address]
+        if connected_wallets_registry["active_wallet"] == old_address:
+            connected_wallets_registry["active_wallet"] = None
+        if old_address in connected_wallets_registry["sessions"]:
+            del connected_wallets_registry["sessions"][old_address]
+    
+    # 4. Remove from browser wallets store
+    if old_address:
+        if old_address in browser_wallets_store["wallets"]:
+            del browser_wallets_store["wallets"][old_address]
+        if browser_wallets_store["active_wallet"] == old_address:
+            browser_wallets_store["active_wallet"] = None
+    
+    if old_address:
+        logger.info(f"🔌 Wallet disconnected: {old_address[:8]}... - ALL state variables reset")
         activity_feed.add_event("INFO", "WALLET", {
             "message": f"🔌 Wallet disconnected"
         })
     
-    return {"success": True, "message": "Wallet state cleared", "status": "disconnected"}
+    return {
+        "success": True, 
+        "message": "Wallet state cleared", 
+        "status": "disconnected",
+        "wallet_connected": False,
+        "engine_wallet_connected": False
+    }
 
 
 # ============== BROWSER WALLET LIST & SELECTION ==============
@@ -8727,8 +8934,35 @@ async def remove_browser_wallet(address: str):
 
 @api_router.get("/wallet/state")
 async def get_wallet_state():
-    """Get current wallet state synced with trading engine"""
-    return wallet_sync_manager.get_sync_status()
+    """
+    Get current wallet state synced with trading engine.
+    Returns ALL wallet state variables for diagnostics.
+    """
+    # Get base sync status from manager
+    sync_status = wallet_sync_manager.get_sync_status()
+    
+    # Merge with all state variables
+    return {
+        **sync_status,
+        # Wallet connection state
+        "wallet_connected": wallet_state.get("wallet_connected", False),
+        "wallet_session": wallet_state.get("wallet_session", False),
+        "wallet_signer": wallet_state.get("wallet_signer"),
+        "active_wallet": wallet_state.get("active_wallet") or connected_wallets_registry.get("active_wallet"),
+        "trading_enabled": wallet_state.get("trading_enabled", False),
+        # Engine wallet state
+        "engine_wallet": engine_wallet_state.get("engine_wallet"),
+        "engine_signer": engine_wallet_state.get("engine_signer"),
+        "engine_wallet_connected": engine_wallet_state.get("engine_wallet_connected", False),
+        "trading_ready": engine_wallet_state.get("trading_ready", False),
+        # Computed status for diagnostics
+        "diagnostics_status": "Connected" if (
+            wallet_state.get("wallet_connected") or 
+            wallet_state.get("sync_status") == "synced"
+        ) else "Disconnected",
+        # Connected wallets count
+        "connected_wallets_count": len(connected_wallets_registry.get("wallets", {}))
+    }
 
 
 @api_router.get("/wallet/sync-status")
@@ -8744,24 +8978,61 @@ async def get_wallet_sync_status():
 
 @api_router.get("/wallet/diagnostics")
 async def get_wallet_diagnostics():
-    """Get wallet sync diagnostic log for debugging sync issues"""
+    """
+    Get comprehensive wallet diagnostics for debugging sync issues.
+    Shows ALL wallet state variables across all systems.
+    """
     can_trade, reason = wallet_sync_manager.can_start_auto_trading()
+    
+    # Determine wallet status for diagnostics panel
+    wallet_connected = (
+        wallet_state.get("wallet_connected") or
+        wallet_state.get("sync_status") == "synced" or
+        engine_wallet_state.get("engine_wallet_connected")
+    )
     
     return {
         "diagnostics": wallet_sync_manager.get_diagnostics(),
         "current_status": wallet_sync_manager.get_sync_status(),
         "can_start_auto_trading": can_trade,
-        "trading_blocked_reason": None if can_trade else reason,
-        "initialization_complete": wallet_sync_manager.initialization_complete,
-        "trading_engine_ready": wallet_sync_manager.trading_engine_ready,
+        "block_reason": reason if not can_trade else None,
+        # ALL state variables for debugging
+        "wallet_state": {
+            "address": wallet_state.get("address"),
+            "balance_sol": wallet_state.get("balance_sol", 0),
+            "sync_status": wallet_state.get("sync_status"),
+            "wallet_connected": wallet_state.get("wallet_connected", False),
+            "wallet_session": wallet_state.get("wallet_session", False),
+            "wallet_signer": wallet_state.get("wallet_signer"),
+            "active_wallet": wallet_state.get("active_wallet"),
+            "trading_enabled": wallet_state.get("trading_enabled", False)
+        },
+        "engine_wallet_state": {
+            "engine_wallet": engine_wallet_state.get("engine_wallet"),
+            "engine_signer": engine_wallet_state.get("engine_signer"),
+            "engine_wallet_connected": engine_wallet_state.get("engine_wallet_connected", False),
+            "trading_ready": engine_wallet_state.get("trading_ready", False),
+            "last_sync": engine_wallet_state.get("last_sync")
+        },
+        "connected_wallets_registry": {
+            "wallets_count": len(connected_wallets_registry.get("wallets", {})),
+            "active_wallet": connected_wallets_registry.get("active_wallet"),
+            "sessions_count": len(connected_wallets_registry.get("sessions", {}))
+        },
+        # Final status for diagnostics panel
+        "wallet_status": "Connected" if wallet_connected else "Disconnected",
+        "rpc_status": "Connected" if rpc_state.get("connected") else "Disconnected",
+        "trading_engine_status": "Running" if auto_trading_state.get("is_running") else "Stopped",
+        "overall_ready": wallet_connected and rpc_state.get("connected", False),
+        # Detailed root cause checks
         "root_cause_checks": {
             "1_wallet_init_order": "OK" if wallet_sync_manager.initialization_complete else "FAILED",
-            "2_env_vars": "OK",  # Checked during init
+            "2_env_vars": "OK",
             "3_private_key_format": "N/A (browser wallet mode)",
             "4_rpc_connection": "OK" if rpc_state.get("connected") else "FAILED",
             "5_balance_fetch": "OK" if wallet_state.get("balance_sol", -1) >= 0 else "FAILED",
             "6_phantom_conflict": "OK" if not wallet_state.get("adapter_conflict") else "CONFLICT",
-            "7_test_mode": "OK",  # Test mode doesn't block sync
+            "7_test_mode": "OK",
             "8_engine_start_order": "OK" if wallet_sync_manager.trading_engine_ready else "NOT_READY",
             "9_wallet_passed": "OK" if wallet_state.get("address") else "NO_WALLET",
             "10_rpc_timeout": "OK" if rpc_state.get("connected") else "TIMEOUT",
@@ -8987,9 +9258,21 @@ async def system_health_check():
         "trades_executed": auto_trading_state["trades_executed"]
     }
     
-    # 5. Wallet status is determined client-side, mark as OK for API
-    status["wallet_ok"] = True  # Frontend will override based on actual wallet connection
-    status["details"]["wallet"] = "Check performed client-side"
+    # 5. Check Wallet - NOW reads from backend state variables
+    wallet_connected = (
+        wallet_state.get("wallet_connected") or
+        wallet_state.get("sync_status") == "synced" or
+        engine_wallet_state.get("engine_wallet_connected")
+    )
+    status["wallet_ok"] = wallet_connected
+    status["details"]["wallet"] = {
+        "status": "Connected" if wallet_connected else "Disconnected",
+        "address": wallet_state.get("address"),
+        "balance_sol": wallet_state.get("balance_sol", 0),
+        "wallet_connected": wallet_state.get("wallet_connected", False),
+        "engine_wallet_connected": engine_wallet_state.get("engine_wallet_connected", False),
+        "trading_ready": engine_wallet_state.get("trading_ready", False)
+    }
     
     # Overall status
     status["overall_ok"] = (
@@ -9006,18 +9289,37 @@ async def system_health_check():
 async def system_status():
     """
     Get complete system status including all subsystems.
-    Alias for /system/health with additional information.
+    Reads wallet state from backend variables, not frontend cache.
     """
     # Get health status
     health = await system_health_check()
+    
+    # Determine wallet connection status from ALL state variables
+    wallet_connected = (
+        wallet_state.get("wallet_connected") or
+        wallet_state.get("sync_status") == "synced" or
+        engine_wallet_state.get("engine_wallet_connected")
+    )
     
     # Add additional real-time status
     return {
         "health": health.model_dump() if hasattr(health, 'model_dump') else health,
         "wallet": {
-            "connected": wallet_state.get("sync_status") == "synced",
+            "connected": wallet_connected,
+            "status": "Connected" if wallet_connected else "Disconnected",
             "address": wallet_state.get("address"),
-            "balance_sol": wallet_state.get("balance_sol", 0)
+            "balance_sol": wallet_state.get("balance_sol", 0),
+            "wallet_connected": wallet_state.get("wallet_connected", False),
+            "wallet_session": wallet_state.get("wallet_session", False),
+            "wallet_signer": wallet_state.get("wallet_signer"),
+            "active_wallet": wallet_state.get("active_wallet"),
+            "trading_enabled": wallet_state.get("trading_enabled", False)
+        },
+        "engine_wallet": {
+            "engine_wallet": engine_wallet_state.get("engine_wallet"),
+            "engine_signer": engine_wallet_state.get("engine_signer"),
+            "engine_wallet_connected": engine_wallet_state.get("engine_wallet_connected", False),
+            "trading_ready": engine_wallet_state.get("trading_ready", False)
         },
         "trading_engine": {
             "running": auto_trading_state["is_running"],
