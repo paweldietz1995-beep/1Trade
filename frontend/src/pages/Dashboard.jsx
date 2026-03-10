@@ -83,12 +83,31 @@ const Dashboard = () => {
     walletAddress: phantomWalletAddress, 
     isConnected: phantomConnected,
     backendSynced,
-    tradingEngineReady
+    tradingEngineReady,
+    walletSession,
+    walletSigner,
+    walletConnected: phantomWalletConnected
   } = usePhantomWallet();
   
-  // Use Phantom connection status as primary, fall back to wallet-adapter
-  const isWalletConnected = phantomConnected || connected;
-  const activeWalletAddress = phantomWalletAddress || publicKey?.toBase58();
+  // State for backend wallet status
+  const [backendWalletState, setBackendWalletState] = useState({
+    wallet_connected: false,
+    wallet_session: false,
+    wallet_signer: null,
+    diagnostics_status: 'Disconnected'
+  });
+  
+  // Use unified wallet connection state - check BOTH frontend AND backend
+  const isWalletConnected = 
+    phantomConnected || 
+    connected || 
+    backendSynced ||
+    phantomWalletConnected ||
+    backendWalletState.wallet_connected ||
+    backendWalletState.wallet_session ||
+    backendWalletState.wallet_signer !== null;
+    
+  const activeWalletAddress = phantomWalletAddress || publicKey?.toBase58() || backendWalletState.wallet_signer;
   
   const [walletBalance, setWalletBalance] = useState(0);
   const [solPrice, setSolPrice] = useState(150);
@@ -118,9 +137,46 @@ const Dashboard = () => {
       walletBalance,
       backendSynced,
       tradingEngineReady,
+      backendWalletState,
       rpcEndpoint: RPC_ENDPOINTS[currentRpcIndexRef.current]?.substring(0, 30)
     });
-  }, [isWalletConnected, phantomConnected, connecting, activeWalletAddress, walletBalance, backendSynced, tradingEngineReady]);
+  }, [isWalletConnected, phantomConnected, connecting, activeWalletAddress, walletBalance, backendSynced, tradingEngineReady, backendWalletState]);
+
+  // Fetch backend wallet state - runs once on mount and periodically
+  const fetchBackendWalletState = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/wallet/state`, { timeout: 5000 });
+      const data = response.data;
+      
+      setBackendWalletState({
+        wallet_connected: data.wallet_connected || false,
+        wallet_session: data.wallet_session || false,
+        wallet_signer: data.wallet_signer || data.address || null,
+        diagnostics_status: data.diagnostics_status || 'Disconnected'
+      });
+      
+      // If backend shows connected, update wallet balance too
+      if (data.wallet_connected && data.balance_sol !== undefined) {
+        setWalletBalance(data.balance_sol);
+      }
+      
+      console.log('🔄 Backend wallet state fetched:', {
+        wallet_connected: data.wallet_connected,
+        wallet_session: data.wallet_session,
+        diagnostics_status: data.diagnostics_status
+      });
+      
+    } catch (error) {
+      console.warn('⚠️ Could not fetch backend wallet state:', error.message);
+    }
+  }, [API_URL]);
+
+  // Fetch backend wallet state on mount and every 5 seconds
+  useEffect(() => {
+    fetchBackendWalletState();
+    const interval = setInterval(fetchBackendWalletState, 5000);
+    return () => clearInterval(interval);
+  }, [fetchBackendWalletState]);
 
   // Create connection with specific endpoint
   const createConnection = useCallback((endpointIndex) => {

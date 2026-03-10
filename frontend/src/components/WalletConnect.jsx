@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { usePhantomWallet } from '../context/PhantomWalletContext';
+import { useApp } from '../context/AppContext';
 import { Button } from './ui/button';
+import axios from 'axios';
 import { 
   Wallet, 
   RefreshCw, 
@@ -15,6 +17,7 @@ import {
 import { toast } from 'sonner';
 
 const WalletConnect = ({ className = '' }) => {
+  const { API_URL } = useApp();
   const {
     walletAddress,
     isConnected,
@@ -29,7 +32,52 @@ const WalletConnect = ({ className = '' }) => {
     tradingEngineReady
   } = usePhantomWallet();
 
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
+  
+  // Backend wallet state
+  const [backendWalletState, setBackendWalletState] = useState({
+    wallet_connected: false,
+    wallet_session: false,
+    wallet_signer: null,
+    diagnostics_status: 'Disconnected'
+  });
+
+  // Fetch backend wallet state
+  const fetchBackendWalletState = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/wallet/state`, { timeout: 5000 });
+      const data = response.data;
+      setBackendWalletState({
+        wallet_connected: data.wallet_connected || false,
+        wallet_session: data.wallet_session || false,
+        wallet_signer: data.wallet_signer || data.address || null,
+        diagnostics_status: data.diagnostics_status || 'Disconnected'
+      });
+    } catch (error) {
+      console.warn('Could not fetch backend wallet state');
+    }
+  }, [API_URL]);
+
+  // Poll backend wallet state every 3 seconds
+  useEffect(() => {
+    fetchBackendWalletState();
+    const interval = setInterval(fetchBackendWalletState, 3000);
+    return () => clearInterval(interval);
+  }, [fetchBackendWalletState]);
+
+  // Unified connected state - uses BOTH frontend AND backend state
+  const isWalletConnected = 
+    isConnected || 
+    backendSynced || 
+    backendWalletState.wallet_connected ||
+    backendWalletState.wallet_session ||
+    backendWalletState.wallet_signer !== null;
+
+  // Display address from either source
+  const displayAddress = walletAddress || backendWalletState.wallet_signer;
+  const displayShortAddress = displayAddress 
+    ? `${displayAddress.slice(0, 4)}...${displayAddress.slice(-4)}`
+    : shortAddress;
 
   const handleConnect = async () => {
     const result = await connectWallet();
@@ -78,8 +126,8 @@ const WalletConnect = ({ className = '' }) => {
   };
 
   const copyAddress = () => {
-    if (walletAddress) {
-      navigator.clipboard.writeText(walletAddress);
+    if (displayAddress) {
+      navigator.clipboard.writeText(displayAddress);
       setCopied(true);
       toast.success('Adresse kopiert');
       setTimeout(() => setCopied(false), 2000);
@@ -87,13 +135,13 @@ const WalletConnect = ({ className = '' }) => {
   };
 
   const openExplorer = () => {
-    if (walletAddress) {
-      window.open(`https://solscan.io/account/${walletAddress}`, '_blank');
+    if (displayAddress) {
+      window.open(`https://solscan.io/account/${displayAddress}`, '_blank');
     }
   };
 
-  // Not connected state
-  if (!isConnected) {
+  // Not connected state - check unified state
+  if (!isWalletConnected) {
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
         <Button
@@ -129,6 +177,14 @@ const WalletConnect = ({ className = '' }) => {
           </div>
         )}
         
+        {/* Show backend status hint */}
+        {backendWalletState.diagnostics_status === 'Connected' && !isConnected && (
+          <div className="flex items-center gap-2 text-xs text-green-500">
+            <CheckCircle className="w-3 h-3" />
+            Backend: Verbunden (Frontend nicht sync)
+          </div>
+        )}
+        
         {error && (
           <div className="text-xs text-red-400 flex items-center gap-1">
             <AlertCircle className="w-3 h-3" />
@@ -146,7 +202,7 @@ const WalletConnect = ({ className = '' }) => {
       <div className="flex items-center justify-between bg-[#1E293B] rounded-lg px-3 py-2">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="font-mono text-sm text-white">{shortAddress}</span>
+          <span className="font-mono text-sm text-white">{displayShortAddress}</span>
         </div>
         <div className="flex items-center gap-1">
           <Button
@@ -170,26 +226,26 @@ const WalletConnect = ({ className = '' }) => {
         </div>
       </div>
 
-      {/* Backend Sync Status */}
+      {/* Backend Sync Status - uses actual backend state */}
       <div className="flex items-center justify-between text-xs px-1">
         <div className="flex items-center gap-1">
-          {backendSynced ? (
+          {(backendSynced || backendWalletState.wallet_connected || backendWalletState.wallet_session) ? (
             <CheckCircle className="w-3 h-3 text-green-500" />
           ) : (
             <AlertCircle className="w-3 h-3 text-yellow-500" />
           )}
-          <span className={backendSynced ? 'text-green-400' : 'text-yellow-400'}>
-            Backend: {backendSynced ? 'Synchronisiert' : 'Nicht verbunden'}
+          <span className={(backendSynced || backendWalletState.wallet_connected) ? 'text-green-400' : 'text-yellow-400'}>
+            Backend: {(backendSynced || backendWalletState.wallet_connected || backendWalletState.wallet_session) ? 'Synchronisiert' : 'Nicht verbunden'}
           </span>
         </div>
         <div className="flex items-center gap-1">
-          {tradingEngineReady ? (
+          {(tradingEngineReady || backendWalletState.diagnostics_status === 'Connected') ? (
             <Zap className="w-3 h-3 text-green-500" />
           ) : (
             <Zap className="w-3 h-3 text-gray-500" />
           )}
-          <span className={tradingEngineReady ? 'text-green-400' : 'text-gray-400'}>
-            Engine: {tradingEngineReady ? 'Aktiv' : 'Inaktiv'}
+          <span className={(tradingEngineReady || backendWalletState.diagnostics_status === 'Connected') ? 'text-green-400' : 'text-gray-400'}>
+            Engine: {(tradingEngineReady || backendWalletState.diagnostics_status === 'Connected') ? 'Aktiv' : 'Inaktiv'}
           </span>
         </div>
       </div>
