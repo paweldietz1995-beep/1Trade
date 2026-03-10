@@ -8299,7 +8299,7 @@ async def get_wallet_balance(address: str):
             "success": True,
             "balance": round(sol_balance, 6),
             "lamports": lamports,
-            "endpoint": rpc_state["current_endpoint"][:30] + "...",
+            "endpoint": rpc_state["current_endpoint"][:30] + "..." if rpc_state.get("current_endpoint") else "unknown",
             "latency_ms": result.get("latency_ms"),
             "rpc_status": "connected"
         }
@@ -8310,6 +8310,32 @@ async def get_wallet_balance(address: str):
         "error": result.get("error", "Failed to fetch balance"),
         "rpc_status": "error"
     }
+
+
+async def get_wallet_balance_lamports(address: str) -> int:
+    """
+    Gibt den Kontostand einer Solana-Wallet in Lamports zurück.
+    Wird für Auszahlungen verwendet.
+    """
+    if not address:
+        raise ValueError("Keine Wallet-Adresse angegeben")
+    
+    # Check RPC connection
+    if not rpc_state["connected"]:
+        await get_working_rpc()
+    
+    if not rpc_state["connected"]:
+        raise Exception("Solana network unavailable")
+    
+    # Make RPC call
+    result = await make_rpc_call("getBalance", [address])
+    
+    if result["success"]:
+        lamports = result["result"].get("value", 0)
+        return lamports
+    else:
+        raise Exception(f"Fehler beim Abrufen des Kontostands: {result.get('error', 'Unknown error')}")
+
 
 @api_router.get("/wallet/tokens")
 async def get_wallet_tokens(address: str):
