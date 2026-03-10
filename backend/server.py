@@ -8375,31 +8375,53 @@ async def get_wallet_tokens(address: str):
     
     return {"success": False, "tokens": [], "error": result.get("error")}
 
+# Pydantic model for wallet sync request
+class WalletSyncRequest(BaseModel):
+    wallet: str
+    force: bool = False
+
 @api_router.post("/wallet/sync")
-async def sync_wallet(address: str, force: bool = False):
+async def sync_wallet(
+    request: Optional[WalletSyncRequest] = None,
+    address: str = None, 
+    force: bool = False
+):
     """
     Sync wallet address and fetch balance - call this when wallet connects.
     This ensures the trading engine has the current wallet balance.
+    
+    Supports both:
+    - Query params: /wallet/sync?address=<ADDR>&force=true
+    - JSON body: {"wallet": "<ADDR>", "force": true}
     
     Uses WalletSyncManager with:
     - Wallet validation
     - RPC connection verification with failover
     - Balance fetch with retry logic
     - Activity logging
-    
-    Args:
-        address: Solana wallet address
-        force: Force sync even if already syncing
     """
-    if not address:
+    # Support both query param and JSON body
+    if request and request.wallet:
+        wallet_address = request.wallet
+        force = request.force
+    else:
+        wallet_address = address
+    
+    if not wallet_address:
         return {
             "success": False, 
-            "error": "No address provided",
+            "error": "No wallet address provided",
             "message": "Unable to sync wallet with trading engine"
         }
     
-    # Use the new wallet sync manager
-    result = await wallet_sync_manager.sync_wallet_with_engine(address, force=force)
+    logger.info(f"🔗 Wallet sync request received: {wallet_address[:12]}...")
+    
+    # Use the wallet sync manager
+    result = await wallet_sync_manager.sync_wallet_with_engine(wallet_address, force=force)
+    
+    # If sync successful, also set the active wallet for trading
+    if result.get("success"):
+        logger.info(f"✅ Wallet {wallet_address[:12]}... synced and ready for trading")
     
     return result
 

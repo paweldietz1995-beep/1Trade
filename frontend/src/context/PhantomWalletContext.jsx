@@ -32,11 +32,16 @@ export const PhantomWalletProvider = ({ children }) => {
     try {
       console.log('🔄 Syncing wallet with backend:', address);
       
-      const response = await fetch(`${API_URL}/api/wallet/sync?address=${address}&force=true`, {
+      // Send wallet address in JSON body as per user requirement
+      const response = await fetch(`${API_URL}/api/wallet/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        }
+        },
+        body: JSON.stringify({
+          wallet: address,
+          force: true
+        })
       });
       
       const data = await response.json();
