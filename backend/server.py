@@ -8049,6 +8049,17 @@ async def start_rpc_monitor():
     logger.info("   - Price Monitor: Active (2s)")
     logger.info("   - Balance Monitor: Active (60s)")
     logger.info("=" * 60)
+    
+    # Log public URL for dashboard access
+    app_url = os.environ.get("APP_URL", "http://localhost:8001")
+    logger.info("")
+    logger.info("🌐 ========== DASHBOARD ACCESS ==========")
+    logger.info(f"   📍 Public URL: {app_url}")
+    logger.info(f"   📍 API Health: {app_url}/api/health")
+    logger.info(f"   📍 Dashboard:  {app_url}")
+    logger.info("   ℹ️  Backend running on 0.0.0.0:8001")
+    logger.info("=========================================")
+    logger.info("")
 
 @app.on_event("shutdown")
 async def stop_rpc_monitor():
